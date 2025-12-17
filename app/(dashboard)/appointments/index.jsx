@@ -115,13 +115,18 @@ function StatusPill({ status }) {
   );
 }
 
-function AppointmentList({ rows, onOpenQuote, onOpenRequest }) {
+function AppointmentList({ rows, onOpenQuote, onOpenRequest, role }) {
   if (!rows?.length) {
+    const isTrades = role === 'trades';
+    const emptyMessage = isTrades
+      ? "When you schedule a site visit with a client, it will appear here."
+      : "When a tradesperson schedules a site visit for your project, it will appear here.";
+
     return (
       <View style={styles.emptyCard}>
         <ThemedText style={styles.emptyTitle}>No appointments</ThemedText>
         <ThemedText variant="muted" style={{ textAlign: "center" }}>
-          When you schedule a site visit with a client, it will appear here.
+          {emptyMessage}
         </ThemedText>
       </View>
     );
@@ -253,6 +258,7 @@ export default function TradeAppointmentsScreen() {
   const router = useRouter();
   const { user } = useUser();
 
+  const [role, setRole] = useState(null);
   const [onlyUpcoming, setOnlyUpcoming] = useState(true);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -260,15 +266,20 @@ export default function TradeAppointmentsScreen() {
 
   const load = useCallback(
     async (opts) => {
-      if (!user?.id) return;
+      if (!user?.id || !role) return;
       const flag = opts?.onlyUpcoming ?? onlyUpcoming;
 
       setLoading(true);
       setErr(null);
 
       try {
+        // Call different RPC based on role
+        const rpcName = role === 'trades'
+          ? "rpc_trade_list_appointments"
+          : "rpc_client_list_appointments";
+
         const { data, error } = await supabase.rpc(
-          "rpc_trade_list_appointments",
+          rpcName,
           { p_only_upcoming: flag }
         );
 
@@ -281,14 +292,40 @@ export default function TradeAppointmentsScreen() {
         setLoading(false);
       }
     },
-    [user?.id, onlyUpcoming]
+    [user?.id, role, onlyUpcoming]
   );
 
+  // Fetch user role
   useEffect(() => {
-    if (user?.id) {
+    let mounted = true;
+
+    (async () => {
+      if (!user?.id) {
+        setRole('client');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      if (mounted) {
+        setRole(!error ? (data?.role || 'client') : 'client');
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (user?.id && role) {
       load({ onlyUpcoming });
     }
-  }, [user?.id, onlyUpcoming, load]);
+  }, [user?.id, role, onlyUpcoming, load]);
 
   useFocusEffect(
     useCallback(() => {
@@ -368,6 +405,7 @@ export default function TradeAppointmentsScreen() {
             rows={rows}
             onOpenQuote={handleOpenQuote}
             onOpenRequest={handleOpenRequest}
+            role={role}
           />
           {!!err && (
             <>
