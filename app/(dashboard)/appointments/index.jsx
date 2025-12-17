@@ -6,6 +6,7 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -115,7 +116,7 @@ function StatusPill({ status }) {
   );
 }
 
-function AppointmentList({ rows, onOpenQuote, onOpenRequest, role }) {
+function AppointmentList({ rows, onOpenQuote, onOpenRequest, role, onConfirm, onDecline }) {
   if (!rows?.length) {
     const isTrades = role === 'trades';
     const emptyMessage = isTrades
@@ -149,25 +150,28 @@ function AppointmentList({ rows, onOpenQuote, onOpenRequest, role }) {
           client_name,
         } = row;
 
-        const title =
-          project_title ||
-          (job_outcode
-            ? `Appointment in ${String(job_outcode).toUpperCase()}`
-            : "Appointment");
-
-        const secondaryLineParts = [];
-        if (client_name) secondaryLineParts.push(client_name);
-        if (job_outcode) secondaryLineParts.push(String(job_outcode).toUpperCase());
-        const secondaryLine = secondaryLineParts.join(" • ");
-
+        const isClient = role === 'client';
+        const isProposed = status === 'proposed';
+        const showConfirmButtons = isClient && isProposed;
         const hasQuote = !!quote_id;
+
+        // For clients: show business/trade name prominently
+        // For trades: show project title and client name
+        const primaryText = isClient
+          ? (client_name || 'Tradesperson')
+          : (project_title || (job_outcode ? `Appointment in ${String(job_outcode).toUpperCase()}` : "Appointment"));
+
+        const secondaryText = isClient
+          ? (project_title || (job_outcode ? `Project in ${String(job_outcode).toUpperCase()}` : "Project"))
+          : (client_name || (job_outcode ? String(job_outcode).toUpperCase() : ""));
 
         return (
           <Pressable
             key={appointment_id}
             onPress={() => {
-              if (hasQuote) onOpenQuote(quote_id);
-              else onOpenRequest(request_id);
+              // Always go to quote if it exists, otherwise go to request
+              if (quote_id) onOpenQuote(quote_id);
+              else if (request_id) onOpenRequest(request_id);
             }}
             style={styles.card}
             hitSlop={8}
@@ -176,15 +180,15 @@ function AppointmentList({ rows, onOpenQuote, onOpenRequest, role }) {
             <View style={styles.cardTopRow}>
               <View style={{ flex: 1 }}>
                 <ThemedText style={styles.cardTitle} numberOfLines={2}>
-                  {title}
+                  {primaryText}
                 </ThemedText>
-                {!!secondaryLine && (
+                {!!secondaryText && (
                   <ThemedText
                     variant="muted"
                     style={styles.cardSubtitle}
                     numberOfLines={1}
                   >
-                    {secondaryLine}
+                    {secondaryText}
                   </ThemedText>
                 )}
               </View>
@@ -199,51 +203,58 @@ function AppointmentList({ rows, onOpenQuote, onOpenRequest, role }) {
               </ThemedText>
             </View>
 
-            {/* Quote summary + CTA */}
-            <View style={styles.bottomRow}>
-              <View>
-                <ThemedText style={styles.quoteLabel}>
-                  {hasQuote ? "Linked quote" : "Request"}
-                </ThemedText>
-                {hasQuote ? (
-                  <>
-                    <ThemedText style={styles.quoteAmount}>
-                      {money(grand_total, currency)}
-                    </ThemedText>
-                    {!!quote_status && (
-                      <ThemedText
-                        variant="muted"
-                        style={styles.quoteStatus}
-                      >
-                        Quote status:{" "}
-                        {String(quote_status).charAt(0).toUpperCase() +
-                          String(quote_status).slice(1)}
-                      </ThemedText>
-                    )}
-                  </>
-                ) : (
-                  <ThemedText
-                    variant="muted"
-                    style={styles.quoteStatus}
-                  >
-                    No quote linked yet – tap to view the original request.
+            {/* Quote amount (if available) */}
+            {hasQuote && grand_total > 0 && (
+              <View style={styles.bottomRow}>
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={styles.quoteAmount}>
+                    {money(grand_total, currency)}
                   </ThemedText>
-                )}
+                  {!!quote_status && (
+                    <ThemedText
+                      variant="muted"
+                      style={styles.quoteStatus}
+                    >
+                      Quote: {String(quote_status).charAt(0).toUpperCase() +
+                        String(quote_status).slice(1)}
+                    </ThemedText>
+                  )}
+                </View>
               </View>
+            )}
 
-              <Pressable
-                onPress={() => {
-                  if (hasQuote) onOpenQuote(quote_id);
-                  else onOpenRequest(request_id);
-                }}
-                style={styles.primaryBtn}
-                hitSlop={8}
-              >
-                <ThemedText style={styles.primaryBtnText}>
-                  {hasQuote ? "View quote" : "View request"}
-                </ThemedText>
-              </Pressable>
-            </View>
+            {/* Client confirmation buttons */}
+            {showConfirmButtons && (
+              <View style={styles.confirmButtonsRow}>
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onDecline(appointment_id);
+                  }}
+                  style={styles.declineBtn}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close-circle-outline" size={18} color="#B42318" />
+                  <ThemedText style={styles.declineBtnText}>
+                    Decline
+                  </ThemedText>
+                </Pressable>
+
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onConfirm(appointment_id);
+                  }}
+                  style={styles.confirmBtn}
+                  hitSlop={8}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
+                  <ThemedText style={styles.confirmBtnText}>
+                    Accept
+                  </ThemedText>
+                </Pressable>
+              </View>
+            )}
           </Pressable>
         );
       })}
@@ -334,18 +345,96 @@ export default function TradeAppointmentsScreen() {
   );
 
   const goBack = () => {
-    if (router.canGoBack?.()) router.back();
-    else router.replace("/quotes");
+    if (router.canGoBack?.()) {
+      router.back();
+    } else {
+      // Navigate to appropriate home based on role
+      const isTrades = role === 'trades';
+      router.replace(isTrades ? "/quotes" : "/client");
+    }
   };
 
   const handleOpenQuote = (qid) => {
     if (!qid) return;
-    router.push(`/quotes/${qid}`);
+    router.push({
+      pathname: `/quotes/${qid}`,
+      params: { fromAppointments: 'true' }
+    });
   };
 
   const handleOpenRequest = (rid) => {
     if (!rid) return;
     router.push(`/quotes/request/${rid}`);
+  };
+
+  const handleConfirmAppointment = async (appointmentId) => {
+    Alert.alert(
+      "Accept appointment?",
+      "This will confirm the appointment with the tradesperson.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Accept",
+          style: "default",
+          onPress: async () => {
+            try {
+              const { error } = await supabase.rpc(
+                "rpc_client_respond_appointment",
+                {
+                  p_appointment_id: appointmentId,
+                  p_response: "accepted",
+                }
+              );
+
+              if (error) {
+                Alert.alert("Error", error.message || "Could not confirm appointment");
+                return;
+              }
+
+              // Reload appointments
+              load({ onlyUpcoming });
+            } catch (e) {
+              Alert.alert("Error", e?.message || "Something went wrong");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeclineAppointment = async (appointmentId) => {
+    Alert.alert(
+      "Decline appointment?",
+      "This will notify the tradesperson that you declined this appointment.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Decline",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { error } = await supabase.rpc(
+                "rpc_client_respond_appointment",
+                {
+                  p_appointment_id: appointmentId,
+                  p_response: "declined",
+                }
+              );
+
+              if (error) {
+                Alert.alert("Error", error.message || "Could not decline appointment");
+                return;
+              }
+
+              // Reload appointments
+              load({ onlyUpcoming });
+            } catch (e) {
+              Alert.alert("Error", e?.message || "Something went wrong");
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -360,17 +449,7 @@ export default function TradeAppointmentsScreen() {
         ]}
       >
         <View style={styles.headerRow}>
-          <Pressable
-            onPress={goBack}
-            hitSlop={10}
-            style={{ paddingRight: 8 }}
-          >
-            <Ionicons name="arrow-back" size={22} color="#000" />
-          </Pressable>
-
           <ThemedText style={styles.headerTitle}>Appointments</ThemedText>
-
-          <View style={{ width: 22 }} />
         </View>
 
         {/* Filter chips */}
@@ -406,6 +485,8 @@ export default function TradeAppointmentsScreen() {
             onOpenQuote={handleOpenQuote}
             onOpenRequest={handleOpenRequest}
             role={role}
+            onConfirm={handleConfirmAppointment}
+            onDecline={handleDeclineAppointment}
           />
           {!!err && (
             <>
@@ -435,11 +516,11 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 20,
     paddingBottom: 4,
   },
   headerTitle: {
-    flex: 1,
     textAlign: "center",
     fontSize: 20,
     fontWeight: "800",
@@ -502,13 +583,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "700",
     marginRight: 10,
   },
   cardSubtitle: {
-    fontSize: 13,
-    marginTop: 2,
+    fontSize: 14,
+    marginTop: 4,
   },
 
   statusPill: {
@@ -564,6 +645,50 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: {
     fontSize: 13,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+
+  // Client confirmation buttons
+  confirmButtonsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(0,0,0,0.08)",
+  },
+  declineBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+  declineBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#B42318",
+  },
+  confirmBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: "#16A34A",
+  },
+  confirmBtnText: {
+    fontSize: 14,
     fontWeight: "700",
     color: "#FFFFFF",
   },

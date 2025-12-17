@@ -16,9 +16,10 @@ import {
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import CustomDateTimePicker from "../../../components/CustomDateTimePicker";
 
 import { useQuotes } from "../../../hooks/useQuotes";
+import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
@@ -95,6 +96,7 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 export default function QuoteDetails() {
   const params = useLocalSearchParams();
   const router = useRouter();
+  const { user } = useUser();
 
   // Params from navigation (used as very rough fallback only)
   const routeNameParam = Array.isArray(params.name)
@@ -103,6 +105,7 @@ export default function QuoteDetails() {
   const routeAvatarParam = Array.isArray(params.avatar)
     ? params.avatar[0]
     : params.avatar;
+  const fromAppointments = params.fromAppointments === 'true';
 
   const scheme = useColorScheme();
   const iconColor = scheme === "dark" ? "#fff" : "#000";
@@ -110,6 +113,8 @@ export default function QuoteDetails() {
   const { fetchQuoteById } = useQuotes();
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState(null);
+  const [tradeBusiness, setTradeBusiness] = useState(null);
 
   // Request + attachments
   const [request, setRequest] = useState(null);
@@ -165,6 +170,32 @@ export default function QuoteDetails() {
 
   const hasAttachments = attachments.length > 0;
 
+  // Fetch user role
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      if (!user?.id) {
+        setUserRole('client');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      if (mounted) {
+        setUserRole(!error ? (data?.role || 'client') : 'client');
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -178,6 +209,19 @@ export default function QuoteDetails() {
         );
         if (!mounted) return;
         setQuote(row);
+
+        // 1b) If client, load trade business name
+        if (userRole === 'client' && row?.trade_id) {
+          const { data: tradeData, error: tradeErr } = await supabase
+            .from('profiles')
+            .select('business_name, full_name')
+            .eq('id', row.trade_id)
+            .single();
+
+          if (!tradeErr && mounted) {
+            setTradeBusiness(tradeData?.business_name || tradeData?.full_name || null);
+          }
+        }
 
         const reqId = row?.request_id || row?.requestId;
         if (!reqId) {
@@ -249,11 +293,6 @@ export default function QuoteDetails() {
           const { data: apptData, error: apptErr } =
             await supabase.rpc("rpc_get_latest_request_appointment", {
               p_request_id: reqId,
-              p_quote_id: quote.id,
-              p_scheduled_at: apptDateTime.toISOString(),
-              p_location: parsedDetails.address || null, 
-              p_notes: trimmedTittle,
-
             });
 
           if (!mounted) return;
@@ -332,7 +371,7 @@ export default function QuoteDetails() {
     return () => {
       mounted = false;
     };
-  }, [params.id, fetchQuoteById]);
+  }, [params.id, fetchQuoteById, userRole]);
 
   const items = useMemo(
     () => (Array.isArray(quote?.line_items) ? quote.line_items : []),
@@ -544,8 +583,17 @@ export default function QuoteDetails() {
         return;
       }
 
-      const appt = Array.isArray(data) ? data[0] : data;
-      setAppointment(appt || null);
+      // Reload the appointment immediately after creation
+      const { data: apptData, error: apptErr } = await supabase.rpc(
+        "rpc_get_latest_request_appointment",
+        { p_request_id: reqId }
+      );
+
+      if (!apptErr && apptData) {
+        const appt = Array.isArray(apptData) ? apptData[0] : apptData;
+        setAppointment(appt || null);
+      }
+
       setScheduling(false);
       setPickerVisible(false);
     } catch (e) {
@@ -802,50 +850,15 @@ export default function QuoteDetails() {
           <Spacer size={24} />
         </ScrollView>
 
-        {/* Custom bottom-sheet style picker overlay */}
-        {pickerVisible && (
-          <View style={styles.pickerOverlay}>
-            <Pressable
-              style={styles.pickerScrim}
-              onPress={handlePickerCancel}
-            />
-            <View style={styles.pickerSheet}>
-              <View style={styles.pickerSheetHeader}>
-                <Pressable onPress={handlePickerCancel} hitSlop={8}>
-                  <ThemedText style={styles.pickerHeaderText}>
-                    Cancel
-                  </ThemedText>
-                </Pressable>
-                <ThemedText style={styles.pickerHeaderTitle}>
-                  {pickerMode === "date" ? "Select date" : "Select time"}
-                </ThemedText>
-                <Pressable
-                  onPress={() => handlePickerConfirm(pickerDraftDate)}
-                  hitSlop={8}
-                >
-                  <ThemedText style={styles.pickerHeaderText}>
-                    Done
-                  </ThemedText>
-                </Pressable>
-              </View>
-
-              {/* centred wheel */}
-              <View style={styles.pickerBody}>
-                <DateTimePicker
-                  value={pickerDraftDate}
-                  mode={pickerMode}
-                  display={Platform.OS === "ios" ? "spinner" : "default"}
-                  onChange={(event, picked) => {
-                    if (event?.type === "dismissed") return;
-                    if (picked) setPickerDraftDate(picked);
-                  }}
-                  minimumDate={new Date()}
-                  style={styles.pickerControl}
-                />
-              </View>
-            </View>
-          </View>
-        )}
+        {/* Custom date/time picker */}
+        <CustomDateTimePicker
+          visible={pickerVisible}
+          mode={pickerMode}
+          value={pickerDraftDate}
+          onConfirm={handlePickerConfirm}
+          onCancel={handlePickerCancel}
+          minimumDate={new Date()}
+        />
       </ThemedView>
     );
   }
@@ -859,8 +872,13 @@ export default function QuoteDetails() {
       <View style={styles.inlineHeader}>
         <Pressable
           onPress={() => {
-            if (router.canGoBack?.()) router.back();
-            else router.replace("/quotes");
+            if (fromAppointments) {
+              router.push('/appointments');
+            } else if (router.canGoBack?.()) {
+              router.back();
+            } else {
+              router.replace("/quotes");
+            }
           }}
           hitSlop={12}
           style={{ paddingRight: 8 }}
@@ -880,13 +898,17 @@ export default function QuoteDetails() {
         <View style={styles.heroTopRow}>
           <View style={{ flex: 1 }}>
             <ThemedText style={styles.heroTitle}>
-              {quote.project_title || "Quote"}
+              {userRole === 'client'
+                ? (tradeBusiness || "Tradesperson")
+                : (quote.project_title || "Quote")
+              }
             </ThemedText>
-            {!!headerLine && (
-              <ThemedText style={styles.heroProject} variant="muted">
-                {headerLine}
-              </ThemedText>
-            )}
+            <ThemedText style={styles.heroProject} variant="muted">
+              {userRole === 'client'
+                ? (quote.project_title || "Project")
+                : headerLine
+              }
+            </ThemedText>
           </View>
 
           {isAccepted && (
@@ -1140,39 +1162,13 @@ export default function QuoteDetails() {
         </View>
 
         {/* Appointments */}
-        <View style={styles.sectionHeaderRow}>
-          <ThemedText style={styles.sectionHeaderText}>Appointments</ThemedText>
-        </View>
+        {appointment && (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              <ThemedText style={styles.sectionHeaderText}>Appointments</ThemedText>
+            </View>
 
-        <View style={styles.block}>
-          {apptLoading && !appointment ? (
-            <ThemedText variant="muted" style={styles.visitCopy}>
-              Checking for any existing appointment…
-            </ThemedText>
-          ) : !appointment ? (
-            <>
-              <ThemedText style={styles.visitTitle}>
-                Schedule an appointment
-              </ThemedText>
-              <ThemedText variant="muted" style={styles.visitCopy}>
-                Choose a date and time to visit the property and confirm
-                details in person. You’ll get a chance to review before it’s
-                scheduled.
-              </ThemedText>
-
-              <Pressable
-                onPress={openSchedulePage}
-                style={[styles.scheduleBtn, { opacity: apptBusy ? 0.7 : 1 }]}
-                disabled={apptBusy}
-                hitSlop={8}
-              >
-                <ThemedText style={styles.scheduleBtnText}>
-                  Schedule appointment
-                </ThemedText>
-              </Pressable>
-            </>
-          ) : (
-            <>
+            <View style={styles.block}>
               <ThemedText style={styles.visitTitle}>
                 {appointmentName}
               </ThemedText>
@@ -1199,9 +1195,9 @@ export default function QuoteDetails() {
                   Name: {appointment.notes}
                 </ThemedText>
               )}
-            </>
-          )}
-        </View>
+            </View>
+          </>
+        )}
 
         {/* Comments */}
         {quote.comments ? (
