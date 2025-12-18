@@ -13,13 +13,16 @@ const ThemedTextInput = ({ style, ...props}) => {
                 {
                     backgroundColor : theme.uiBackground,
                     color: theme.text,
-                    padding: 20,
-                    borderRadius: 6
+                    padding: 16,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: theme.border || '#E5E7EB',
+                    fontSize: 16,
             },
-            style 
+            style
         ]}
         {...props}
-        
+
         />
   )
 }
