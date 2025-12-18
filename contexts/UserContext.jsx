@@ -61,10 +61,18 @@ export function UserProvider({ children }) {
 }
 
 
-// Register Function 
-  async function register(email, password) {
+// Register Function
+  async function register(email, password, metadata = {}) {
     try {
-      const { error } = await auth.signUp({ email, password });
+      const { error } = await auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            ...metadata
+          }
+        }
+      });
       if (error) throw error;
 
       // Auto-login after successful registration
