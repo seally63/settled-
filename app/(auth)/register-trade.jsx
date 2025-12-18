@@ -283,6 +283,7 @@ export default function RegisterTradeScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
+                showPasswordToggle
                 editable={!loading}
                 autoFocus
               />
@@ -296,6 +297,7 @@ export default function RegisterTradeScreen() {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry
+                showPasswordToggle
                 editable={!loading}
               />
             </View>
