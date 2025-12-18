@@ -1324,11 +1324,20 @@ export default function QuoteDetails() {
               </ThemedText>
               <ThemedText variant="muted" style={styles.visitCopy}>
                 {appointment.status === "proposed"
-                  ? "Awaiting client confirmation."
-                  : `Status: ${
-                      String(appointment.status).charAt(0).toUpperCase() +
-                      String(appointment.status).slice(1).toLowerCase()
-                    }.`}
+                  ? (userRole === 'client'
+                      ? "Please respond to this appointment request using the buttons above."
+                      : "Awaiting client confirmation."
+                    )
+                  : (appointment.status === "confirmed"
+                      ? (userRole === 'client'
+                          ? "You confirmed this appointment."
+                          : "The client confirmed this appointment."
+                        )
+                      : `Status: ${
+                          String(appointment.status).charAt(0).toUpperCase() +
+                          String(appointment.status).slice(1).toLowerCase()
+                        }.`
+                    )}
               </ThemedText>
               {!!appointment.scheduled_at && (
                 <ThemedText style={styles.visitDate}>
