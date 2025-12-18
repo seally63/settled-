@@ -119,6 +119,156 @@ function MessageBubble({ message, isMine }) {
   );
 }
 
+function AppointmentMessageBubble({ message, appointment, isMine, userRole, onRespond, onEdit }) {
+  if (!appointment) return null;
+
+  const scheduledDate = new Date(appointment.scheduled_at);
+  const isPending = appointment.status === 'proposed';
+  const isConfirmed = appointment.status === 'confirmed';
+  const isCancelled = appointment.status === 'cancelled';
+
+  const showClientActions = !isMine && userRole === 'client' && isPending;
+  const showTradeActions = isMine && userRole === 'trades' && isPending;
+
+  const statusMap = {
+    proposed: { bg: "#FEF3C7", fg: "#92400E", icon: "time-outline", label: "Proposed" },
+    confirmed: { bg: "#D1FAE5", fg: "#065F46", icon: "checkmark-circle", label: "Confirmed" },
+    cancelled: { bg: "#FEE2E2", fg: "#991B1B", icon: "close-circle", label: "Cancelled" },
+  };
+  const statusInfo = statusMap[appointment.status] || statusMap.proposed;
+
+  return (
+    <View style={styles.appointmentBubbleContainer}>
+      <View style={styles.appointmentBubble}>
+        {/* Header with icon and title - centered */}
+        <View style={styles.appointmentHeader}>
+          <Ionicons name="calendar" size={24} color={TINT} />
+          <Spacer height={8} />
+          <ThemedText style={styles.appointmentTitle}>
+            {appointment.title || 'Site Survey Appointment'}
+          </ThemedText>
+        </View>
+
+        {/* Status badge - centered */}
+        <View style={[styles.appointmentStatusBadge, { backgroundColor: statusInfo.bg }]}>
+          <Ionicons name={statusInfo.icon} size={14} color={statusInfo.fg} />
+          <ThemedText style={[styles.appointmentStatusText, { color: statusInfo.fg }]}>
+            {statusInfo.label}
+          </ThemedText>
+        </View>
+
+        <Spacer height={20} />
+
+        {/* Date and time - centered */}
+        <View style={styles.appointmentDetailRow}>
+          <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+          <ThemedText style={styles.appointmentDetailText}>
+            {scheduledDate.toLocaleDateString(undefined, {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric'
+            })}
+          </ThemedText>
+        </View>
+
+        <Spacer height={8} />
+
+        <View style={styles.appointmentDetailRow}>
+          <Ionicons name="time-outline" size={18} color="#6B7280" />
+          <ThemedText style={styles.appointmentDetailText}>
+            {scheduledDate.toLocaleTimeString(undefined, {
+              hour: '2-digit',
+              minute: '2-digit'
+            })}
+          </ThemedText>
+        </View>
+
+        {appointment.location && (
+          <>
+            <Spacer height={8} />
+            <View style={styles.appointmentDetailRow}>
+              <Ionicons name="location-outline" size={18} color="#6B7280" />
+              <ThemedText style={styles.appointmentDetailText}>
+                {appointment.location}
+              </ThemedText>
+            </View>
+          </>
+        )}
+
+        {/* Client action buttons */}
+        {showClientActions && (
+          <>
+            <Spacer height={12} />
+            <View style={styles.appointmentActions}>
+              <Pressable
+                style={styles.appointmentDeclineBtn}
+                onPress={() => onRespond('cancelled')}
+              >
+                <Ionicons name="close-circle-outline" size={16} color="#B42318" />
+                <ThemedText style={styles.appointmentDeclineBtnText}>Decline</ThemedText>
+              </Pressable>
+              <Pressable
+                style={styles.appointmentAcceptBtn}
+                onPress={() => onRespond('confirmed')}
+              >
+                <Ionicons name="checkmark-circle-outline" size={16} color="#FFFFFF" />
+                <ThemedText style={styles.appointmentAcceptBtnText}>Accept</ThemedText>
+              </Pressable>
+            </View>
+          </>
+        )}
+
+        {/* Trade edit button */}
+        {showTradeActions && (
+          <>
+            <Spacer height={12} />
+            <Pressable
+              style={styles.appointmentEditBtn}
+              onPress={onEdit}
+            >
+              <Ionicons name="create-outline" size={16} color={TINT} />
+              <ThemedText style={styles.appointmentEditBtnText}>Edit appointment</ThemedText>
+            </Pressable>
+          </>
+        )}
+
+        {/* Confirmed banner */}
+        {isConfirmed && (
+          <>
+            <Spacer height={12} />
+            <View style={styles.appointmentConfirmedBanner}>
+              <Ionicons name="checkmark-circle" size={16} color="#065F46" />
+              <ThemedText style={styles.appointmentConfirmedText}>
+                {userRole === 'client' ? 'You confirmed this appointment' : 'Client confirmed this appointment'}
+              </ThemedText>
+            </View>
+          </>
+        )}
+
+        {/* Cancelled banner */}
+        {isCancelled && (
+          <>
+            <Spacer height={12} />
+            <View style={styles.appointmentCancelledBanner}>
+              <Ionicons name="close-circle" size={16} color="#991B1B" />
+              <ThemedText style={styles.appointmentCancelledText}>
+                This appointment was cancelled
+              </ThemedText>
+            </View>
+          </>
+        )}
+
+        {/* Timestamp */}
+        <Spacer height={8} />
+        <ThemedText style={styles.appointmentTimestamp} variant="muted">
+          {formatTime(message.created_at)}
+        </ThemedText>
+      </View>
+    </View>
+  );
+}
+
 function StatusChip({ value }) {
   const v = String(value || "").toLowerCase();
   if (v === "sent") return null;
@@ -234,6 +384,8 @@ export default function MessageThread() {
   const [input, setInput] = useState("");
   const [quoteSummary, setQuoteSummary] = useState(null);
   const [request, setRequest] = useState(null);
+  const [userRole, setUserRole] = useState(null);
+  const [apptBusy, setApptBusy] = useState(false);
 
   const loadMessages = useCallback(async () => {
     if (!requestId) return;
@@ -322,6 +474,80 @@ export default function MessageThread() {
     loadRequest();
   }, [loadMessages, loadQuote, loadRequest]);
 
+  // Fetch user role
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      if (!user?.id) {
+        setUserRole('client');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      if (mounted) {
+        setUserRole(!error ? (data?.role || 'client') : 'client');
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
+
+  const handleRespondToAppointment = useCallback(async (appointmentId, response) => {
+    if (apptBusy || !appointmentId) return;
+
+    const isAccepting = response === 'confirmed';
+    const action = isAccepting ? 'Accept' : 'Decline';
+
+    Alert.alert(
+      `${action} this appointment?`,
+      isAccepting
+        ? 'This will confirm the appointment with the tradesperson.'
+        : 'This will notify the tradesperson that you declined this appointment.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: action,
+          style: isAccepting ? 'default' : 'destructive',
+          onPress: async () => {
+            try {
+              setApptBusy(true);
+
+              const { error } = await supabase.rpc('rpc_client_respond_appointment', {
+                p_appointment_id: appointmentId,
+                p_response: isAccepting ? 'accepted' : 'declined',
+              });
+
+              if (error) {
+                Alert.alert('Error', error.message || `Could not ${action.toLowerCase()} appointment`);
+                return;
+              }
+
+              // Reload messages to show updated appointment status
+              await loadMessages();
+            } catch (e) {
+              Alert.alert('Error', e?.message || 'Something went wrong');
+            } finally {
+              setApptBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [apptBusy, loadMessages]);
+
+  const handleEditAppointment = useCallback((appointmentId) => {
+    // TODO: Implement edit appointment modal
+    Alert.alert('Edit Appointment', 'This feature will be available soon!');
+  }, []);
+
   const handleSend = useCallback(async () => {
     const body = input.trim();
     if (!body || !requestId || !user?.id) return;
@@ -349,6 +575,43 @@ export default function MessageThread() {
 
   const renderItem = ({ item }) => {
     const isMine = item.sender_id === user?.id;
+
+    // Debug log to see what we're getting
+    if (item.message_type === 'appointment') {
+      console.log('Appointment message:', {
+        message_type: item.message_type,
+        appointment_id: item.appointment_id,
+        appointment_scheduled_at: item.appointment_scheduled_at,
+        appointment_title: item.appointment_title,
+        appointment_status: item.appointment_status,
+        isMine,
+        userRole,
+      });
+    }
+
+    // Check if this is an appointment message
+    if (item.message_type === 'appointment' && item.appointment_id && item.appointment_scheduled_at) {
+      const appointment = {
+        id: item.appointment_id,
+        scheduled_at: item.appointment_scheduled_at,
+        title: item.appointment_title,
+        location: item.appointment_location,
+        status: item.appointment_status,
+      };
+
+      return (
+        <AppointmentMessageBubble
+          message={item}
+          appointment={appointment}
+          isMine={isMine}
+          userRole={userRole}
+          onRespond={(response) => handleRespondToAppointment(appointment.id, response)}
+          onEdit={() => handleEditAppointment(appointment.id)}
+        />
+      );
+    }
+
+    // Regular text message
     return <MessageBubble message={item} isMine={isMine} />;
   };
 
@@ -631,5 +894,147 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: TINT,
+  },
+
+  // Appointment message styles - Compact design
+  appointmentBubbleContainer: {
+    alignItems: "center",
+    marginBottom: 12,
+    paddingHorizontal: 16,
+  },
+  appointmentBubble: {
+    width: "100%",
+    maxWidth: 340,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  appointmentHeader: {
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  appointmentTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    textAlign: "center",
+    color: "#0F172A",
+  },
+  appointmentStatusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  appointmentStatusText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  appointmentDetailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  appointmentDetailText: {
+    fontSize: 14,
+    color: "#374151",
+  },
+  appointmentActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 6,
+  },
+  appointmentDeclineBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+  appointmentDeclineBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#B42318",
+  },
+  appointmentAcceptBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#16A34A",
+  },
+  appointmentAcceptBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  appointmentEditBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+  },
+  appointmentEditBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: TINT,
+  },
+  appointmentConfirmedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: "#D1FAE5",
+  },
+  appointmentConfirmedText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#065F46",
+  },
+  appointmentCancelledBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: "#FEE2E2",
+  },
+  appointmentCancelledText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#991B1B",
+  },
+  appointmentTimestamp: {
+    fontSize: 11,
+    textAlign: "right",
   },
 });
