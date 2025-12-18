@@ -230,6 +230,7 @@ export default function RegisterClientScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
+                showPasswordToggle
                 editable={!loading}
                 autoFocus
               />
@@ -243,6 +244,7 @@ export default function RegisterClientScreen() {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry
+                showPasswordToggle
                 editable={!loading}
               />
             </View>
