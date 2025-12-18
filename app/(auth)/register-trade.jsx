@@ -58,20 +58,20 @@ export default function RegisterTradeScreen() {
         return true
 
       case 2:
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        if (!emailRegex.test(email)) {
+          setError('Please enter a valid email address')
+          return false
+        }
+        return true
+
+      case 3:
         if (!businessName.trim()) {
           setError('Please enter your business name')
           return false
         }
         if (!tradeType.trim()) {
           setError('Please enter your trade type')
-          return false
-        }
-        return true
-
-      case 3:
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-        if (!emailRegex.test(email)) {
-          setError('Please enter a valid email address')
           return false
         }
         if (!phone.trim()) {
@@ -158,7 +158,7 @@ export default function RegisterTradeScreen() {
       case 1:
         return (
           <View style={styles.stepContent}>
-            <ThemedText style={styles.stepTitle}>Hi! What's your name?</ThemedText>
+            <ThemedText style={styles.stepTitle}>Let's start with your name</ThemedText>
             <Spacer height={32} />
             <ThemedText style={styles.label}>First name</ThemedText>
             <ThemedTextInput
@@ -192,7 +192,26 @@ export default function RegisterTradeScreen() {
       case 2:
         return (
           <View style={styles.stepContent}>
-            <ThemedText style={styles.stepTitle}>Tell us about your business</ThemedText>
+            <ThemedText style={styles.stepTitle}>Enter your email</ThemedText>
+            <Spacer height={32} />
+            <ThemedText style={styles.label}>Email Address</ThemedText>
+            <ThemedTextInput
+              style={styles.input}
+              placeholder="john@example.com"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              editable={!loading}
+              autoFocus
+            />
+          </View>
+        )
+
+      case 3:
+        return (
+          <View style={styles.stepContent}>
+            <ThemedText style={styles.stepTitle}>Enter your business details</ThemedText>
             <Spacer height={32} />
             <ThemedText style={styles.label}>Business Name</ThemedText>
             <ThemedTextInput
@@ -213,25 +232,6 @@ export default function RegisterTradeScreen() {
               onChangeText={setTradeType}
               autoCapitalize="words"
               editable={!loading}
-            />
-          </View>
-        )
-
-      case 3:
-        return (
-          <View style={styles.stepContent}>
-            <ThemedText style={styles.stepTitle}>How can clients reach you?</ThemedText>
-            <Spacer height={32} />
-            <ThemedText style={styles.label}>Email Address</ThemedText>
-            <ThemedTextInput
-              style={styles.input}
-              placeholder="john@example.com"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              editable={!loading}
-              autoFocus
             />
             <Spacer height={16} />
             <ThemedText style={styles.label}>Phone Number</ThemedText>
@@ -259,7 +259,7 @@ export default function RegisterTradeScreen() {
       case 4:
         return (
           <View style={styles.stepContent}>
-            <ThemedText style={styles.stepTitle}>Last step! Create a password</ThemedText>
+            <ThemedText style={styles.stepTitle}>Create a password</ThemedText>
             <Spacer height={32} />
             <ThemedText style={styles.label}>Password</ThemedText>
             <ThemedTextInput

@@ -26,7 +26,7 @@ export default function RegisterClientScreen() {
   const { register } = useUser()
 
   const [currentStep, setCurrentStep] = useState(1)
-  const totalSteps = 3
+  const totalSteps = 4
 
   // Form state
   const [fullName, setFullName] = useState('')
@@ -61,13 +61,16 @@ export default function RegisterClientScreen() {
           setError('Please enter a valid email address')
           return false
         }
+        return true
+
+      case 3:
         if (!postcode.trim()) {
           setError('Please enter your postcode')
           return false
         }
         return true
 
-      case 3:
+      case 4:
         if (password.length < 6) {
           setError('Password must be at least 6 characters')
           return false
@@ -138,7 +141,7 @@ export default function RegisterClientScreen() {
       case 1:
         return (
           <View style={styles.stepContent}>
-            <ThemedText style={styles.stepTitle}>Hi, neighbor! What's your name?</ThemedText>
+            <ThemedText style={styles.stepTitle}>Let's start with your name</ThemedText>
             <Spacer height={32} />
             <ThemedText style={styles.label}>First name</ThemedText>
             <ThemedTextInput
@@ -172,7 +175,7 @@ export default function RegisterClientScreen() {
       case 2:
         return (
           <View style={styles.stepContent}>
-            <ThemedText style={styles.stepTitle}>Great! Where can we reach you?</ThemedText>
+            <ThemedText style={styles.stepTitle}>Enter your email</ThemedText>
             <Spacer height={32} />
             <ThemedText style={styles.label}>Email Address</ThemedText>
             <ThemedTextInput
@@ -185,7 +188,14 @@ export default function RegisterClientScreen() {
               editable={!loading}
               autoFocus
             />
-            <Spacer height={16} />
+          </View>
+        )
+
+      case 3:
+        return (
+          <View style={styles.stepContent}>
+            <ThemedText style={styles.stepTitle}>Enter your postcode</ThemedText>
+            <Spacer height={32} />
             <ThemedText style={styles.label}>Postcode</ThemedText>
             <ThemedTextInput
               style={styles.input}
@@ -194,14 +204,15 @@ export default function RegisterClientScreen() {
               onChangeText={setPostcode}
               autoCapitalize="characters"
               editable={!loading}
+              autoFocus
             />
           </View>
         )
 
-      case 3:
+      case 4:
         return (
           <View style={styles.stepContent}>
-            <ThemedText style={styles.stepTitle}>Last step! Create a password</ThemedText>
+            <ThemedText style={styles.stepTitle}>Create a password</ThemedText>
             <Spacer height={32} />
             <ThemedText style={styles.label}>Password</ThemedText>
             <ThemedTextInput
