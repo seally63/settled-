@@ -563,14 +563,15 @@ export default function QuoteDetails() {
     try {
       setApptBusy(true);
 
+      // Use the new RPC that creates appointment AND sends it to messages
       const { data, error } = await supabase.rpc(
-        "rpc_trade_create_survey_appointment",
+        "rpc_send_appointment_message",
         {
           p_request_id: reqId,
+          p_quote_id: quote?.id || null,
           p_scheduled_at: apptDateTime.toISOString(),
+          p_title: trimmedTitle,
           p_location: parsedDetails.address || null,
-          // Reusing notes as "name/label" for now
-          p_notes: trimmedTitle,
         }
       );
 
@@ -582,6 +583,12 @@ export default function QuoteDetails() {
         );
         return;
       }
+
+      // Show success message
+      Alert.alert(
+        "Appointment sent!",
+        "The appointment has been sent to messages. The client can accept or decline it in the Messages tab."
+      );
 
       // Reload the appointment immediately after creation
       const { data: apptData, error: apptErr } = await supabase.rpc(
