@@ -159,33 +159,37 @@ export default function RegisterTradeScreen() {
         return (
           <View style={styles.stepContent}>
             <ThemedText style={styles.stepTitle}>Let's start with your name</ThemedText>
-            <Spacer height={32} />
-            <ThemedText style={styles.label}>First name</ThemedText>
-            <ThemedTextInput
-              style={styles.input}
-              placeholder="John"
-              value={fullName.split(' ')[0] || fullName}
-              onChangeText={(text) => {
-                const lastName = fullName.split(' ').slice(1).join(' ')
-                setFullName(lastName ? `${text} ${lastName}` : text)
-              }}
-              autoCapitalize="words"
-              editable={!loading}
-              autoFocus
-            />
-            <Spacer height={16} />
-            <ThemedText style={styles.label}>Last name</ThemedText>
-            <ThemedTextInput
-              style={styles.input}
-              placeholder="Smith"
-              value={fullName.split(' ').slice(1).join(' ')}
-              onChangeText={(text) => {
-                const firstName = fullName.split(' ')[0] || ''
-                setFullName(`${firstName} ${text}`.trim())
-              }}
-              autoCapitalize="words"
-              editable={!loading}
-            />
+            <Spacer height={48} />
+            <View style={styles.fieldContainer}>
+              <ThemedText style={styles.label}>First name</ThemedText>
+              <ThemedTextInput
+                style={styles.input}
+                placeholder="John"
+                value={fullName.split(' ')[0] || fullName}
+                onChangeText={(text) => {
+                  const lastName = fullName.split(' ').slice(1).join(' ')
+                  setFullName(lastName ? `${text} ${lastName}` : text)
+                }}
+                autoCapitalize="words"
+                editable={!loading}
+                autoFocus
+              />
+            </View>
+            <Spacer height={20} />
+            <View style={styles.fieldContainer}>
+              <ThemedText style={styles.label}>Last name</ThemedText>
+              <ThemedTextInput
+                style={styles.input}
+                placeholder="Smith"
+                value={fullName.split(' ').slice(1).join(' ')}
+                onChangeText={(text) => {
+                  const firstName = fullName.split(' ')[0] || ''
+                  setFullName(`${firstName} ${text}`.trim())
+                }}
+                autoCapitalize="words"
+                editable={!loading}
+              />
+            </View>
           </View>
         )
 
@@ -193,18 +197,20 @@ export default function RegisterTradeScreen() {
         return (
           <View style={styles.stepContent}>
             <ThemedText style={styles.stepTitle}>Enter your email</ThemedText>
-            <Spacer height={32} />
-            <ThemedText style={styles.label}>Email Address</ThemedText>
-            <ThemedTextInput
-              style={styles.input}
-              placeholder="john@example.com"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              editable={!loading}
-              autoFocus
-            />
+            <Spacer height={48} />
+            <View style={styles.fieldContainer}>
+              <ThemedText style={styles.label}>Email Address</ThemedText>
+              <ThemedTextInput
+                style={styles.input}
+                placeholder="john@example.com"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                editable={!loading}
+                autoFocus
+              />
+            </View>
           </View>
         )
 
@@ -212,47 +218,55 @@ export default function RegisterTradeScreen() {
         return (
           <View style={styles.stepContent}>
             <ThemedText style={styles.stepTitle}>Enter your business details</ThemedText>
-            <Spacer height={32} />
-            <ThemedText style={styles.label}>Business Name</ThemedText>
-            <ThemedTextInput
-              style={styles.input}
-              placeholder="ABC Plumbing Ltd"
-              value={businessName}
-              onChangeText={setBusinessName}
-              autoCapitalize="words"
-              editable={!loading}
-              autoFocus
-            />
-            <Spacer height={16} />
-            <ThemedText style={styles.label}>Trade Type</ThemedText>
-            <ThemedTextInput
-              style={styles.input}
-              placeholder="e.g., Plumber, Electrician, Builder"
-              value={tradeType}
-              onChangeText={setTradeType}
-              autoCapitalize="words"
-              editable={!loading}
-            />
-            <Spacer height={16} />
-            <ThemedText style={styles.label}>Phone Number</ThemedText>
-            <ThemedTextInput
-              style={styles.input}
-              placeholder="07123 456789"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              editable={!loading}
-            />
-            <Spacer height={16} />
-            <ThemedText style={styles.label}>Business Postcode</ThemedText>
-            <ThemedTextInput
-              style={styles.input}
-              placeholder="SW1A 1AA"
-              value={postcode}
-              onChangeText={setPostcode}
-              autoCapitalize="characters"
-              editable={!loading}
-            />
+            <Spacer height={48} />
+            <View style={styles.fieldContainer}>
+              <ThemedText style={styles.label}>Business Name</ThemedText>
+              <ThemedTextInput
+                style={styles.input}
+                placeholder="ABC Plumbing Ltd"
+                value={businessName}
+                onChangeText={setBusinessName}
+                autoCapitalize="words"
+                editable={!loading}
+                autoFocus
+              />
+            </View>
+            <Spacer height={20} />
+            <View style={styles.fieldContainer}>
+              <ThemedText style={styles.label}>Trade Type</ThemedText>
+              <ThemedTextInput
+                style={styles.input}
+                placeholder="e.g., Plumber, Electrician, Builder"
+                value={tradeType}
+                onChangeText={setTradeType}
+                autoCapitalize="words"
+                editable={!loading}
+              />
+            </View>
+            <Spacer height={20} />
+            <View style={styles.fieldContainer}>
+              <ThemedText style={styles.label}>Phone Number</ThemedText>
+              <ThemedTextInput
+                style={styles.input}
+                placeholder="07123 456789"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+                editable={!loading}
+              />
+            </View>
+            <Spacer height={20} />
+            <View style={styles.fieldContainer}>
+              <ThemedText style={styles.label}>Business Postcode</ThemedText>
+              <ThemedTextInput
+                style={styles.input}
+                placeholder="SW1A 1AA"
+                value={postcode}
+                onChangeText={setPostcode}
+                autoCapitalize="characters"
+                editable={!loading}
+              />
+            </View>
           </View>
         )
 
@@ -260,27 +274,31 @@ export default function RegisterTradeScreen() {
         return (
           <View style={styles.stepContent}>
             <ThemedText style={styles.stepTitle}>Create a password</ThemedText>
-            <Spacer height={32} />
-            <ThemedText style={styles.label}>Password</ThemedText>
-            <ThemedTextInput
-              style={styles.input}
-              placeholder="At least 6 characters"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              editable={!loading}
-              autoFocus
-            />
-            <Spacer height={16} />
-            <ThemedText style={styles.label}>Confirm Password</ThemedText>
-            <ThemedTextInput
-              style={styles.input}
-              placeholder="Re-enter your password"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry
-              editable={!loading}
-            />
+            <Spacer height={48} />
+            <View style={styles.fieldContainer}>
+              <ThemedText style={styles.label}>Password</ThemedText>
+              <ThemedTextInput
+                style={styles.input}
+                placeholder="At least 6 characters"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                editable={!loading}
+                autoFocus
+              />
+            </View>
+            <Spacer height={20} />
+            <View style={styles.fieldContainer}>
+              <ThemedText style={styles.label}>Confirm Password</ThemedText>
+              <ThemedTextInput
+                style={styles.input}
+                placeholder="Re-enter your password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+                editable={!loading}
+              />
+            </View>
           </View>
         )
 
@@ -404,22 +422,28 @@ const styles = StyleSheet.create({
     backgroundColor: TINT,
   },
   scrollContent: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 32,
   },
   stepContent: {
     width: '100%',
+    alignItems: 'center',
   },
   stepTitle: {
     fontSize: 24,
     fontWeight: '700',
     color: Colors.light.title,
     lineHeight: 32,
+    textAlign: 'center',
+  },
+  fieldContainer: {
+    width: '100%',
+    maxWidth: 400,
   },
   label: {
     fontSize: 14,
     fontWeight: '600',
     color: Colors.light.text,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   input: {
     width: '100%',
