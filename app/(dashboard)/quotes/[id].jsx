@@ -616,7 +616,7 @@ export default function QuoteDetails() {
     const label = trimmedTitle || "Appointment";
     const whenStr = apptDateTime.toLocaleString();
 
-    Alert.alert("Schedule this appointment?", `“${label}”\n\n${whenStr}`, [
+    Alert.alert("Schedule this appointment?", `"${label}"\n\n${whenStr}`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Schedule",
@@ -624,6 +624,110 @@ export default function QuoteDetails() {
         onPress: () => performScheduleAppointment(trimmedTitle),
       },
     ]);
+  };
+
+  const handleClientConfirmAppointment = async (appointmentId) => {
+    if (apptBusy) return;
+
+    Alert.alert(
+      "Accept this appointment?",
+      "This will confirm the appointment with the tradesperson.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Accept",
+          style: "default",
+          onPress: async () => {
+            try {
+              setApptBusy(true);
+
+              const { error } = await supabase.rpc(
+                "rpc_client_respond_appointment",
+                {
+                  p_appointment_id: appointmentId,
+                  p_response: "accepted",
+                }
+              );
+
+              if (error) {
+                Alert.alert("Error", error.message || "Could not confirm appointment");
+                return;
+              }
+
+              // Reload the appointment
+              const reqId = quote?.request_id || quote?.requestId || request?.id || null;
+              if (reqId) {
+                const { data: apptData, error: apptErr } = await supabase.rpc(
+                  "rpc_get_latest_request_appointment",
+                  { p_request_id: reqId }
+                );
+
+                if (!apptErr && apptData) {
+                  const appt = Array.isArray(apptData) ? apptData[0] : apptData;
+                  setAppointment(appt || null);
+                }
+              }
+            } catch (e) {
+              Alert.alert("Error", e?.message || "Something went wrong");
+            } finally {
+              setApptBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleClientDeclineAppointment = async (appointmentId) => {
+    if (apptBusy) return;
+
+    Alert.alert(
+      "Decline this appointment?",
+      "This will notify the tradesperson that you declined this appointment.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Decline",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setApptBusy(true);
+
+              const { error } = await supabase.rpc(
+                "rpc_client_respond_appointment",
+                {
+                  p_appointment_id: appointmentId,
+                  p_response: "declined",
+                }
+              );
+
+              if (error) {
+                Alert.alert("Error", error.message || "Could not decline appointment");
+                return;
+              }
+
+              // Reload the appointment
+              const reqId = quote?.request_id || quote?.requestId || request?.id || null;
+              if (reqId) {
+                const { data: apptData, error: apptErr } = await supabase.rpc(
+                  "rpc_get_latest_request_appointment",
+                  { p_request_id: reqId }
+                );
+
+                if (!apptErr && apptData) {
+                  const appt = Array.isArray(apptData) ? apptData[0] : apptData;
+                  setAppointment(appt || null);
+                }
+              }
+            } catch (e) {
+              Alert.alert("Error", e?.message || "Something went wrong");
+            } finally {
+              setApptBusy(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (loading) {
@@ -957,19 +1061,29 @@ export default function QuoteDetails() {
             </View>
             <View style={{ flex: 1 }}>
               <ThemedText style={styles.heroNoteTitle}>
-                {hasExistingAppointment ? "Appointment scheduled" : "Quote accepted"}
+                {hasExistingAppointment
+                  ? (userRole === 'client'
+                      ? `${tradeBusiness || 'The tradesperson'} proposed an appointment`
+                      : "Appointment scheduled"
+                    )
+                  : "Quote accepted"}
               </ThemedText>
               <ThemedText style={styles.heroNoteText} variant="muted">
                 {hasExistingAppointment
-                  ? `${appointmentDateLabel}${
-                      appointment?.location ? ` • ${appointment.location}` : ""
-                    }`
-                  : "The client accepted your quote. Schedule a visit to confirm the work in person."}
+                  ? (userRole === 'client'
+                      ? `Survey visit on ${appointmentDateLabel}${appointment?.location ? ` at ${appointment.location}` : ''}`
+                      : `${appointmentDateLabel}${appointment?.location ? ` • ${appointment.location}` : ""}${appointment?.status === 'proposed' ? ' • Awaiting client confirmation' : ''}`
+                    )
+                  : (userRole === 'client'
+                      ? `${tradeBusiness || 'The tradesperson'} will contact you to schedule a survey visit.`
+                      : "The client accepted your quote. Schedule a visit to confirm the work in person."
+                    )}
               </ThemedText>
             </View>
           </View>
 
-          {!hasExistingAppointment && (
+          {/* Trade: Show schedule button if no appointment */}
+          {!hasExistingAppointment && userRole === 'trades' && (
             <Pressable
               onPress={openSchedulePage}
               style={styles.heroNoteBtn}
@@ -979,6 +1093,42 @@ export default function QuoteDetails() {
                 Schedule appointment
               </ThemedText>
             </Pressable>
+          )}
+
+          {/* Client: Show Accept/Decline buttons if appointment is proposed */}
+          {hasExistingAppointment && userRole === 'client' && appointment?.status === 'proposed' && (
+            <View style={styles.heroNoteActions}>
+              <Pressable
+                onPress={() => handleClientDeclineAppointment(appointment.id)}
+                style={styles.heroDeclineBtn}
+                hitSlop={6}
+              >
+                <Ionicons name="close-circle-outline" size={18} color="#B42318" />
+                <ThemedText style={styles.heroDeclineBtnText}>
+                  Decline
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={() => handleClientConfirmAppointment(appointment.id)}
+                style={styles.heroConfirmBtn}
+                hitSlop={6}
+              >
+                <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
+                <ThemedText style={styles.heroConfirmBtnText}>
+                  Accept
+                </ThemedText>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Client: Show confirmed status if already confirmed */}
+          {hasExistingAppointment && userRole === 'client' && appointment?.status === 'confirmed' && (
+            <View style={styles.heroNoteConfirmed}>
+              <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
+              <ThemedText style={styles.heroNoteConfirmedText}>
+                You confirmed this appointment
+              </ThemedText>
+            </View>
           )}
         </View>
       )}
@@ -1439,6 +1589,61 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: "#FFFFFF",
+  },
+  heroNoteActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+  },
+  heroDeclineBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+  heroDeclineBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#B42318",
+  },
+  heroConfirmBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "#16A34A",
+  },
+  heroConfirmBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  heroNoteConfirmed: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: "rgba(22,163,74,0.08)",
+    borderRadius: 999,
+    alignSelf: "flex-start",
+  },
+  heroNoteConfirmedText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#166534",
   },
 
   sectionHeaderRow: {
