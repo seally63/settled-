@@ -14,6 +14,7 @@ import {
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../../../../lib/supabase";
 import ThemedView from "../../../../components/ThemedView";
@@ -29,6 +30,12 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 
 const PRIMARY = Colors?.primary || "#6849a7";
 const WARNING = Colors?.warning || "#cc475a";
+
+// Format number with thousand separators (commas)
+function formatNumber(num) {
+  if (num == null || isNaN(num)) return "0.00";
+  return Number(num).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 // Same parser as trade request screen
 function parseDetails(details) {
@@ -64,6 +71,7 @@ function parseDetails(details) {
 export default function ClientMyQuoteDetail() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [quote, setQuote] = useState(null);
   const [trade, setTrade] = useState(null);
@@ -75,8 +83,9 @@ export default function ClientMyQuoteDetail() {
   const [attachments, setAttachments] = useState([]); // string[] URLs
   const [attachmentsCount, setAttachmentsCount] = useState(0);
 
-  // Appointment data
-  const [appointment, setAppointment] = useState(null);
+  // Appointments data (multiple appointments)
+  const [appointments, setAppointments] = useState([]);
+  const [expandedAppointments, setExpandedAppointments] = useState(new Set());
 
   // Full-screen image viewer state
   const [viewer, setViewer] = useState({ open: false, index: 0 });
@@ -207,17 +216,21 @@ export default function ClientMyQuoteDetail() {
         setTrade(null);
       }
 
-      // Load appointment for this quote
+      // Load appointments for this quote (can have multiple)
       const { data: apptData, error: apptErr } = await supabase
         .from("appointments")
         .select("*")
         .eq("quote_id", id)
-        .maybeSingle();
+        .order("scheduled_at", { ascending: true });
 
-      if (!apptErr && apptData) {
-        setAppointment(apptData);
+      if (!apptErr && Array.isArray(apptData)) {
+        setAppointments(apptData);
+        // Auto-expand the next (first) appointment
+        if (apptData.length > 0) {
+          setExpandedAppointments(new Set([apptData[0].id]));
+        }
       } else {
-        setAppointment(null);
+        setAppointments([]);
       }
     } catch (e) {
       Alert.alert("Error", e.message);
@@ -225,7 +238,7 @@ export default function ClientMyQuoteDetail() {
       setReq(null);
       setAttachments([]);
       setAttachmentsCount(0);
-      setAppointment(null);
+      setAppointments([]);
     } finally {
       setLoading(false);
     }
@@ -299,6 +312,99 @@ export default function ClientMyQuoteDetail() {
     quote?.project_name ||
     "Project details";
 
+  // Helper functions for appointments
+  const toggleAppointment = useCallback((appointmentId) => {
+    setExpandedAppointments(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(appointmentId)) {
+        newSet.delete(appointmentId);
+      } else {
+        newSet.add(appointmentId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const getAppointmentStatus = useCallback((appt) => {
+    if (!appt.scheduled_at) return "pending";
+    const now = new Date();
+    const scheduledDate = new Date(appt.scheduled_at);
+
+    const apptStatus = String(appt.status || "").toLowerCase();
+
+    // Completed takes priority
+    if (apptStatus === "completed") return "completed";
+    if (apptStatus === "cancelled") return "cancelled";
+    if (apptStatus === "rescheduled") return "rescheduled";
+
+    // Check if it's next (upcoming and not started)
+    if (scheduledDate > now) {
+      if (apptStatus === "confirmed") return "next";
+      if (apptStatus === "scheduled") return "scheduled";
+      return "pending";
+    }
+
+    // Check if it's in progress (scheduled time has passed but not completed)
+    if (scheduledDate <= now && apptStatus !== "completed") {
+      return "in_progress";
+    }
+
+    return apptStatus || "pending";
+  }, []);
+
+  // Categorize appointments
+  const categorizedAppointments = useMemo(() => {
+    const now = new Date();
+
+    const next = [];
+    const upcoming = [];
+    const completed = [];
+
+    appointments.forEach(appt => {
+      const status = getAppointmentStatus(appt);
+      const scheduledDate = appt.scheduled_at ? new Date(appt.scheduled_at) : null;
+
+      if (status === "completed" || status === "cancelled") {
+        completed.push(appt);
+      } else if (scheduledDate && scheduledDate > now) {
+        if (next.length === 0 && status !== "rescheduled") {
+          next.push(appt);
+        } else {
+          upcoming.push(appt);
+        }
+      } else {
+        upcoming.push(appt);
+      }
+    });
+
+    return { next, upcoming, completed };
+  }, [appointments, getAppointmentStatus]);
+
+  // Appointment Status Badge Component
+  const AppointmentStatusBadge = ({ status }) => {
+    const badges = {
+      next: { icon: "arrow-forward-circle", color: "#10B981", bg: "#D1FAE5", text: "Next" },
+      confirmed: { icon: "checkmark-circle", color: "#10B981", bg: "#D1FAE5", text: "Confirmed" },
+      pending: { icon: "hourglass", color: "#F59E0B", bg: "#FEF3C7", text: "Pending" },
+      scheduled: { icon: "calendar", color: "#3B82F6", bg: "#DBEAFE", text: "Scheduled" },
+      in_progress: { icon: "time", color: "#F59E0B", bg: "#FEF3C7", text: "In Progress" },
+      completed: { icon: "checkmark-done", color: "#6B7280", bg: "#F3F4F6", text: "Completed" },
+      cancelled: { icon: "close-circle", color: "#EF4444", bg: "#FEE2E2", text: "Cancelled" },
+      rescheduled: { icon: "refresh", color: "#F59E0B", bg: "#FEF3C7", text: "Rescheduled" },
+    };
+
+    const badge = badges[status] || badges.pending;
+
+    return (
+      <View style={[styles.appointmentBadge, { backgroundColor: badge.bg }]}>
+        <Ionicons name={badge.icon} size={14} color={badge.color} />
+        <ThemedText style={[styles.appointmentBadgeText, { color: badge.color }]}>
+          {badge.text}
+        </ThemedText>
+      </View>
+    );
+  };
+
   const StatusChip = ({ value }) => {
     const v = String(value || "").toLowerCase();
 
@@ -361,23 +467,174 @@ export default function ClientMyQuoteDetail() {
     </View>
   );
 
+  // Appointment Card Component (collapsible)
+  const AppointmentCard = ({ appointment, isExpanded, isNext }) => {
+    const status = getAppointmentStatus(appointment);
+    const scheduledDate = appointment.scheduled_at ? new Date(appointment.scheduled_at) : null;
+
+    const handlePress = () => {
+      toggleAppointment(appointment.id);
+    };
+
+    return (
+      <Pressable
+        onPress={handlePress}
+        style={[
+          styles.appointmentCard,
+          isNext && styles.appointmentCardNext,
+        ]}
+      >
+        {/* Header - always visible */}
+        <View style={styles.appointmentCardHeader}>
+          <View style={{ flex: 1 }}>
+            <View style={styles.appointmentCardTitleRow}>
+              <ThemedText style={styles.appointmentCardTitle}>
+                {appointment.title || "Appointment"}
+              </ThemedText>
+              <AppointmentStatusBadge status={status} />
+            </View>
+            {scheduledDate && (
+              <View style={styles.appointmentCardMetaRow}>
+                <Ionicons name="calendar-outline" size={14} color="#6B7280" />
+                <ThemedText style={styles.appointmentCardMeta}>
+                  {scheduledDate.toLocaleDateString(undefined, {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                  {" at "}
+                  {scheduledDate.toLocaleTimeString(undefined, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </ThemedText>
+              </View>
+            )}
+          </View>
+          <Ionicons
+            name={isExpanded ? "chevron-up" : "chevron-down"}
+            size={20}
+            color="#9CA3AF"
+          />
+        </View>
+
+        {/* Expandable content */}
+        {isExpanded && (
+          <View style={styles.appointmentCardContent}>
+            <View style={styles.appointmentDivider} />
+
+            {appointment.location && (
+              <View style={styles.appointmentDetailRow}>
+                <Ionicons name="location" size={18} color={PRIMARY} />
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <ThemedText style={styles.appointmentDetailLabel}>
+                    Location
+                  </ThemedText>
+                  <ThemedText style={styles.appointmentDetailValue}>
+                    {appointment.location}
+                  </ThemedText>
+                </View>
+              </View>
+            )}
+
+            {appointment.notes && (
+              <View style={styles.appointmentDetailRow}>
+                <Ionicons name="document-text" size={18} color={PRIMARY} />
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <ThemedText style={styles.appointmentDetailLabel}>
+                    Notes
+                  </ThemedText>
+                  <ThemedText style={styles.appointmentDetailValue}>
+                    {appointment.notes}
+                  </ThemedText>
+                </View>
+              </View>
+            )}
+
+            {/* Action buttons */}
+            {isNext && status !== "completed" && status !== "cancelled" && (
+              <View style={styles.appointmentActions}>
+                <Pressable
+                  style={styles.appointmentActionBtn}
+                  onPress={() => {
+                    // TODO: Add to calendar
+                    Alert.alert("Add to Calendar", "This feature will be implemented soon.");
+                  }}
+                >
+                  <Ionicons name="calendar-outline" size={18} color={PRIMARY} />
+                  <ThemedText style={styles.appointmentActionText}>
+                    Add to Calendar
+                  </ThemedText>
+                </Pressable>
+
+                {appointment.location && (
+                  <Pressable
+                    style={styles.appointmentActionBtn}
+                    onPress={() => {
+                      // TODO: Open directions
+                      Alert.alert("Get Directions", "This feature will be implemented soon.");
+                    }}
+                  >
+                    <Ionicons name="navigate-outline" size={18} color={PRIMARY} />
+                    <ThemedText style={styles.appointmentActionText}>
+                      Directions
+                    </ThemedText>
+                  </Pressable>
+                )}
+
+                <Pressable
+                  style={styles.appointmentActionBtn}
+                  onPress={() => {
+                    // Navigate to messages
+                    if (!quote?.request_id) {
+                      Alert.alert(
+                        "Message unavailable",
+                        "This quote is not linked to a request yet."
+                      );
+                      return;
+                    }
+
+                    router.push({
+                      pathname: "/(dashboard)/messages/[id]",
+                      params: {
+                        id: String(quote.request_id),
+                        name: tradeName || "",
+                        quoteId: String(quote.id || id),
+                        returnTo: `/myquotes/${id}`, // Return to this quote detail page
+                      },
+                    });
+                  }}
+                >
+                  <Ionicons name="chatbubble-outline" size={18} color={PRIMARY} />
+                  <ThemedText style={styles.appointmentActionText}>
+                    Message
+                  </ThemedText>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
+      </Pressable>
+    );
+  };
+
   return (
-    // No `safe` prop (avoids bottom blob); manual top padding for notch
     <ThemedView style={styles.container}>
-      {/* Top bar */}
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={() =>
-            router.canGoBack?.() ? router.back() : router.replace("/myquotes")
-          }
-          hitSlop={10}
-        >
-          <Ionicons name="arrow-back" size={22} color="#0F172A" />
-        </Pressable>
-        <ThemedText title style={styles.title}>
-          Quote
-        </ThemedText>
-        <View style={{ width: 22 }} />
+      {/* Header - Profile-style */}
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <View style={styles.headerRow}>
+          <ThemedText style={styles.headerTitle}>Quote Overview</ThemedText>
+          <Pressable
+            onPress={() =>
+              router.canGoBack?.() ? router.back() : router.replace("/myquotes")
+            }
+            hitSlop={10}
+            style={styles.backButton}
+          >
+            <Ionicons name="close" size={28} color="#6B7280" />
+          </Pressable>
+        </View>
       </View>
 
       {loading ? (
@@ -391,11 +648,9 @@ export default function ClientMyQuoteDetail() {
       ) : (
         <>
           <ScrollView
-            contentContainerStyle={{ paddingBottom: 40 }}
+            contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
             showsVerticalScrollIndicator={false}
           >
-            <Spacer height={8} />
-
             {/* Hero summary card */}
             <View style={styles.heroCard}>
               <View style={styles.heroTopRow}>
@@ -418,7 +673,7 @@ export default function ClientMyQuoteDetail() {
                     Total quote
                   </ThemedText>
                   <ThemedText style={styles.heroAmount}>
-                    {currency} {grand.toFixed(2)}
+                    {currency} {formatNumber(grand)}
                   </ThemedText>
                   <ThemedText variant="muted" style={styles.heroSub}>
                     {includesVat ? "Includes VAT" : "No VAT added"}
@@ -444,8 +699,7 @@ export default function ClientMyQuoteDetail() {
               </View>
             </View>
 
-            {/* Accepted / declined banners */}
-            {status === "accepted" && <AcceptedPanel />}
+            {/* Declined banner only (removed "accepted" banner as requested) */}
             {status === "declined" && <DeclinedPanel />}
 
             {/* Your request (summary + photos) */}
@@ -457,65 +711,97 @@ export default function ClientMyQuoteDetail() {
                   </ThemedText>
                 </View>
                 <View style={styles.card}>
-                  {/* Short summary – more client-friendly */}
-                  <ThemedText style={styles.reqTitle}>
+                  {/* Title */}
+                  <ThemedText style={styles.requestTitle}>
                     {req.suggested_title || parsed.title || "Bathroom refit"}
                   </ThemedText>
 
-                  <Spacer height={4} />
+                  <Spacer height={16} />
 
-                  <ThemedText variant="muted" style={styles.reqMeta}>
-                    {req.created_at
-                      ? `Submitted ${new Date(
-                          req.created_at
-                        ).toLocaleString()}`
-                      : "Submitted date not available"}
-                    {req.job_outcode ? `   •   Area ${req.job_outcode}` : ""}
-                  </ThemedText>
+                  {/* Details Grid */}
+                  {req.created_at && (
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Submitted</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>
+                          {new Date(req.created_at).toLocaleDateString(undefined, {
+                            weekday: 'short',
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric'
+                          })}
+                        </ThemedText>
+                      </View>
+                    </View>
+                  )}
+
+                  {!!req.job_outcode && (
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="location-outline" size={18} color="#6B7280" />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Area</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>{req.job_outcode}</ThemedText>
+                      </View>
+                    </View>
+                  )}
 
                   {!!req.budget_band && (
-                    <ThemedText variant="muted" style={styles.reqMeta}>
-                      Budget: {req.budget_band}
-                    </ThemedText>
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="cash-outline" size={18} color="#6B7280" />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Budget</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>{req.budget_band}</ThemedText>
+                      </View>
+                    </View>
                   )}
 
                   {!!parsed.start && (
-                    <ThemedText variant="muted" style={styles.reqMeta}>
-                      When: {parsed.start}
-                    </ThemedText>
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="time-outline" size={18} color="#6B7280" />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Start date</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>{parsed.start}</ThemedText>
+                      </View>
+                    </View>
                   )}
 
                   {!!parsed.refit && (
-                    <ThemedText variant="muted" style={styles.reqMeta}>
-                      Job type: {parsed.refit}
-                    </ThemedText>
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="construct-outline" size={18} color="#6B7280" />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Job type</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>{parsed.refit}</ThemedText>
+                      </View>
+                    </View>
                   )}
 
                   {!!parsed.notes && (
-                    <ThemedText variant="muted" style={styles.reqMeta}>
-                      Notes: {parsed.notes}
-                    </ThemedText>
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="document-text-outline" size={18} color="#6B7280" />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Notes</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>{parsed.notes}</ThemedText>
+                      </View>
+                    </View>
                   )}
 
-                  <View style={styles.divider} />
+                  {hasAttachments && (
+                    <>
+                      <View style={styles.divider} />
 
-                  <View
-                    style={[
-                      styles.kvRow,
-                      { alignItems: "center", marginBottom: 8 },
-                    ]}
-                  >
-                    <ThemedText
-                      style={[styles.kvKey, { fontWeight: "800" }]}
-                    >
-                      Photos
-                    </ThemedText>
-                    <ThemedText style={[styles.kvVal, { opacity: 0.7 }]}>
-                      {attachmentsCount > 0
-                        ? `(${attachmentsCount})`
-                        : "No attachments"}
-                    </ThemedText>
-                  </View>
+                      <View style={styles.requestDetailRow}>
+                        <Ionicons name="images-outline" size={18} color="#6B7280" />
+                        <View style={styles.requestDetailContent}>
+                          <ThemedText style={styles.requestDetailLabel}>
+                            Photos ({attachmentsCount})
+                          </ThemedText>
+                        </View>
+                      </View>
+
+                      <Spacer height={12} />
+                    </>
+                  )}
 
                   {hasAttachments && (
                     <View style={styles.gridWrap}>
@@ -555,62 +841,70 @@ export default function ClientMyQuoteDetail() {
               </ThemedText>
             </View>
             <View style={styles.card}>
-              {/* 1) Issued (date only) + validity */}
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Issued</ThemedText>
-                <ThemedText style={styles.kvVal}>
-                  {issuedAt ? issuedAt.toLocaleDateString() : "-"}
-                </ThemedText>
-              </View>
-              {!!validUntil && (
-                <View style={styles.kvRow}>
-                  <ThemedText style={styles.kvKey}>Valid until</ThemedText>
-                  <ThemedText style={styles.kvVal}>
-                    {validUntil.toLocaleDateString()}
-                  </ThemedText>
+              {/* Meta information */}
+              {issuedAt && (
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Issued</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>
+                      {issuedAt.toLocaleDateString(undefined, {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                      })}
+                    </ThemedText>
+                  </View>
                 </View>
               )}
 
-              {/* 2) Items */}
+              {!!validUntil && (
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="time-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Valid until</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>
+                      {validUntil.toLocaleDateString(undefined, {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                      })}
+                    </ThemedText>
+                  </View>
+                </View>
+              )}
+
+              {/* Line items */}
               {items.length > 0 && (
                 <>
-                  <View style={[styles.divider, { marginTop: 12 }]} />
+                  <View style={styles.divider} />
+                  <ThemedText style={styles.breakdownSectionLabel}>Line items</ThemedText>
+                  <Spacer height={12} />
+
                   {items.map((item, i) => {
                     const qty = Number(item?.qty ?? 0);
                     const price = Number(item?.unit_price ?? 0);
                     const line = Number.isFinite(qty * price)
-                      ? (qty * price).toFixed(2)
+                      ? formatNumber(qty * price)
                       : "0.00";
                     return (
-                      <View
-                        key={`li-${i}`}
-                        style={{
-                          paddingVertical: 10,
-                          borderTopWidth:
-                            i === 0 ? 0 : StyleSheet.hairlineWidth,
-                          borderTopColor: "rgba(148,163,184,0.35)",
-                          flexDirection: "row",
-                          alignItems: "flex-start",
-                        }}
-                      >
+                      <View key={`li-${i}`} style={styles.lineItemRow}>
                         <View style={{ flex: 1 }}>
-                          <ThemedText style={styles.itemTitle}>
+                          <ThemedText style={styles.lineItemName}>
                             {item?.name || "Item"}
                           </ThemedText>
                           {!!item?.description && (
-                            <ThemedText
-                              variant="muted"
-                              style={{ marginTop: 2 }}
-                            >
+                            <ThemedText style={styles.lineItemDescription}>
                               {item.description}
                             </ThemedText>
                           )}
-                          <ThemedText variant="muted">
-                            Qty: {qty} • Price: {currency}{" "}
-                            {price.toFixed(2)}
+                          <ThemedText style={styles.lineItemMeta}>
+                            Qty: {qty} • {currency} {formatNumber(price)} each
                           </ThemedText>
                         </View>
-                        <ThemedText style={styles.lineTotal}>
+                        <ThemedText style={styles.lineItemTotal}>
                           {currency} {line}
                         </ThemedText>
                       </View>
@@ -619,35 +913,39 @@ export default function ClientMyQuoteDetail() {
                 </>
               )}
 
-              {/* 3) Totals last (with and without VAT) */}
+              {/* 3) Totals */}
               <View style={[styles.divider, { marginTop: 12 }]} />
-
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Total</ThemedText>
-                <ThemedText style={styles.kvValStrong}>
-                  {currency} {grand.toFixed(2)}{" "}
-                  {includesVat ? "(incl. VAT)" : ""}
-                </ThemedText>
-              </View>
+              <ThemedText style={styles.breakdownSectionLabel}>Summary</ThemedText>
+              <Spacer height={12} />
 
               {!!subtotal && (
-                <View style={styles.kvRow}>
-                  <ThemedText style={styles.kvKey}>
+                <View style={styles.totalRow}>
+                  <ThemedText style={styles.totalLabel}>
                     {includesVat ? "Subtotal (excl. VAT)" : "Subtotal"}
                   </ThemedText>
-                  <ThemedText style={styles.kvVal}>
-                    {currency} {subtotal.toFixed(2)}
+                  <ThemedText style={styles.totalValue}>
+                    {currency} {formatNumber(subtotal)}
                   </ThemedText>
                 </View>
               )}
 
               {!!taxTotal && (
-                <View style={styles.kvRow}>
-                  <ThemedText style={styles.kvKey}>VAT</ThemedText>
-                  <ThemedText style={styles.kvVal}>
-                    {currency} {taxTotal.toFixed(2)}
+                <View style={styles.totalRow}>
+                  <ThemedText style={styles.totalLabel}>VAT</ThemedText>
+                  <ThemedText style={styles.totalValue}>
+                    {currency} {formatNumber(taxTotal)}
                   </ThemedText>
                 </View>
+              )}
+
+              <View style={[styles.totalRow, styles.totalRowFinal]}>
+                <ThemedText style={styles.totalLabelFinal}>Total</ThemedText>
+                <ThemedText style={styles.totalValueFinal}>
+                  {currency} {formatNumber(grand)}
+                </ThemedText>
+              </View>
+              {includesVat && (
+                <ThemedText style={styles.totalNote}>Includes VAT</ThemedText>
               )}
             </View>
 
@@ -696,97 +994,71 @@ export default function ClientMyQuoteDetail() {
               </>
             ) : null}
 
-            {/* Appointments Section */}
-            {appointment && (
+            {/* Appointments Section - Multiple Appointments Support */}
+            {appointments.length > 0 && (
               <>
                 <View style={styles.sectionHeaderRow}>
                   <ThemedText style={styles.sectionHeaderText}>
                     Appointments
                   </ThemedText>
                 </View>
-                <View style={styles.card}>
-                  {appointment.scheduled_at && (
-                    <>
-                      <View style={styles.appointmentRow}>
-                        <Ionicons name="calendar" size={20} color={PRIMARY} />
-                        <View style={{ flex: 1, marginLeft: 12 }}>
-                          <ThemedText style={styles.appointmentLabel}>
-                            Scheduled
-                          </ThemedText>
-                          <ThemedText style={styles.appointmentValue}>
-                            {new Date(appointment.scheduled_at).toLocaleString(undefined, {
-                              weekday: "short",
-                              year: "numeric",
-                              month: "short",
-                              day: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </ThemedText>
-                        </View>
-                      </View>
-                      <Spacer height={12} />
-                    </>
-                  )}
 
-                  {appointment.location && (
-                    <>
-                      <View style={styles.appointmentRow}>
-                        <Ionicons name="location" size={20} color={PRIMARY} />
-                        <View style={{ flex: 1, marginLeft: 12 }}>
-                          <ThemedText style={styles.appointmentLabel}>
-                            Location
-                          </ThemedText>
-                          <ThemedText style={styles.appointmentValue}>
-                            {appointment.location}
-                          </ThemedText>
-                        </View>
-                      </View>
-                      <Spacer height={12} />
-                    </>
-                  )}
-
-                  {appointment.notes && (
-                    <>
-                      <View style={styles.appointmentRow}>
-                        <Ionicons name="document-text" size={20} color={PRIMARY} />
-                        <View style={{ flex: 1, marginLeft: 12 }}>
-                          <ThemedText style={styles.appointmentLabel}>
-                            Notes
-                          </ThemedText>
-                          <ThemedText style={styles.appointmentValue}>
-                            {appointment.notes}
-                          </ThemedText>
-                        </View>
-                      </View>
-                      <Spacer height={12} />
-                    </>
-                  )}
-
-                  <View style={styles.appointmentRow}>
-                    <Ionicons
-                      name={appointment.status === "confirmed" ? "checkmark-circle" : "hourglass"}
-                      size={20}
-                      color={appointment.status === "confirmed" ? "#10B981" : "#F59E0B"}
-                    />
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <ThemedText style={styles.appointmentLabel}>
-                        Status
-                      </ThemedText>
-                      <ThemedText style={[
-                        styles.appointmentValue,
-                        {
-                          color: appointment.status === "confirmed" ? "#10B981" : "#F59E0B",
-                          fontWeight: "600"
-                        }
-                      ]}>
-                        {appointment.status === "confirmed" ? "Confirmed" :
-                         appointment.status === "proposed" ? "Proposed - Awaiting confirmation" :
-                         appointment.status?.charAt(0).toUpperCase() + appointment.status?.slice(1)}
+                {/* NEXT Appointment(s) - Expanded by default */}
+                {categorizedAppointments.next.length > 0 && (
+                  <>
+                    <View style={styles.appointmentSectionLabel}>
+                      <ThemedText style={styles.appointmentSectionLabelText}>
+                        NEXT
                       </ThemedText>
                     </View>
-                  </View>
-                </View>
+                    {categorizedAppointments.next.map((appt) => (
+                      <AppointmentCard
+                        key={appt.id}
+                        appointment={appt}
+                        isExpanded={expandedAppointments.has(appt.id)}
+                        isNext={true}
+                      />
+                    ))}
+                  </>
+                )}
+
+                {/* UPCOMING Appointments - Collapsed by default */}
+                {categorizedAppointments.upcoming.length > 0 && (
+                  <>
+                    <View style={styles.appointmentSectionLabel}>
+                      <ThemedText style={styles.appointmentSectionLabelText}>
+                        UPCOMING
+                      </ThemedText>
+                    </View>
+                    {categorizedAppointments.upcoming.map((appt) => (
+                      <AppointmentCard
+                        key={appt.id}
+                        appointment={appt}
+                        isExpanded={expandedAppointments.has(appt.id)}
+                        isNext={false}
+                      />
+                    ))}
+                  </>
+                )}
+
+                {/* COMPLETED Appointments - Minimized */}
+                {categorizedAppointments.completed.length > 0 && (
+                  <>
+                    <View style={styles.appointmentSectionLabel}>
+                      <ThemedText style={styles.appointmentSectionLabelText}>
+                        COMPLETED
+                      </ThemedText>
+                    </View>
+                    {categorizedAppointments.completed.map((appt) => (
+                      <AppointmentCard
+                        key={appt.id}
+                        appointment={appt}
+                        isExpanded={expandedAppointments.has(appt.id)}
+                        isNext={false}
+                      />
+                    ))}
+                  </>
+                )}
               </>
             )}
 
@@ -809,13 +1081,14 @@ export default function ClientMyQuoteDetail() {
           name: tradeName || "",
           // this is what messages/[id].jsx uses to load the hero card
           quoteId: String(quote.id || id),
+          returnTo: `/myquotes/${id}`, // Return to this quote detail page
         },
       });
     }}
     style={styles.conversationBtn}
   >
     <ThemedText style={styles.conversationText}>
-      {`Start a conversation with ${tradeName}`}
+      {`Message ${tradeName}`}
     </ThemedText>
   </ThemedButton>
 </View>
@@ -904,25 +1177,26 @@ export default function ClientMyQuoteDetail() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors?.light?.background || "#F8FAFC",
-    // manual safe-area offset for iOS notch, without bottom blob
-    paddingTop: Platform.OS === "ios" ? 44 : 0,
+    backgroundColor: "#F9FAFB",
   },
 
-  topBar: {
+  // Profile-style header
+  header: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    backgroundColor: "#F9FAFB",
+  },
+  headerRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 8,
-    backgroundColor: Colors?.light?.background || "#F8FAFC",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(148,163,184,0.4)",
+    justifyContent: "space-between",
   },
-  title: {
-    flex: 1,
-    textAlign: "center",
-    fontSize: 18,
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+  },
+  backButton: {
+    padding: 4,
   },
 
   headerBlock: {
@@ -945,16 +1219,12 @@ const styles = StyleSheet.create({
 
   // Hero card
   heroCard: {
-    marginHorizontal: 16,
-    marginBottom: 8,
+    marginBottom: 16,
     padding: 16,
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: "#FFFFFF",
-    shadowColor: "#0F172A",
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 16,
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.08)",
   },
   heroTopRow: {
     flexDirection: "row",
@@ -995,8 +1265,7 @@ const styles = StyleSheet.create({
   },
 
   acceptedPanel: {
-    marginHorizontal: 16,
-    marginVertical: 8,
+    marginBottom: 16,
     padding: 12,
     borderRadius: 12,
     backgroundColor: "#DCFCE7",
@@ -1021,9 +1290,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
     borderRadius: 16,
-    padding: 12,
-    marginHorizontal: 16,
-    marginVertical: 8,
+    padding: 16,
+    marginBottom: 16,
     backgroundColor: "#FFFFFF",
   },
   sectionTitle: {
@@ -1040,18 +1308,120 @@ const styles = StyleSheet.create({
 
   // Section headers (Airbnb-style)
   sectionHeaderRow: {
-    marginTop: 18,
-    paddingHorizontal: 16,
-    paddingBottom: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(148,163,184,0.5)",
+    marginTop: 24,
+    marginBottom: 12,
   },
   sectionHeaderText: {
-    fontSize: 19, // +4 from earlier 15
+    fontSize: 20,
     fontWeight: "700",
+    color: "#111827",
   },
 
-  // Request summary
+  // Request summary (NEW STYLES)
+  requestTitle: {
+    fontWeight: "700",
+    fontSize: 18,
+    color: "#111827",
+  },
+  requestDetailRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 16,
+  },
+  requestDetailContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  requestDetailLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  requestDetailValue: {
+    fontSize: 15,
+    color: "#111827",
+    lineHeight: 22,
+  },
+
+  // Quote breakdown (NEW STYLES)
+  breakdownSectionLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#111827",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  lineItemRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E7EB",
+  },
+  lineItemName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  lineItemDescription: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginBottom: 4,
+    lineHeight: 20,
+  },
+  lineItemMeta: {
+    fontSize: 13,
+    color: "#6B7280",
+  },
+  lineItemTotal: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+    marginLeft: 12,
+  },
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  totalLabel: {
+    fontSize: 15,
+    color: "#6B7280",
+  },
+  totalValue: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  totalRowFinal: {
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 2,
+    borderTopColor: "#E5E7EB",
+    marginBottom: 4,
+  },
+  totalLabelFinal: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  totalValueFinal: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  totalNote: {
+    fontSize: 13,
+    color: "#6B7280",
+    textAlign: "right",
+    fontStyle: "italic",
+  },
+
+  // OLD - can be removed
   reqTitle: {
     fontWeight: "600",
     fontSize: 15,
@@ -1108,7 +1478,6 @@ const styles = StyleSheet.create({
   },
 
   nextSteps: {
-    marginHorizontal: 16,
     marginTop: 16,
   },
   nextStepsTitle: {
@@ -1116,9 +1485,7 @@ const styles = StyleSheet.create({
   },
 
   conversationBlock: {
-    marginHorizontal: 16,
     marginTop: 20,
-    marginBottom: 24,
   },
   conversationBtn: {
     borderRadius: 999,
@@ -1159,7 +1526,7 @@ const styles = StyleSheet.create({
     resizeMode: "contain",
   },
 
-  // Appointment section styles
+  // Appointment section styles (old - can be removed if not used elsewhere)
   appointmentRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1175,5 +1542,131 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#111827",
     fontWeight: "500",
+  },
+
+  // NEW: Appointment section label (NEXT, UPCOMING, COMPLETED)
+  appointmentSectionLabel: {
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  appointmentSectionLabelText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+
+  // NEW: Appointment card (collapsible)
+  appointmentCard: {
+    marginBottom: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    overflow: "hidden",
+  },
+  appointmentCardNext: {
+    borderColor: PRIMARY,
+    borderWidth: 2,
+    shadowColor: PRIMARY,
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  appointmentCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 16,
+    gap: 12,
+  },
+  appointmentCardTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  appointmentCardTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+    flex: 1,
+  },
+  appointmentCardMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  appointmentCardMeta: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+
+  // NEW: Appointment badge
+  appointmentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  appointmentBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  // NEW: Appointment card content (expandable)
+  appointmentCardContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  appointmentDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginBottom: 16,
+  },
+  appointmentDetailRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 14,
+  },
+  appointmentDetailLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  appointmentDetailValue: {
+    fontSize: 15,
+    color: "#111827",
+    fontWeight: "500",
+    lineHeight: 22,
+  },
+
+  // NEW: Appointment actions (buttons in expanded state)
+  appointmentActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 16,
+  },
+  appointmentActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  appointmentActionText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: PRIMARY,
   },
 });

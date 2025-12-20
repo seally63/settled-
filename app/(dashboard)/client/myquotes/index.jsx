@@ -10,6 +10,7 @@ import {
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../../../../lib/supabase";
 import { useUser } from "../../../../hooks/useUser";
@@ -21,6 +22,12 @@ import Spacer from "../../../../components/Spacer";
 import { Colors } from "../../../../constants/Colors";
 
 const TINT = Colors?.light?.tint || "#6849a7";
+
+// Format number with thousand separators (commas)
+function formatNumber(num) {
+  if (num == null || isNaN(num)) return "0.00";
+  return Number(num).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 // Status badge component with icons (no emojis)
 function StatusBadge({ type }) {
@@ -68,7 +75,7 @@ function FilterBtn({ active, label, count, onPress }) {
 // Project card component
 function ProjectCard({ item, onPress, statusType, actionButtons }) {
   return (
-    <View style={styles.projectCard}>
+    <Pressable style={styles.projectCard} onPress={onPress}>
       {/* Header */}
       <View style={styles.cardHeader}>
         <View style={{ flex: 1 }}>
@@ -99,7 +106,7 @@ function ProjectCard({ item, onPress, statusType, actionButtons }) {
           <View style={styles.amountRow}>
             <ThemedText style={styles.amountLabel}>Quote total</ThemedText>
             <ThemedText style={styles.amountValue}>
-              {item.currency || "GBP"} {Number(item.amount).toFixed(2)}
+              {item.currency || "GBP"} {formatNumber(item.amount)}
             </ThemedText>
           </View>
         )}
@@ -173,7 +180,7 @@ function ProjectCard({ item, onPress, statusType, actionButtons }) {
           </View>
         </>
       )}
-    </View>
+    </Pressable>
   );
 }
 
@@ -215,6 +222,7 @@ function EmptyState({ icon, title, subtitle, actionLabel, onAction }) {
 export default function ClientProjects() {
   const { user } = useUser();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [filter, setFilter] = useState("all"); // all | active | completed
   const [refreshing, setRefreshing] = useState(false);
@@ -460,12 +468,13 @@ export default function ClientProjects() {
       const status = String(q.status || "").toLowerCase();
 
       if (status === "accepted") {
-        // Find associated appointment
-        const relatedAppointment = appointments.find(
-          (appt) => appt.quote_id === q.quote_id &&
-          (appt.status?.toLowerCase() === "confirmed" || appt.status?.toLowerCase() === "accepted")
-        );
-        const scheduledDate = relatedAppointment?.scheduled_at ? new Date(relatedAppointment.scheduled_at) : null;
+        // Find next appointment (earliest upcoming or confirmed)
+        const relatedAppointments = appointments.filter(
+          (appt) => appt.quote_id === q.quote_id
+        ).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+
+        const nextAppointment = relatedAppointments[0];
+        const scheduledDate = nextAppointment?.scheduled_at ? new Date(nextAppointment.scheduled_at) : null;
         const isScheduled = !!scheduledDate;
 
         activeJobs.push({
@@ -476,14 +485,38 @@ export default function ClientProjects() {
           tradeName: q.trade_business_name,
           amount: q.grand_total,
           currency: q.currency || "GBP",
-          appointmentDate: scheduledDate ? scheduledDate.toLocaleString() : null,
-          metaInfo: isScheduled ? `Started ${new Date(q.issued_at).toLocaleDateString()}` : `Accepted ${new Date(q.issued_at).toLocaleDateString()}`,
+          appointmentDate: scheduledDate
+            ? `${nextAppointment.title || "Appointment"}: ${scheduledDate.toLocaleDateString(undefined, {
+                weekday: "short",
+                month: "short",
+                day: "numeric"
+              })} at ${scheduledDate.toLocaleTimeString(undefined, {
+                hour: "2-digit",
+                minute: "2-digit"
+              })}`
+            : null,
+          metaInfo: null, // Removed "Accepted" date
           statusType: isScheduled ? "SCHEDULED" : "ACTIVE",
+          requestId: q.request_id, // Pass request_id for messaging
           actionButtons: [
             {
               label: "Message",
               variant: "secondary",
-              onPress: () => router.push(`/messages`),
+              onPress: () => {
+                if (q.request_id) {
+                  router.push({
+                    pathname: "/(dashboard)/messages/[id]",
+                    params: {
+                      id: String(q.request_id),
+                      name: q.trade_business_name || "",
+                      quoteId: String(q.quote_id),
+                      returnTo: "/myquotes", // Tell messages screen to return to projects
+                    },
+                  });
+                } else {
+                  router.push(`/messages`);
+                }
+              },
             },
             {
               label: "View Details",
@@ -567,7 +600,12 @@ export default function ClientProjects() {
   };
 
   return (
-    <ThemedView style={styles.container} safe={true}>
+    <ThemedView style={styles.container}>
+      {/* Header - Profile-style */}
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <ThemedText style={styles.headerTitle}>Projects</ThemedText>
+      </View>
+
       {/* Filter buttons */}
       <View style={styles.filterRow}>
         <FilterBtn
@@ -610,6 +648,15 @@ export default function ClientProjects() {
                 item={project}
                 statusType={project.statusType}
                 actionButtons={project.actionButtons}
+                onPress={() => {
+                  // Navigate based on project type
+                  if (project.type === "decide" && project.id.includes("decide-")) {
+                    const quoteId = project.id.replace("decide-", "");
+                    router.push(`/myquotes/${quoteId}`);
+                  } else if (project.type === "response_declined" && project.actionButtons?.[0]) {
+                    project.actionButtons[0].onPress();
+                  }
+                }}
               />
             ))}
             <Spacer height={16} />
@@ -630,6 +677,12 @@ export default function ClientProjects() {
                 item={project}
                 statusType={project.statusType}
                 actionButtons={project.actionButtons}
+                onPress={() => {
+                  // Navigate to request detail
+                  if (project.actionButtons?.[0]) {
+                    project.actionButtons[0].onPress();
+                  }
+                }}
               />
             ))}
             <Spacer height={16} />
@@ -650,6 +703,11 @@ export default function ClientProjects() {
                 item={project}
                 statusType={project.statusType}
                 actionButtons={project.actionButtons}
+                onPress={() => {
+                  // Navigate to quote detail (View Details action)
+                  const quoteId = project.id.replace("active-", "");
+                  router.push(`/myquotes/${quoteId}`);
+                }}
               />
             ))}
             <Spacer height={16} />
@@ -670,6 +728,12 @@ export default function ClientProjects() {
                 item={project}
                 statusType={project.statusType}
                 actionButtons={project.actionButtons}
+                onPress={() => {
+                  // Navigate to quote detail
+                  if (project.actionButtons?.[0]) {
+                    project.actionButtons[0].onPress();
+                  }
+                }}
               />
             ))}
             <Spacer height={16} />
@@ -716,11 +780,21 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F9FAFB",
   },
+  // Profile-style header
+  header: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    backgroundColor: "#F9FAFB",
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+  },
   filterRow: {
     flexDirection: "row",
     gap: 12,
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 12,
   },
   filterBtn: {

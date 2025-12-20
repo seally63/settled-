@@ -370,6 +370,9 @@ export default function MessageThread() {
   const avatarParam = Array.isArray(params.avatar)
     ? params.avatar[0]
     : params.avatar;
+  const returnToParam = Array.isArray(params.returnTo)
+    ? params.returnTo[0]
+    : params.returnTo;
 
   const tradeName = tradeNameParam || "Trade business";
   const quoteId = quoteIdParam || null;
@@ -635,7 +638,10 @@ export default function MessageThread() {
       <View style={styles.topBar}>
         <Pressable
           onPress={() => {
-            if (router.canGoBack()) {
+            // If returnTo param exists, navigate there instead of going back
+            if (returnToParam) {
+              router.replace(returnToParam);
+            } else if (router.canGoBack()) {
               router.back(); // gives you the proper "back" animation
             } else {
               router.replace("/(dashboard)/messages");

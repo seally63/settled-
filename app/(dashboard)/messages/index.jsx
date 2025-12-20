@@ -174,13 +174,9 @@ export default function MessagesIndex() {
   );
 
   return (
-    <ThemedView
-      style={[
-        styles.container,
-        { paddingTop: insets.top + 6 },
-      ]}
-    >
-      <View style={styles.headerRow}>
+    <ThemedView style={styles.container}>
+      {/* Header - Profile-style */}
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <ThemedText style={styles.headerTitle}>Messages</ThemedText>
       </View>
 
@@ -221,18 +217,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "stretch",
-    backgroundColor: Colors?.light?.background || "#F8FAFC",
+    backgroundColor: "#F9FAFB",
   },
-  headerRow: {
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  // Profile-style header
+  header: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    backgroundColor: "#F9FAFB",
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 28,
     fontWeight: "700",
   },
 
