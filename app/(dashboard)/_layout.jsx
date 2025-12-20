@@ -16,9 +16,6 @@ export default function DashboardLayout() {
   const { user } = useUser();
   const [role, setRole] = useState(null);
 
-  // DEBUG: Log to confirm new layout is loaded
-  console.log('🔥 NEW DASHBOARD LAYOUT LOADED - Dec 20 2025');
-
   useEffect(() => {
     let mounted = true;
 
@@ -36,7 +33,6 @@ export default function DashboardLayout() {
 
       if (mounted) {
         const userRole = !error ? (data?.role || 'client') : 'client';
-        console.log('🔥 USER ROLE DETECTED:', userRole);
         setRole(userRole);
       }
     })();
@@ -63,8 +59,6 @@ export default function DashboardLayout() {
   }
 
   const isTrades = role === 'trades';
-
-  console.log('🔥 RENDERING TABS - isTrades:', isTrades, 'role:', role);
 
   return (
     <UserOnly>
