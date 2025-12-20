@@ -147,15 +147,13 @@ export default function MyProfileScreen() {
   const identity = isTrades ? (trade || selfProfile || {}) : (selfProfile || {});
 
   return (
-    <ThemedView style={{ flex: 1, backgroundColor: Colors.light.background }}>
-      <StatusBar style="light" backgroundColor={Colors.primary} />
-
+    <ThemedView style={{ flex: 1, backgroundColor: "#F9FAFB" }} safe={true}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <ThemedText style={styles.headerTitle}>My profile</ThemedText>
+      <View style={styles.header}>
+        <ThemedText style={styles.headerTitle}>Profile</ThemedText>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 + insets.bottom }}>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 32 + insets.bottom }}>
         {/* ===== CLIENTS: Private notice card (extra), but same overall layout ===== */}
         {isClient && (
           <View style={styles.card}>
@@ -272,12 +270,11 @@ export default function MyProfileScreen() {
 
 const styles = StyleSheet.create({
   header: {
-    backgroundColor: Colors.primary,
+    paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 12,
-    alignItems: "center",
-    justifyContent: "center",
   },
-  headerTitle: { color: "#fff", fontSize: 18, fontWeight: "700" },
+  headerTitle: { fontSize: 28, fontWeight: "700" },
 
   card: {
     borderRadius: 16,

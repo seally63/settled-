@@ -1,15 +1,16 @@
-// app/(dashboard)/quotes/index.jsx
+// app/(dashboard)/quotes/index.jsx - Tradesman Projects (Quotes + Sales combined)
 import { useCallback, useEffect, useState } from "react";
 import {
   StyleSheet,
   View,
   ScrollView,
   Pressable,
+  RefreshControl,
   ActivityIndicator,
 } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
@@ -17,215 +18,68 @@ import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
 
-/* ---------------- UI atoms ---------------- */
-function TabBtn({ active, label, icon, count, onPress }) {
+/* Chip components */
+function Chip({ text, tone = "muted" }) {
+  const tones = {
+    muted: { bg: "#F1F5F9", fg: "#64748B" },
+    brand: { bg: "#DBEAFE", fg: "#1E40AF" },
+    success: { bg: "#D1FAE5", fg: "#065F46" },
+    warning: { bg: "#FEF3C7", fg: "#92400E" },
+    danger: { bg: "#FEE2E2", fg: "#991B1B" },
+  };
+  const c = tones[tone] || tones.muted;
   return (
-    <Pressable onPress={onPress} hitSlop={10} style={styles.tabBtn}>
-      <Ionicons
-        name={icon}
-        size={28}
-        color={active ? Colors.primary : "rgba(0,0,0,0.45)"}
-      />
+    <View style={[styles.chip, { backgroundColor: c.bg }]}>
+      <ThemedText style={[styles.chipText, { color: c.fg }]}>{text}</ThemedText>
+    </View>
+  );
+}
+
+/* Tab button */
+function TabBtn({ active, label, count, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={10}
+      style={[
+        styles.tabBtn,
+        active && { backgroundColor: (Colors.light?.tint || "#0ea5e9") + "1A" },
+      ]}
+    >
       <ThemedText
         style={[
           styles.tabLabel,
-          { color: active ? Colors.primary : "rgba(0,0,0,0.7)" },
+          { color: active ? Colors.light?.tint || "#0ea5e9" : "#64748B" },
         ]}
       >
         {label}
+        {typeof count === "number" ? ` (${count})` : ""}
       </ThemedText>
-      <ThemedText
-        style={[
-          styles.tabCount,
-          { color: active ? Colors.primary : "rgba(0,0,0,0.6)" },
-        ]}
-      >
-        {count ?? 0}
-      </ThemedText>
-      <View
-        style={[
-          styles.tabUnderline,
-          { backgroundColor: active ? Colors.primary : "transparent" },
-        ]}
-      />
     </Pressable>
   );
 }
 
-function StatusRibbon({ value }) {
-  const map = {
-    open: { text: "New", bg: "#E9F5FF", fg: "#0B74D1" },
-    accepted: { text: "Accepted", bg: "#EAF8EF", fg: "#117A37" },
-    declined: { text: "Declined", bg: "#FDECEC", fg: "#B42318" },
-    awaiting: { text: "Awaiting response", bg: "#FEF3C7", fg: "#92400E" },
-  };
-  const v = map[value] || map.open;
-  return (
-    <View style={[styles.ribbon, { backgroundColor: v.bg }]}>
-      <ThemedText style={[styles.ribbonText, { color: v.fg }]}>
-        {v.text}
-      </ThemedText>
-    </View>
-  );
-}
-
-function TypeChip({ kind }) {
-  const isDirect = String(kind).toLowerCase() === "client";
-  return (
-    <View
-      style={[
-        styles.typeChip,
-        {
-          backgroundColor: isDirect ? "#F1F0FF" : "#F0F9FF",
-          borderColor: "rgba(0,0,0,0.06)",
-          marginRight: 8,
-          marginTop: 6,
-        },
-      ]}
-    >
-      <ThemedText style={styles.typeChipText}>
-        {isDirect ? "Direct request" : "Open request"}
-      </ThemedText>
-    </View>
-  );
-}
-
-function BudgetChip({ band }) {
-  if (!band) return null;
-  return (
-    <View
-      style={[
-        styles.typeChip,
-        {
-          backgroundColor: "#F8FAFC",
-          borderColor: "rgba(0,0,0,0.06)",
-          marginRight: 8,
-          marginTop: 6,
-        },
-      ]}
-    >
-      <ThemedText style={styles.typeChipText}>{band}</ThemedText>
-    </View>
-  );
-}
-
-function StateChip({ label }) {
-  // green accepted chip (matches your earlier design)
-  return (
-    <View
-      style={[
-        styles.typeChip,
-        {
-          backgroundColor: "#EAF8EF",
-          borderColor: "rgba(0,0,0,0.06)",
-          marginRight: 8,
-          marginTop: 6,
-        },
-      ]}
-    >
-      <ThemedText
-        style={[
-          styles.typeChipText,
-          { color: "#117A37", textTransform: "capitalize" },
-        ]}
-      >
-        {label}
-      </ThemedText>
-    </View>
-  );
-}
-
-/* --------------- helpers --------------- */
-function parseDetails(details) {
-  const out = {
-    firstLine: null,
-    main: null,
-    refit: null,
-    address: null,
-    start: null,
-    notes: null,
-  };
-  if (!details) return out;
-  const lines = String(details).split("\n");
-  out.firstLine = lines[0] || null;
-  for (const ln of lines) {
-    const [k, ...rest] = ln.split(":");
-    const v = rest.join(":").trim();
-    if (!v) continue;
-    const key = (k || "").toLowerCase();
-    if (key === "main") out.main = v;
-    else if (key.includes("refit")) out.refit = v;
-    else if (key.includes("address")) out.address = v;
-    else if (key.includes("start")) out.start = v;
-    else if (key.includes("notes")) out.notes = v;
-  }
-  return out;
-}
-
-function outwardFrom(r) {
-  const maybe = (r?.job_outcode || "").toUpperCase();
-  if (maybe) return maybe;
-  const p = parseDetails(r?.details);
-  const token = (p.address || "").split(/\s+/)[0].toUpperCase();
-  return token || null;
-}
-
-function titleWithOutward(r) {
-  const p = parseDetails(r?.details);
-  const base =
-    p.main && p.refit
-      ? `${p.main} – ${p.refit}`
-      : p.main
-      ? p.main
-      : p.firstLine || "Request";
-  const out = outwardFrom(r);
-  return out ? `${base} in ${out}` : base;
-}
-
-function fmtDateTime(s) {
-  if (!s) return "—";
-  try {
-    const d = new Date(s);
-    return d.toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return String(s);
-  }
-}
-
-function fmtDateOnly(s) {
-  if (!s) return "—";
-  try {
-    const d = new Date(s);
-    return d.toLocaleDateString();
-  } catch {
-    return String(s);
-  }
-}
-
-/* --------------- screen --------------- */
-export default function QuotesIndex() {
-  const insets = useSafeAreaInsets();
+export default function TradesmanProjects() {
   const router = useRouter();
   const { user } = useUser();
-  const [activeTab, setActiveTab] = useState("inbox"); // inbox | sent
+
+  const [activeTab, setActiveTab] = useState("active"); // active | completed | invoices
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Data
   const [inboxRows, setInboxRows] = useState([]);
   const [sentRows, setSentRows] = useState([]);
-  const [err, setErr] = useState(null);
+  const [invoices, setInvoices] = useState([]);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
-    setErr(null);
+
     try {
       const myId = user.id;
 
+      // Fetch request targets (inbox)
       const { data: targets, error: tErr } = await supabase
         .from("request_targets")
         .select("request_id, state, invited_by, created_at, trade_id")
@@ -233,11 +87,10 @@ export default function QuotesIndex() {
         .order("created_at", { ascending: false });
       if (tErr) throw tErr;
 
+      // Fetch quotes
       const { data: quotes, error: qErr } = await supabase
         .from("tradify_native_app_db")
-        .select(
-          "id, request_id, status, issued_at, created_at, details, currency, grand_total, tax_total"
-        )
+        .select("id, request_id, status, issued_at, created_at, details, currency, grand_total, tax_total")
         .eq("trade_id", myId)
         .order("issued_at", { ascending: false, nullsFirst: false });
       if (qErr) throw qErr;
@@ -251,29 +104,14 @@ export default function QuotesIndex() {
         ])
       );
 
-      // fetch request docs
+      // Fetch request docs
       let reqById = {};
       if (reqIds.length) {
         const { data: reqs } = await supabase
           .from("quote_requests")
-          .select(
-            "id, details, created_at, status, job_outcode, budget_band"
-          )
+          .select("id, details, created_at, status, job_outcode, budget_band")
           .in("id", reqIds);
         (reqs || []).forEach((r) => (reqById[r.id] = r));
-      }
-
-      // batch-fetch attachment counts for visible requests (one query, aggregate client-side)
-      let attachCountByReq = {};
-      if (reqIds.length) {
-        const { data: raRows } = await supabase
-          .from("request_attachments")
-          .select("request_id")
-          .in("request_id", reqIds);
-        (raRows || []).forEach((row) => {
-          const rid = row.request_id;
-          attachCountByReq[rid] = (attachCountByReq[rid] || 0) + 1;
-        });
       }
 
       // INBOX (no quote created yet)
@@ -285,16 +123,10 @@ export default function QuotesIndex() {
             request_id: t.request_id,
             invited_at: t.created_at,
             request_type: t.invited_by || "system",
-            ribbon:
-              t.state === "accepted"
-                ? "accepted"
-                : t.state === "declined"
-                ? "declined"
-                : "open",
-            title: titleWithOutward(r),
+            state: t.state,
+            title: extractTitle(r),
             created_at: r?.created_at,
             budget_band: r?.budget_band || null,
-            attachments_count: attachCountByReq[t.request_id] || 0,
           };
         });
 
@@ -309,7 +141,7 @@ export default function QuotesIndex() {
           request_id: q.request_id,
           status: (q.status || "").toLowerCase(),
           issued_at: q.issued_at ?? q.created_at,
-          title: titleWithOutward(r),
+          title: extractTitle(r),
           request_type: t?.invited_by || "system",
           budget_band: r?.budget_band || null,
           acceptedByTrade: t?.state === "accepted",
@@ -321,8 +153,16 @@ export default function QuotesIndex() {
 
       setInboxRows(inbox);
       setSentRows(sent);
+
+      // Fetch invoices from sales view
+      const { data: invoiceData } = await supabase
+        .from("v_trades_sales")
+        .select("*")
+        .eq("kind", "invoice")
+        .order("issued_at", { ascending: false });
+      setInvoices(invoiceData || []);
     } catch (e) {
-      setErr(e?.message || String(e));
+      console.error("Load error:", e);
     } finally {
       setLoading(false);
     }
@@ -332,147 +172,217 @@ export default function QuotesIndex() {
     if (user?.id) load();
   }, [user?.id, load]);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
 
-  const inboxCount = inboxRows.length;
-  const sentCount = sentRows.length;
+  const activeProjects = [...inboxRows, ...sentRows.filter(q => q.status !== "declined" && q.status !== "expired")];
+  const completedProjects = sentRows.filter(q => q.status === "accepted" || q.status === "declined" || q.status === "expired");
 
-  const goRequestDetail = (rid) => router.push(`/quotes/request/${rid}`);
-  const goCreateForRequest = (rid, title) =>
-    router.push({
-      pathname: "/quotes/create",
-      params: {
-        requestId: rid,
-        title: encodeURIComponent(title || ""),
-        lockTitle: "1",
-      },
-    });
-
-  const goOpenQuote = (qid) => router.push(`/quotes/${qid}`);
+  if (loading) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={Colors.light?.tint || "#0ea5e9"} />
+        </View>
+      </ThemedView>
+    );
+  }
 
   return (
-    <ThemedView
-      style={{ flex: 1, backgroundColor: Colors.light.background }}
-    >
-      <View style={[styles.headerWrap, { paddingTop: insets.top + 6 }]}>
-        <ThemedText style={styles.headerTitle}>Quotes</ThemedText>
-        <View style={styles.tabsRow}>
-          <TabBtn
-            active={activeTab === "inbox"}
-            label="Inbox"
-            icon="mail-outline"
-            count={inboxCount}
-            onPress={() => setActiveTab("inbox")}
-          />
-          <TabBtn
-            active={activeTab === "sent"}
-            label="Sent"
-            icon="paper-plane-outline"
-            count={sentCount}
-            onPress={() => setActiveTab("sent")}
-          />
-        </View>
+    <ThemedView style={styles.container} safe={true}>
+      {/* Header */}
+      <View style={styles.header}>
+        <ThemedText style={styles.headerTitle}>Projects</ThemedText>
       </View>
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator />
-        </View>
-      ) : (
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 16 }}
-        >
-          {activeTab === "inbox" ? (
-            <InboxList
-              rows={inboxRows}
-              onOpen={goRequestDetail}
-              onCreate={(rid) => {
-                const fakeTitle =
-                  inboxRows.find((x) => x.request_id === rid)?.title ||
-                  "Project";
-                goCreateForRequest(rid, fakeTitle);
-              }}
-            />
-          ) : (
-            <SentList rows={sentRows} onOpen={goOpenQuote} />
-          )}
-          {!!err && (
-            <>
-              <Spacer height={8} />
-              <ThemedText variant="muted" style={{ fontSize: 12 }}>
-                Debug: {err}
-              </ThemedText>
-            </>
-          )}
-        </ScrollView>
-      )}
+      {/* Tabs */}
+      <View style={styles.tabsRow}>
+        <TabBtn
+          active={activeTab === "active"}
+          label="Active"
+          count={activeProjects.length}
+          onPress={() => setActiveTab("active")}
+        />
+        <TabBtn
+          active={activeTab === "completed"}
+          label="Completed"
+          count={completedProjects.length}
+          onPress={() => setActiveTab("completed")}
+        />
+        <TabBtn
+          active={activeTab === "invoices"}
+          label="Invoices"
+          count={invoices.length}
+          onPress={() => setActiveTab("invoices")}
+        />
+      </View>
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        showsVerticalScrollIndicator={false}
+      >
+        {activeTab === "active" && <ActiveProjects data={activeProjects} router={router} />}
+        {activeTab === "completed" && <CompletedProjects data={completedProjects} router={router} />}
+        {activeTab === "invoices" && <Invoices data={invoices} router={router} />}
+      </ScrollView>
     </ThemedView>
   );
 }
 
-/* --------------- panes --------------- */
-function InboxList({ rows, onOpen, onCreate }) {
-  if (!rows?.length) {
+/* Helper to extract title from request */
+function extractTitle(req) {
+  if (!req) return "Project";
+  const lines = String(req.details || "").split("\n");
+  return lines[0] || "Project";
+}
+
+/* Active Projects List */
+function ActiveProjects({ data, router }) {
+  if (!data.length) {
     return (
-      <View style={styles.emptyCard}>
-        <ThemedText style={styles.emptyTitle}>No new requests</ThemedText>
-        <ThemedText variant="muted" style={{ textAlign: "center" }}>
-          You’ll see new client requests here.
+      <View style={styles.emptyState}>
+        <Ionicons name="briefcase-outline" size={48} color="#D1D5DB" />
+        <Spacer height={12} />
+        <ThemedText style={styles.emptyTitle}>No active projects</ThemedText>
+        <ThemedText style={styles.emptySubtitle}>
+          New quote requests will appear here
         </ThemedText>
       </View>
     );
   }
-  return (
-    <View style={{ gap: 14 }}>
-      {rows.map((r) => (
-        <Pressable
-          key={r.request_id}
-          onPress={() => onOpen(r.request_id)}
-          style={styles.card}
-          hitSlop={8}
-        >
-          <StatusRibbon value={r.ribbon} />
-          <ThemedText style={styles.cardTitle}>{r.title}</ThemedText>
 
-          <View style={styles.chipsWrap}>
-            <TypeChip kind={r.request_type} />
-            <BudgetChip band={r.budget_band} />
-            {r.attachments_count > 0 && (
-              <View style={[styles.metaRight, styles.cameraRow]}>
-                <Ionicons name="camera" size={14} color="#111" />
-                <ThemedText style={styles.cameraText}>
-                  x{r.attachments_count}
-                </ThemedText>
-              </View>
+  return (
+    <View style={{ gap: 12 }}>
+      {data.map((project) => {
+        const isInbox = !project.id; // inbox items don't have quote id
+        const chipTone = project.state === "accepted" ? "success" : project.state === "declined" ? "danger" : "brand";
+        const chipLabel = isInbox
+          ? project.state === "accepted"
+            ? "Accepted"
+            : project.state === "declined"
+            ? "Declined"
+            : "New request"
+          : project.status === "accepted"
+          ? "Accepted"
+          : "Sent";
+
+        return (
+          <Pressable
+            key={project.id || project.request_id}
+            style={styles.projectCard}
+            onPress={() => {
+              if (isInbox) {
+                router.push(`/quotes/request/${project.request_id}`);
+              } else {
+                router.push(`/quotes/${project.id}`);
+              }
+            }}
+          >
+            <View style={styles.projectHeader}>
+              <ThemedText style={styles.projectTitle}>{project.title}</ThemedText>
+              <Chip text={chipLabel} tone={chipTone} />
+            </View>
+
+            <Spacer height={8} />
+
+            <View style={styles.projectMeta}>
+              {project.budget_band && (
+                <View style={styles.metaItem}>
+                  <Ionicons name="pricetag-outline" size={14} color="#6B7280" />
+                  <ThemedText style={styles.metaText}>{project.budget_band}</ThemedText>
+                </View>
+              )}
+              {project.request_type && (
+                <View style={styles.metaItem}>
+                  <Ionicons name={project.request_type === "client" ? "person" : "globe"} size={14} color="#6B7280" />
+                  <ThemedText style={styles.metaText}>
+                    {project.request_type === "client" ? "Direct" : "Open"}
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+
+            {!isInbox && project.grand_total !== null && (
+              <>
+                <Spacer height={12} />
+                <View style={styles.projectAmount}>
+                  <ThemedText style={styles.amountLabel}>Quote total</ThemedText>
+                  <ThemedText style={styles.amountValue}>
+                    {project.currency || "GBP"} {Number(project.grand_total).toFixed(2)}
+                  </ThemedText>
+                </View>
+              </>
             )}
-            <ThemedText
-              variant="muted"
-              style={[styles.metaRight, { marginTop: 6 }]}
-            >
-              Invited: {fmtDateTime(r.invited_at || r.created_at)}
-            </ThemedText>
+
+            {isInbox && project.state === "accepted" && (
+              <>
+                <Spacer height={12} />
+                <Pressable
+                  style={styles.createQuoteBtn}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    router.push({
+                      pathname: "/quotes/create",
+                      params: { requestId: project.request_id },
+                    });
+                  }}
+                >
+                  <ThemedText style={styles.createQuoteText}>Create quote</ThemedText>
+                  <Ionicons name="arrow-forward" size={16} color="#FFF" />
+                </Pressable>
+              </>
+            )}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/* Completed Projects List */
+function CompletedProjects({ data, router }) {
+  if (!data.length) {
+    return (
+      <View style={styles.emptyState}>
+        <Ionicons name="checkmark-circle-outline" size={48} color="#D1D5DB" />
+        <Spacer height={12} />
+        <ThemedText style={styles.emptyTitle}>No completed projects</ThemedText>
+        <ThemedText style={styles.emptySubtitle}>
+          Completed quotes will appear here
+        </ThemedText>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ gap: 12 }}>
+      {data.map((project) => (
+        <Pressable
+          key={project.id}
+          style={styles.projectCard}
+          onPress={() => router.push(`/quotes/${project.id}`)}
+        >
+          <View style={styles.projectHeader}>
+            <ThemedText style={styles.projectTitle}>{project.title}</ThemedText>
+            <Chip
+              text={project.status === "accepted" ? "Accepted" : project.status === "declined" ? "Declined" : "Expired"}
+              tone={project.status === "accepted" ? "success" : "muted"}
+            />
           </View>
 
-          {r.ribbon === "accepted" && (
-            <View style={styles.footerRow}>
-              <View style={{ flex: 1 }} />
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onCreate(r.request_id, r.title);
-                }}
-                style={styles.createBtnSmall}
-                hitSlop={8}
-              >
-                <ThemedText style={styles.createBtnSmallText}>
-                  Create quote
-                </ThemedText>
-              </Pressable>
+          <Spacer height={8} />
+
+          {project.grand_total !== null && (
+            <View style={styles.projectAmount}>
+              <ThemedText style={styles.amountLabel}>Quote total</ThemedText>
+              <ThemedText style={styles.amountValue}>
+                {project.currency || "GBP"} {Number(project.grand_total).toFixed(2)}
+              </ThemedText>
             </View>
           )}
         </Pressable>
@@ -481,105 +391,58 @@ function InboxList({ rows, onOpen, onCreate }) {
   );
 }
 
-function SentList({ rows, onOpen }) {
-  if (!rows?.length) {
+/* Invoices List */
+function Invoices({ data, router }) {
+  if (!data.length) {
     return (
-      <View style={styles.emptyCard}>
-        <ThemedText style={styles.emptyTitle}>Nothing sent yet</ThemedText>
-        <ThemedText variant="muted" style={{ textAlign: "center" }}>
-          When you send a quote, it will appear here with the client’s
-          decision.
+      <View style={styles.emptyState}>
+        <Ionicons name="receipt-outline" size={48} color="#D1D5DB" />
+        <Spacer height={12} />
+        <ThemedText style={styles.emptyTitle}>No invoices</ThemedText>
+        <ThemedText style={styles.emptySubtitle}>
+          Create invoices for accepted projects
         </ThemedText>
       </View>
     );
   }
+
   return (
-    <View style={{ gap: 14 }}>
-      {rows.map((q) => {
-        const ribbon =
-          q.status === "accepted"
-            ? "accepted"
-            : q.status === "declined"
-            ? "declined"
-            : "awaiting";
-
-        const currency = q.currency || "GBP";
-        const total =
-          q.grand_total !== null && q.grand_total !== undefined
-            ? Number(q.grand_total)
-            : null;
-        const includesVat =
-          q.tax_total !== null &&
-          q.tax_total !== undefined &&
-          Number(q.tax_total) > 0;
-
-        const showNextActionChip = q.status === "accepted";
+    <View style={{ gap: 12 }}>
+      {data.map((invoice) => {
+        const status = (invoice.status_norm || "").toLowerCase();
+        const chipTone = status === "paid" ? "success" : status === "overdue" ? "danger" : "warning";
+        const chipLabel = status === "paid" ? "Paid" : status === "overdue" ? "Overdue" : "Unpaid";
 
         return (
           <Pressable
-            key={q.id}
-            onPress={() => onOpen(q.id)}
-            style={styles.card}
-            hitSlop={8}
+            key={invoice.id}
+            style={styles.projectCard}
+            onPress={() => router.push(`/sales/invoice/${invoice.id}`)}
           >
-            {/* Awaiting / accepted / declined ribbon kept at top-right */}
-            <StatusRibbon value={ribbon} />
-
-            <ThemedText style={styles.cardTitle}>{q.title}</ThemedText>
-
-            <View style={styles.chipsWrap}>
-              <TypeChip kind={q.request_type} />
-              {!!q.acceptedByTrade && <StateChip label="accepted" />}
-              <BudgetChip band={q.budget_band} />
-
-              {showNextActionChip && (
-                <Pressable
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    onOpen(q.id);
-                  }}
-                  hitSlop={6}
-                  style={styles.apptChip}
-                >
-                  <Ionicons
-                    name="calendar-outline"
-                    size={12}
-                    color="#065F46"
-                  />
-                  <ThemedText style={styles.apptChipText}>
-                    Schedule appointment
-                  </ThemedText>
-                </Pressable>
-              )}
+            <View style={styles.projectHeader}>
+              <ThemedText style={styles.projectTitle}>
+                Invoice #{invoice.invoice_number || invoice.id}
+              </ThemedText>
+              <Chip text={chipLabel} tone={chipTone} />
             </View>
 
-            <View style={styles.sentAmountRow}>
-              <View>
-                <ThemedText style={styles.sentAmountLabel}>
-                  Total quote
-                </ThemedText>
-                {total !== null && !Number.isNaN(total) ? (
-                  <>
-                    <ThemedText style={styles.sentAmount}>
-                      {currency} {total.toFixed(2)}
-                    </ThemedText>
-                    <ThemedText style={styles.sentVat} variant="muted">
-                      {includesVat ? "Includes VAT" : "No VAT added"}
-                    </ThemedText>
-                  </>
-                ) : (
-                  <ThemedText style={styles.sentVat} variant="muted">
-                    Tap to view full quote
-                  </ThemedText>
-                )}
-              </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <ThemedText style={styles.sentMetaLabel}>Sent</ThemedText>
-                <ThemedText style={styles.sentMetaValue}>
-                  {fmtDateOnly(q.issued_at)}
-                </ThemedText>
-              </View>
+            <Spacer height={8} />
+
+            <View style={styles.projectAmount}>
+              <ThemedText style={styles.amountLabel}>Amount</ThemedText>
+              <ThemedText style={styles.amountValue}>
+                {invoice.currency || "GBP"} {Number(invoice.grand_total || 0).toFixed(2)}
+              </ThemedText>
             </View>
+
+            {invoice.issued_at && (
+              <>
+                <Spacer height={8} />
+                <ThemedText style={styles.metaText}>
+                  Issued: {new Date(invoice.issued_at).toLocaleDateString()}
+                </ThemedText>
+              </>
+            )}
           </Pressable>
         );
       })}
@@ -587,148 +450,135 @@ function SentList({ rows, onOpen }) {
   );
 }
 
-/* --------------- styles --------------- */
 const styles = StyleSheet.create({
-  headerWrap: {
-    paddingBottom: 8,
-    alignItems: "center",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(0,0,0,0.08)",
+  container: {
+    flex: 1,
+    backgroundColor: "#F9FAFB",
   },
-  headerTitle: { fontSize: 20, fontWeight: "800" },
-  tabsRow: {
-    paddingTop: 6,
-    paddingBottom: 8,
-    flexDirection: "row",
+  center: {
+    flex: 1,
+    alignItems: "center",
     justifyContent: "center",
-    gap: 36,
   },
-  tabBtn: { alignItems: "center", minWidth: 110 },
-  tabLabel: { fontWeight: "800", fontSize: 14, marginTop: 4 },
-  tabCount: { fontWeight: "700", fontSize: 12, marginTop: 2 },
-  tabUnderline: { height: 2, width: 44, marginTop: 6, borderRadius: 2 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-
-  emptyCard: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.08)",
-    padding: 20,
-    alignItems: "center",
-    marginHorizontal: 4,
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
   },
-  emptyTitle: { fontWeight: "800", marginBottom: 6 },
-
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.08)",
-    padding: 22,
-    overflow: "hidden",
-  },
-  cardTitle: {
-    fontWeight: "800",
-    fontSize: 18,
-    paddingRight: 130,
-    marginBottom: 6,
-  },
-
-  ribbon: {
-    position: "absolute",
-    right: 12,
-    top: 12,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  ribbonText: { fontWeight: "800", fontSize: 12 },
-
-  chipsWrap: {
-    marginTop: 4,
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-  },
-  metaRight: { marginLeft: "auto", fontSize: 12 },
-
-  cameraRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 6,
-  },
-  cameraText: { fontSize: 12, fontWeight: "800" },
-
-  typeChip: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  typeChipText: { fontSize: 12, fontWeight: "700" },
-
-  footerRow: { marginTop: 12, flexDirection: "row", alignItems: "center" },
-
-  // small CTA
-  createBtnSmall: {
-    alignSelf: "flex-end",
-    borderRadius: 22,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: Colors.primary,
-  },
-  createBtnSmallText: { color: "#fff", fontWeight: "800" },
-
-  // Sent tab amount row (client-style summary)
-  sentAmountRow: {
-    marginTop: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-  sentAmountLabel: {
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-    color: "#6B7280",
-    marginBottom: 2,
-  },
-  sentAmount: {
-    fontSize: 20,
+  headerTitle: {
+    fontSize: 28,
     fontWeight: "700",
   },
-  sentVat: {
-    fontSize: 12,
-    marginTop: 2,
+  tabsRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
   },
-  sentMetaLabel: {
-    fontSize: 12,
-    color: "#6B7280",
+  tabBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 999,
   },
-  sentMetaValue: {
+  tabLabel: {
     fontSize: 14,
     fontWeight: "600",
   },
-
-  // "Schedule appointment" chip for accepted quotes
-  apptChip: {
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  projectCard: {
+    backgroundColor: "#FFF",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  projectHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  projectTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "600",
+    lineHeight: 22,
+  },
+  projectMeta: {
+    flexDirection: "row",
+    gap: 16,
+  },
+  metaItem: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    marginTop: 6,
-    marginRight: 8,
-    backgroundColor: "#ECFDF3",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(22,163,74,0.4)",
+    gap: 4,
   },
-  apptChipText: {
-    fontSize: 11,
+  metaText: {
+    fontSize: 13,
+    color: "#6B7280",
+  },
+  projectAmount: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  amountLabel: {
+    fontSize: 13,
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  amountValue: {
+    fontSize: 18,
     fontWeight: "700",
-    color: "#065F46",
-    marginLeft: 4,
+  },
+  chip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  createQuoteBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: Colors.light?.tint || "#0ea5e9",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  createQuoteText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 80,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    marginTop: 4,
   },
 });

@@ -16,6 +16,9 @@ export default function DashboardLayout() {
   const { user } = useUser();
   const [role, setRole] = useState(null);
 
+  // DEBUG: Log to confirm new layout is loaded
+  console.log('🔥 NEW DASHBOARD LAYOUT LOADED - Dec 20 2025');
+
   useEffect(() => {
     let mounted = true;
 
@@ -32,7 +35,9 @@ export default function DashboardLayout() {
         .single();
 
       if (mounted) {
-        setRole(!error ? (data?.role || 'client') : 'client');
+        const userRole = !error ? (data?.role || 'client') : 'client';
+        console.log('🔥 USER ROLE DETECTED:', userRole);
+        setRole(userRole);
       }
     })();
 
@@ -59,6 +64,8 @@ export default function DashboardLayout() {
 
   const isTrades = role === 'trades';
 
+  console.log('🔥 RENDERING TABS - isTrades:', isTrades, 'role:', role);
+
   return (
     <UserOnly>
       <Tabs
@@ -73,40 +80,37 @@ export default function DashboardLayout() {
           tabBarInactiveTintColor: theme.iconColor,
         }}
       >
-        {/* Hide folder index */}
-        <Tabs.Screen name="index" options={{ href: null }} />
-
-        {/* ===== TRADES ONLY: Quotes, Sales ===== */}
+        {/* ===== TRADES ONLY: Home (Dashboard), Projects (Quotes + Sales combined) ===== */}
+        <Tabs.Screen
+          name="trades"
+          options={{
+            title: 'Home',
+            href: isTrades ? undefined : null,
+            tabBarIcon: ({ focused, color, size = 24 }) => (
+              <Ionicons
+                size={size}
+                name={focused ? 'home' : 'home-outline'}
+                color={color}
+              />
+            ),
+          }}
+        />
         <Tabs.Screen
           name="quotes"
           options={{
-            title: 'Quotes',
+            title: 'Projects',
             href: isTrades ? undefined : null,
             tabBarIcon: ({ focused, color, size = 24 }) => (
               <Ionicons
                 size={size}
-                name={focused ? 'document-text' : 'document-text-outline'}
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="sales"
-          options={{
-            title: 'Sales',
-            href: isTrades ? undefined : null,
-            tabBarIcon: ({ focused, color, size = 24 }) => (
-              <Ionicons
-                size={size}
-                name={focused ? 'stats-chart' : 'stats-chart-outline'}
+                name={focused ? 'briefcase' : 'briefcase-outline'}
                 color={color}
               />
             ),
           }}
         />
 
-        {/* ===== CLIENT ONLY: Home, My Quotes ===== */}
+        {/* ===== CLIENT ONLY: Home, Projects (renamed from My Quotes) ===== */}
         <Tabs.Screen
           name="client"
           options={{
@@ -124,12 +128,12 @@ export default function DashboardLayout() {
         <Tabs.Screen
           name="myquotes"
           options={{
-            title: 'My Quotes',
+            title: 'Projects',
             href: isTrades ? null : undefined,
             tabBarIcon: ({ focused, color, size = 24 }) => (
               <Ionicons
                 size={size}
-                name={focused ? 'document-text' : 'document-text-outline'}
+                name={focused ? 'briefcase' : 'briefcase-outline'}
                 color={color}
               />
             ),
@@ -151,21 +155,6 @@ export default function DashboardLayout() {
           }}
         />
 
-        {/* ===== COMMON: APPOINTMENTS ===== */}
-        <Tabs.Screen
-          name="appointments"
-          options={{
-            title: 'Appointments',
-            tabBarIcon: ({ focused, color, size = 24 }) => (
-              <Ionicons
-                size={size}
-                name={focused ? 'calendar' : 'calendar-outline'}
-                color={color}
-              />
-            ),
-          }}
-        />
-
         {/* ===== COMMON: PROFILE ===== */}
         <Tabs.Screen
           name="profile"
@@ -181,10 +170,9 @@ export default function DashboardLayout() {
           }}
         />
 
-        {/* Hidden helpers / non-tab routes */}
-        <Tabs.Screen name="create" options={{ href: null }} />
-        <Tabs.Screen name="trades" options={{ href: null }} />
-        <Tabs.Screen name="clienthome" options={{ href: null }} />
+        {/* Hidden routes - these are still accessible but not shown in tabs */}
+        <Tabs.Screen name="sales" options={{ href: null }} />
+        <Tabs.Screen name="appointments" options={{ href: null }} />
       </Tabs>
     </UserOnly>
   );
