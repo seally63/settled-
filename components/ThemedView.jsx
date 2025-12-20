@@ -6,8 +6,9 @@ import { Colors } from '../constants/Colors';
 const ThemedView = ({ style, safe = false, children, ...rest }) => {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme] ?? Colors.light;
+  const insets = useSafeAreaInsets(); // Always call hooks unconditionally
 
-  // Wrap any bare string/number child so they’re valid under <View/>
+  // Wrap any bare string/number child so they're valid under <View/>
   const wrapChild = (node) => {
     if (node == null || node === false) return null;
     if (typeof node === 'string' || typeof node === 'number') {
@@ -25,7 +26,6 @@ const ThemedView = ({ style, safe = false, children, ...rest }) => {
     );
   }
 
-  const insets = useSafeAreaInsets();
   return (
     <View
       style={[
