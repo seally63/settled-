@@ -488,7 +488,7 @@ export default function ClientProjects() {
             {
               label: "View Details",
               variant: "primary",
-              onPress: () => router.push("/appointments"),
+              onPress: () => router.push(`/myquotes/${q.quote_id}`),
             },
           ],
         });
