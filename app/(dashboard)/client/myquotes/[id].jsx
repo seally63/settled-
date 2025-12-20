@@ -75,6 +75,9 @@ export default function ClientMyQuoteDetail() {
   const [attachments, setAttachments] = useState([]); // string[] URLs
   const [attachmentsCount, setAttachmentsCount] = useState(0);
 
+  // Appointment data
+  const [appointment, setAppointment] = useState(null);
+
   // Full-screen image viewer state
   const [viewer, setViewer] = useState({ open: false, index: 0 });
 
@@ -203,12 +206,26 @@ export default function ClientMyQuoteDetail() {
       } else {
         setTrade(null);
       }
+
+      // Load appointment for this quote
+      const { data: apptData, error: apptErr } = await supabase
+        .from("appointments")
+        .select("*")
+        .eq("quote_id", id)
+        .maybeSingle();
+
+      if (!apptErr && apptData) {
+        setAppointment(apptData);
+      } else {
+        setAppointment(null);
+      }
     } catch (e) {
       Alert.alert("Error", e.message);
       setQuote(null);
       setReq(null);
       setAttachments([]);
       setAttachmentsCount(0);
+      setAppointment(null);
     } finally {
       setLoading(false);
     }
@@ -677,18 +694,98 @@ export default function ClientMyQuoteDetail() {
                   </View>
                 </View>
               </>
-            ) : (
+            ) : null}
+
+            {/* Appointments Section */}
+            {appointment && (
               <>
                 <View style={styles.sectionHeaderRow}>
                   <ThemedText style={styles.sectionHeaderText}>
-                    What happens next
+                    Appointments
                   </ThemedText>
                 </View>
                 <View style={styles.card}>
-                  <ThemedText variant="muted">
-                    We’ll keep you updated here. You can return to My Quotes
-                    anytime from the tab bar.
-                  </ThemedText>
+                  {appointment.scheduled_at && (
+                    <>
+                      <View style={styles.appointmentRow}>
+                        <Ionicons name="calendar" size={20} color={PRIMARY} />
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <ThemedText style={styles.appointmentLabel}>
+                            Scheduled
+                          </ThemedText>
+                          <ThemedText style={styles.appointmentValue}>
+                            {new Date(appointment.scheduled_at).toLocaleString(undefined, {
+                              weekday: "short",
+                              year: "numeric",
+                              month: "short",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </ThemedText>
+                        </View>
+                      </View>
+                      <Spacer height={12} />
+                    </>
+                  )}
+
+                  {appointment.location && (
+                    <>
+                      <View style={styles.appointmentRow}>
+                        <Ionicons name="location" size={20} color={PRIMARY} />
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <ThemedText style={styles.appointmentLabel}>
+                            Location
+                          </ThemedText>
+                          <ThemedText style={styles.appointmentValue}>
+                            {appointment.location}
+                          </ThemedText>
+                        </View>
+                      </View>
+                      <Spacer height={12} />
+                    </>
+                  )}
+
+                  {appointment.notes && (
+                    <>
+                      <View style={styles.appointmentRow}>
+                        <Ionicons name="document-text" size={20} color={PRIMARY} />
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <ThemedText style={styles.appointmentLabel}>
+                            Notes
+                          </ThemedText>
+                          <ThemedText style={styles.appointmentValue}>
+                            {appointment.notes}
+                          </ThemedText>
+                        </View>
+                      </View>
+                      <Spacer height={12} />
+                    </>
+                  )}
+
+                  <View style={styles.appointmentRow}>
+                    <Ionicons
+                      name={appointment.status === "confirmed" ? "checkmark-circle" : "hourglass"}
+                      size={20}
+                      color={appointment.status === "confirmed" ? "#10B981" : "#F59E0B"}
+                    />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <ThemedText style={styles.appointmentLabel}>
+                        Status
+                      </ThemedText>
+                      <ThemedText style={[
+                        styles.appointmentValue,
+                        {
+                          color: appointment.status === "confirmed" ? "#10B981" : "#F59E0B",
+                          fontWeight: "600"
+                        }
+                      ]}>
+                        {appointment.status === "confirmed" ? "Confirmed" :
+                         appointment.status === "proposed" ? "Proposed - Awaiting confirmation" :
+                         appointment.status?.charAt(0).toUpperCase() + appointment.status?.slice(1)}
+                      </ThemedText>
+                    </View>
+                  </View>
                 </View>
               </>
             )}
@@ -1060,5 +1157,23 @@ const styles = StyleSheet.create({
     width: "90%",
     height: "70%",
     resizeMode: "contain",
+  },
+
+  // Appointment section styles
+  appointmentRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  appointmentLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  appointmentValue: {
+    fontSize: 15,
+    color: "#111827",
+    fontWeight: "500",
   },
 });
