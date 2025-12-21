@@ -16,6 +16,7 @@ import {
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CustomDateTimePicker from "../../../components/CustomDateTimePicker";
 
 import { useQuotes } from "../../../hooks/useQuotes";
@@ -53,10 +54,16 @@ function isoToDMY(s) {
   return `${dd}-${mm}-${yyyy}`;
 }
 
+// Format number with thousand separators (commas)
+function formatNumber(num) {
+  if (num == null || isNaN(num)) return "0.00";
+  return Number(num).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function money(n, currency = "GBP") {
   const v = Number(n ?? 0);
   const c = (currency || "GBP").toUpperCase();
-  return c === "GBP" ? `£${v.toFixed(2)}` : `${c} ${v.toFixed(2)}`;
+  return c === "GBP" ? `£${formatNumber(v)}` : `${c} ${formatNumber(v)}`;
 }
 
 // Same parser we used on the client "Your request" screen
@@ -92,11 +99,13 @@ function parseDetails(details) {
 
 const CELL = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
+const PRIMARY = "#684477";
 
 export default function QuoteDetails() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const { user } = useUser();
+  const insets = useSafeAreaInsets();
 
   // Params from navigation (used as very rough fallback only)
   const routeNameParam = Array.isArray(params.name)
@@ -979,30 +988,27 @@ export default function QuoteDetails() {
   // --------------------------------------------------
   return (
     <ThemedView style={styles.container}>
-      {/* Top row: back + "Quotation" */}
-      <View style={styles.inlineHeader}>
-        <Pressable
-          onPress={() => {
-            if (fromAppointments) {
-              router.push('/appointments');
-            } else if (router.canGoBack?.()) {
-              router.back();
-            } else {
-              router.replace("/quotes");
-            }
-          }}
-          hitSlop={12}
-          style={{ paddingRight: 8 }}
-        >
-          <Ionicons name="arrow-back" size={22} color={iconColor} />
-        </Pressable>
-        <ThemedText title style={styles.inlineHeaderTitle}>
-          Quotation
-        </ThemedText>
-        <View style={{ width: 22 }} />
+      {/* Header - Profile-style like client version */}
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <View style={styles.headerRow}>
+          <ThemedText style={styles.headerTitle}>Quote Overview</ThemedText>
+          <Pressable
+            onPress={() => {
+              if (fromAppointments) {
+                router.push('/appointments');
+              } else if (router.canGoBack?.()) {
+                router.back();
+              } else {
+                router.replace("/quotes");
+              }
+            }}
+            hitSlop={10}
+            style={styles.backButton}
+          >
+            <Ionicons name="close" size={28} color="#6B7280" />
+          </Pressable>
+        </View>
       </View>
-
-      <Spacer size={10} />
 
       {/* Hero summary card */}
       <View style={styles.heroCard}>
@@ -1038,7 +1044,7 @@ export default function QuoteDetails() {
           <View>
             <ThemedText style={styles.heroAmountLabel}>Total quote</ThemedText>
             <ThemedText style={styles.heroAmount}>
-              {quote.currency || "GBP"} {grandTotal.toFixed(2)}
+              {quote.currency || "GBP"} {formatNumber(grandTotal)}
             </ThemedText>
             <ThemedText variant="muted" style={styles.heroSub}>
               {includesVat ? "Includes VAT" : "No VAT added"}
@@ -1048,7 +1054,7 @@ export default function QuoteDetails() {
             <View style={{ alignItems: "flex-end" }}>
               <ThemedText style={styles.heroMetaLabel}>Issued</ThemedText>
               <ThemedText style={styles.heroMetaValue}>
-                {isoToDMY(issuedAt)}
+                {new Date(issuedAt).toLocaleDateString()}
               </ThemedText>
             </View>
           )}
@@ -1146,67 +1152,109 @@ export default function QuoteDetails() {
       >
         <Spacer size={8} />
 
-        {/* Quote request */}
+        {/* Quote request - styled like client version */}
         {request && (
           <>
             <View style={styles.sectionHeaderRow}>
               <ThemedText style={styles.sectionHeaderText}>
-                Quote request
+                Client request
               </ThemedText>
             </View>
 
-            <View style={styles.block}>
-              <ThemedText style={styles.reqTitle}>
+            <View style={styles.card}>
+              {/* Title */}
+              <ThemedText style={styles.requestTitle}>
                 {request.suggested_title || parsedDetails.title || "Request"}
               </ThemedText>
 
-              <Spacer size={4} />
+              <Spacer size={16} />
 
-              <ThemedText variant="muted" style={styles.reqMeta}>
-                {request.created_at
-                  ? `Submitted ${new Date(
-                      request.created_at
-                    ).toLocaleString()}`
-                  : "Submitted date not available"}
-                {request.job_outcode ? `   •   Area ${request.job_outcode}` : ""}
-              </ThemedText>
+              {/* Details Grid with icons */}
+              {request.created_at && (
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Submitted</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>
+                      {new Date(request.created_at).toLocaleDateString(undefined, {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                      })}
+                    </ThemedText>
+                  </View>
+                </View>
+              )}
+
+              {!!request.job_outcode && (
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="location-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Area</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>{request.job_outcode}</ThemedText>
+                  </View>
+                </View>
+              )}
 
               {!!request.budget_band && (
-                <ThemedText variant="muted" style={styles.reqMeta}>
-                  Budget: {request.budget_band}
-                </ThemedText>
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="cash-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Budget</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>{request.budget_band}</ThemedText>
+                  </View>
+                </View>
               )}
 
               {!!parsedDetails.start && (
-                <ThemedText variant="muted" style={styles.reqMeta}>
-                  When: {parsedDetails.start}
-                </ThemedText>
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="time-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Start date</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>{parsedDetails.start}</ThemedText>
+                  </View>
+                </View>
               )}
 
               {!!parsedDetails.refit && (
-                <ThemedText variant="muted" style={styles.reqMeta}>
-                  Job type: {parsedDetails.refit}
-                </ThemedText>
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="construct-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Job type</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>{parsedDetails.refit}</ThemedText>
+                  </View>
+                </View>
               )}
 
               {!!parsedDetails.notes && (
-                <ThemedText variant="muted" style={styles.reqMeta}>
-                  Notes: {parsedDetails.notes}
-                </ThemedText>
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="document-text-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Notes</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>{parsedDetails.notes}</ThemedText>
+                  </View>
+                </View>
               )}
 
-              <View style={styles.reqDivider} />
+              {hasAttachments && (
+                <>
+                  <View style={styles.divider} />
 
-              <View style={styles.reqPhotosHeader}>
-                <ThemedText style={styles.reqPhotosTitle}>Photos</ThemedText>
-                <ThemedText style={styles.reqPhotosMeta}>
-                  {attachmentsCount > 0
-                    ? `(${attachmentsCount})`
-                    : "No attachments"}
-                </ThemedText>
-              </View>
+                  <View style={styles.requestDetailRow}>
+                    <Ionicons name="images-outline" size={18} color="#6B7280" />
+                    <View style={styles.requestDetailContent}>
+                      <ThemedText style={styles.requestDetailLabel}>
+                        Photos ({attachmentsCount})
+                      </ThemedText>
+                    </View>
+                  </View>
 
-              {attachmentsCount > 0 && (
+                  <Spacer size={12} />
+                </>
+              )}
+
+              {hasAttachments && (
                 <View style={styles.gridWrap}>
                   {attachments.map((url, i) => (
                     <Pressable
@@ -1228,139 +1276,221 @@ export default function QuoteDetails() {
           </>
         )}
 
-        {/* Quote summary (items + totals) */}
+        {/* Quote breakdown - styled like client version */}
         <View style={styles.sectionHeaderRow}>
           <ThemedText style={styles.sectionHeaderText}>
-            Quote summary
+            Quote breakdown
           </ThemedText>
         </View>
 
-        <View style={styles.block}>
-          {/* Header row */}
-          <View style={[styles.row, styles.tableHead]}>
-            <ThemedText style={[styles.cellName, styles.headText]}>
-              Item
-            </ThemedText>
-            <ThemedText style={[styles.cellQty, styles.headText]}>
-              Qty
-            </ThemedText>
-            <ThemedText style={[styles.cellPrice, styles.headText]}>
-              Price
-            </ThemedText>
-            <ThemedText style={[styles.cellTotal, styles.headText]}>
-              Total
-            </ThemedText>
-          </View>
-
-          {/* Lines */}
-          {items.length === 0 && (
-            <View style={[styles.row, styles.tableRow]}>
-              <ThemedText style={styles.cellName}>No items added.</ThemedText>
-              <ThemedText style={styles.cellQty}></ThemedText>
-              <ThemedText style={styles.cellPrice}></ThemedText>
-              <ThemedText style={styles.cellTotal}></ThemedText>
-            </View>
-          )}
-          {items.map((it, i) => {
-            const qty = Number(it?.qty || 0);
-            const price = Number(it?.unit_price || 0);
-            const line = qty * price;
-            return (
-              <View
-                key={`${quote.id}-${i}`}
-                style={[styles.row, styles.tableRow]}
-              >
-                <View style={styles.cellName}>
-                  <ThemedText style={{ fontWeight: "600" }}>
-                    {it?.name || "Untitled item"}
-                  </ThemedText>
-                  {!!it?.description && (
-                    <ThemedText style={{ opacity: 0.8 }}>
-                      {it.description}
-                    </ThemedText>
-                  )}
-                </View>
-                <ThemedText style={styles.cellQty}>{qty || ""}</ThemedText>
-                <ThemedText style={styles.cellPrice}>
-                  {price ? money(price, quote.currency) : ""}
-                </ThemedText>
-                <ThemedText style={styles.cellTotal}>
-                  {money(line, quote.currency)}
+        <View style={styles.card}>
+          {/* Meta information */}
+          {issuedAt && (
+            <View style={styles.requestDetailRow}>
+              <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Issued</ThemedText>
+                <ThemedText style={styles.requestDetailValue}>
+                  {new Date(issuedAt).toLocaleDateString(undefined, {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                  })}
                 </ThemedText>
               </View>
-            );
-          })}
+            </View>
+          )}
+
+          {quote.valid_until && (
+            <View style={styles.requestDetailRow}>
+              <Ionicons name="time-outline" size={18} color="#6B7280" />
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Valid until</ThemedText>
+                <ThemedText style={styles.requestDetailValue}>
+                  {new Date(quote.valid_until).toLocaleDateString(undefined, {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                  })}
+                </ThemedText>
+              </View>
+            </View>
+          )}
+
+          {/* Line items */}
+          {items.length > 0 && (
+            <>
+              <View style={styles.divider} />
+              <ThemedText style={styles.breakdownSectionLabel}>Line items</ThemedText>
+              <Spacer size={12} />
+
+              {items.map((item, i) => {
+                const qty = Number(item?.qty ?? 0);
+                const price = Number(item?.unit_price ?? 0);
+                const line = Number.isFinite(qty * price)
+                  ? formatNumber(qty * price)
+                  : "0.00";
+                return (
+                  <View key={`li-${i}`} style={styles.lineItemRow}>
+                    <View style={{ flex: 1 }}>
+                      <ThemedText style={styles.lineItemName}>
+                        {item?.name || "Item"}
+                      </ThemedText>
+                      {!!item?.description && (
+                        <ThemedText style={styles.lineItemDescription}>
+                          {item.description}
+                        </ThemedText>
+                      )}
+                      <ThemedText style={styles.lineItemMeta}>
+                        Qty: {qty} • {quote.currency || "GBP"} {formatNumber(price)} each
+                      </ThemedText>
+                    </View>
+                    <ThemedText style={styles.lineItemTotal}>
+                      {quote.currency || "GBP"} {line}
+                    </ThemedText>
+                  </View>
+                );
+              })}
+            </>
+          )}
+
+          {items.length === 0 && (
+            <>
+              <View style={styles.divider} />
+              <ThemedText style={styles.breakdownSectionLabel}>Line items</ThemedText>
+              <Spacer size={12} />
+              <ThemedText variant="muted">No items added to this quote.</ThemedText>
+            </>
+          )}
 
           {/* Totals */}
-          <View
-            style={[
-              styles.totalRow,
-              {
-                borderTopWidth: StyleSheet.hairlineWidth,
-                borderTopColor: "rgba(127,127,127,0.3)",
-                marginTop: 8,
-                paddingTop: 8,
-              },
-            ]}
-          >
-            <ThemedText>Subtotal</ThemedText>
-            <ThemedText>{money(quote.subtotal, quote.currency)}</ThemedText>
-          </View>
-          <View style={styles.totalRow}>
-            <ThemedText>Tax (20% VAT)</ThemedText>
-            <ThemedText>{money(quote.tax_total, quote.currency)}</ThemedText>
-          </View>
-          <View style={styles.totalRow}>
-            <ThemedText style={{ fontWeight: "700" }}>Grand total</ThemedText>
-            <ThemedText style={{ fontWeight: "700" }}>
-              {money(quote.grand_total, quote.currency)}
+          <View style={[styles.divider, { marginTop: 12 }]} />
+          <ThemedText style={styles.breakdownSectionLabel}>Summary</ThemedText>
+          <Spacer size={12} />
+
+          {!!quote.subtotal && (
+            <View style={styles.totalRow}>
+              <ThemedText style={styles.totalLabel}>
+                {includesVat ? "Subtotal (excl. VAT)" : "Subtotal"}
+              </ThemedText>
+              <ThemedText style={styles.totalValue}>
+                {quote.currency || "GBP"} {formatNumber(quote.subtotal)}
+              </ThemedText>
+            </View>
+          )}
+
+          {!!quote.tax_total && (
+            <View style={styles.totalRow}>
+              <ThemedText style={styles.totalLabel}>VAT</ThemedText>
+              <ThemedText style={styles.totalValue}>
+                {quote.currency || "GBP"} {formatNumber(quote.tax_total)}
+              </ThemedText>
+            </View>
+          )}
+
+          <View style={[styles.totalRow, styles.totalRowFinal]}>
+            <ThemedText style={styles.totalLabelFinal}>Total</ThemedText>
+            <ThemedText style={styles.totalValueFinal}>
+              {quote.currency || "GBP"} {formatNumber(grandTotal)}
             </ThemedText>
           </View>
+          {includesVat && (
+            <ThemedText style={styles.totalNote}>Includes VAT</ThemedText>
+          )}
         </View>
 
-        {/* Appointments */}
+        {/* Appointments - styled like client version */}
         {appointment && (
           <>
             <View style={styles.sectionHeaderRow}>
               <ThemedText style={styles.sectionHeaderText}>Appointments</ThemedText>
             </View>
 
-            <View style={styles.block}>
-              <ThemedText style={styles.visitTitle}>
-                {appointmentName}
-              </ThemedText>
-              <ThemedText variant="muted" style={styles.visitCopy}>
-                {appointment.status === "proposed"
-                  ? (userRole === 'client'
-                      ? "Please respond to this appointment request using the buttons above."
-                      : "Awaiting client confirmation."
-                    )
-                  : (appointment.status === "confirmed"
-                      ? (userRole === 'client'
-                          ? "You confirmed this appointment."
-                          : "The client confirmed this appointment."
-                        )
-                      : `Status: ${
-                          String(appointment.status).charAt(0).toUpperCase() +
-                          String(appointment.status).slice(1).toLowerCase()
-                        }.`
-                    )}
-              </ThemedText>
-              {!!appointment.scheduled_at && (
-                <ThemedText style={styles.visitDate}>
-                  {new Date(appointment.scheduled_at).toLocaleString()}
+            <View style={styles.card}>
+              <View style={styles.appointmentCardHeader}>
+                <View style={{ flex: 1 }}>
+                  <View style={styles.appointmentCardTitleRow}>
+                    <ThemedText style={styles.appointmentCardTitle}>
+                      {appointmentName}
+                    </ThemedText>
+                    <View style={[
+                      styles.appointmentBadge,
+                      { backgroundColor: appointment.status === "confirmed" ? "#D1FAE5" : "#FEF3C7" }
+                    ]}>
+                      <Ionicons
+                        name={appointment.status === "confirmed" ? "checkmark-circle" : "hourglass"}
+                        size={14}
+                        color={appointment.status === "confirmed" ? "#10B981" : "#F59E0B"}
+                      />
+                      <ThemedText style={[
+                        styles.appointmentBadgeText,
+                        { color: appointment.status === "confirmed" ? "#10B981" : "#F59E0B" }
+                      ]}>
+                        {appointment.status === "confirmed" ? "Confirmed" :
+                         appointment.status === "proposed" ? "Pending" :
+                         String(appointment.status).charAt(0).toUpperCase() + String(appointment.status).slice(1)}
+                      </ThemedText>
+                    </View>
+                  </View>
+                  {!!appointment.scheduled_at && (
+                    <View style={styles.appointmentCardMetaRow}>
+                      <Ionicons name="calendar-outline" size={14} color="#6B7280" />
+                      <ThemedText style={styles.appointmentCardMeta}>
+                        {new Date(appointment.scheduled_at).toLocaleDateString(undefined, {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                        {" at "}
+                        {new Date(appointment.scheduled_at).toLocaleTimeString(undefined, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </ThemedText>
+                    </View>
+                  )}
+                </View>
+              </View>
+
+              {/* Expandable content */}
+              <View style={styles.appointmentCardContent}>
+                <View style={styles.appointmentDivider} />
+
+                {appointment.location && (
+                  <View style={styles.appointmentDetailRow}>
+                    <Ionicons name="location" size={18} color={PRIMARY} />
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <ThemedText style={styles.appointmentDetailLabel}>
+                        Location
+                      </ThemedText>
+                      <ThemedText style={styles.appointmentDetailValue}>
+                        {appointment.location}
+                      </ThemedText>
+                    </View>
+                  </View>
+                )}
+
+                <ThemedText variant="muted" style={styles.visitCopy}>
+                  {appointment.status === "proposed"
+                    ? (userRole === 'client'
+                        ? "Please respond to this appointment request using the buttons above."
+                        : "Awaiting client confirmation."
+                      )
+                    : (appointment.status === "confirmed"
+                        ? (userRole === 'client'
+                            ? "You confirmed this appointment."
+                            : "The client confirmed this appointment."
+                          )
+                        : `Status: ${
+                            String(appointment.status).charAt(0).toUpperCase() +
+                            String(appointment.status).slice(1).toLowerCase()
+                          }.`
+                      )}
                 </ThemedText>
-              )}
-              {!!appointment.location && (
-                <ThemedText variant="muted" style={styles.visitHint}>
-                  Location: {appointment.location}
-                </ThemedText>
-              )}
-              {!!appointment.notes && (
-                <ThemedText variant="muted" style={styles.visitHint}>
-                  Name: {appointment.notes}
-                </ThemedText>
-              )}
+              </View>
             </View>
           </>
         )}
@@ -1373,8 +1503,13 @@ export default function QuoteDetails() {
                 Comments
               </ThemedText>
             </View>
-            <View style={styles.block}>
-              <ThemedText>{quote.comments}</ThemedText>
+            <View style={styles.card}>
+              <View style={styles.requestDetailRow}>
+                <Ionicons name="chatbubble-outline" size={18} color="#6B7280" />
+                <View style={styles.requestDetailContent}>
+                  <ThemedText style={styles.requestDetailValue}>{quote.comments}</ThemedText>
+                </View>
+              </View>
             </View>
           </>
         ) : null}
@@ -1470,32 +1605,37 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "stretch",
-    backgroundColor: "#F8FAFC",
-    paddingTop: Platform.OS === "ios" ? 56 : 0,
+    backgroundColor: "#F9FAFB",
   },
 
   // separate container for scheduling page
   scheduleContainer: {
     flex: 1,
     alignItems: "stretch",
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F9FAFB",
     paddingTop: Platform.OS === "ios" ? 60 : 20,
   },
 
-  inlineHeader: {
+  // Profile-style header (matching client version)
+  header: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    backgroundColor: "#F9FAFB",
+  },
+  headerRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 40,
-    marginTop: 0,
+    justifyContent: "space-between",
   },
-  inlineHeaderTitle: {
-    flex: 1,
-    textAlign: "center",
-    fontSize: 18,
-    fontWeight: "bold",
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+  },
+  backButton: {
+    padding: 4,
   },
 
-  scrollContents: { paddingBottom: 40 },
+  scrollContents: { paddingBottom: 40, padding: 20 },
 
   heroCard: {
     marginHorizontal: 16,
@@ -1662,18 +1802,102 @@ const styles = StyleSheet.create({
     color: "#166534",
   },
 
+  // Section headers (Airbnb-style)
   sectionHeaderRow: {
-    marginTop: 18,
-    paddingHorizontal: 20,
-    paddingBottom: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(148,163,184,0.5)",
+    marginTop: 24,
+    marginBottom: 12,
   },
   sectionHeaderText: {
-    fontSize: 19,
+    fontSize: 20,
     fontWeight: "700",
+    color: "#111827",
   },
 
+  // Card style (matching client version)
+  card: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    backgroundColor: "#FFFFFF",
+  },
+
+  // Request summary (NEW STYLES)
+  requestTitle: {
+    fontWeight: "700",
+    fontSize: 18,
+    color: "#111827",
+  },
+  requestDetailRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 16,
+  },
+  requestDetailContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  requestDetailLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  requestDetailValue: {
+    fontSize: 15,
+    color: "#111827",
+    lineHeight: 22,
+  },
+
+  // Quote breakdown (NEW STYLES)
+  breakdownSectionLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#111827",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  lineItemRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E7EB",
+  },
+  lineItemName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  lineItemDescription: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginBottom: 4,
+    lineHeight: 20,
+  },
+  lineItemMeta: {
+    fontSize: 13,
+    color: "#6B7280",
+  },
+  lineItemTotal: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+    marginLeft: 12,
+  },
+
+  // Divider
+  divider: {
+    marginTop: 10,
+    marginBottom: 8,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "rgba(148,163,184,0.4)",
+  },
+
+  // OLD - can be removed eventually
   block: {
     marginTop: 14,
     marginHorizontal: 20,
@@ -1683,8 +1907,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderColor: "rgba(0,0,0,0.08)",
   },
-
-  // Request summary
   reqTitle: {
     fontWeight: "600",
     fontSize: 15,
@@ -1748,10 +1970,113 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 6,
+    marginBottom: 12,
+  },
+  totalLabel: {
+    fontSize: 15,
+    color: "#6B7280",
+  },
+  totalValue: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  totalRowFinal: {
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 2,
+    borderTopColor: "#E5E7EB",
+    marginBottom: 4,
+  },
+  totalLabelFinal: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  totalValueFinal: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  totalNote: {
+    fontSize: 13,
+    color: "#6B7280",
+    textAlign: "right",
+    fontStyle: "italic",
   },
 
-  // Appointments / site visit styles
+  // Appointments / site visit styles (NEW - matching client version)
+  appointmentCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 0,
+    gap: 12,
+  },
+  appointmentCardTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  appointmentCardTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+    flex: 1,
+  },
+  appointmentCardMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  appointmentCardMeta: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+
+  // Appointment badge
+  appointmentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  appointmentBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  // Appointment card content (expandable)
+  appointmentCardContent: {
+    paddingTop: 16,
+  },
+  appointmentDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginBottom: 16,
+  },
+  appointmentDetailRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 14,
+  },
+  appointmentDetailLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  appointmentDetailValue: {
+    fontSize: 15,
+    color: "#111827",
+    fontWeight: "500",
+    lineHeight: 22,
+  },
+
+  // OLD visit styles - can be removed eventually
   visitTitle: {
     fontWeight: "600",
     fontSize: 15,
