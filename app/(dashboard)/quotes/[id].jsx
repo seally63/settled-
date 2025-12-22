@@ -1014,18 +1014,31 @@ export default function QuoteDetails() {
       <View style={styles.heroCard}>
         <View style={styles.heroTopRow}>
           <View style={{ flex: 1 }}>
-            <ThemedText style={styles.heroTitle}>
-              {userRole === 'client'
-                ? (tradeBusiness || "Tradesperson")
-                : (quote.project_title || "Quote")
-              }
-            </ThemedText>
-            <ThemedText style={styles.heroProject} variant="muted">
-              {userRole === 'client'
-                ? (quote.project_title || "Project")
-                : headerLine
-              }
-            </ThemedText>
+            {/* For trades: show client name prominently, then job title, then location */}
+            {userRole === 'trades' ? (
+              <>
+                <ThemedText style={styles.heroClientName}>
+                  {displayName}
+                </ThemedText>
+                <ThemedText style={styles.heroJobTitle}>
+                  {quote.project_title || parsedDetails.title || "Quote"}
+                </ThemedText>
+                {request?.job_outcode && (
+                  <ThemedText style={styles.heroLocation} variant="muted">
+                    {request.job_outcode}
+                  </ThemedText>
+                )}
+              </>
+            ) : (
+              <>
+                <ThemedText style={styles.heroTitle}>
+                  {tradeBusiness || "Tradesperson"}
+                </ThemedText>
+                <ThemedText style={styles.heroProject} variant="muted">
+                  {quote.project_title || "Project"}
+                </ThemedText>
+              </>
+            )}
           </View>
 
           {isAccepted && (
@@ -1662,6 +1675,23 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 13,
   },
+  // New styles for trades view - client name prominent
+  heroClientName: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  heroJobTitle: {
+    marginTop: 4,
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#374151",
+  },
+  heroLocation: {
+    marginTop: 2,
+    fontSize: 14,
+    color: "#6B7280",
+  },
 
   statusChipAccepted: {
     flexDirection: "row",
@@ -1804,7 +1834,7 @@ const styles = StyleSheet.create({
 
   // Section headers (Airbnb-style)
   sectionHeaderRow: {
-    marginTop: 24,
+    marginTop: 16,
     marginBottom: 12,
   },
   sectionHeaderText: {

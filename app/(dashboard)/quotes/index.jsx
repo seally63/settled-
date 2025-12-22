@@ -177,19 +177,15 @@ export default function TradesmanProjects() {
         (reqs || []).forEach((r) => (reqById[r.id] = r));
       }
 
-      // Fetch client names for quotes AND requests (from profiles table directly)
-      // Include both client_id from quotes and requester_id from requests
-      const quoteClientIds = (quotes || []).map((q) => q.client_id).filter(Boolean);
-      const requestClientIds = Object.values(reqById).map((r) => r.requester_id).filter(Boolean);
-      const clientIds = [...new Set([...quoteClientIds, ...requestClientIds])];
-      let clientsById = {};
-      if (clientIds.length) {
-        const { data: clientsData } = await supabase
-          .from("profiles")
-          .select("id, full_name, business_name, email")
-          .in("id", clientIds);
-        (clientsData || []).forEach((c) => {
-          clientsById[c.id] = c.full_name || c.business_name || c.email || "Client";
+      // Fetch client names using rpc_list_conversations (which has proper RLS permissions)
+      // This RPC returns other_party_name for each request_id
+      let clientNameByRequestId = {};
+      const { data: convData } = await supabase.rpc("rpc_list_conversations", { p_limit: 100 });
+      if (convData) {
+        convData.forEach((conv) => {
+          if (conv.request_id && conv.other_party_name) {
+            clientNameByRequestId[conv.request_id] = conv.other_party_name;
+          }
         });
       }
 
@@ -231,8 +227,8 @@ export default function TradesmanProjects() {
             isUrgent,
             // Calculate response deadline (e.g., 3 days to respond)
             responseDeadline: 3 - requestAge,
-            // Client name from requester_id
-            clientName: r?.requester_id ? clientsById[r.requester_id] || null : null,
+            // Client name from conversations RPC
+            clientName: clientNameByRequestId[t.request_id] || null,
           };
         });
 
@@ -272,7 +268,7 @@ export default function TradesmanProjects() {
           currency: q.currency,
           grand_total: q.grand_total,
           tax_total: q.tax_total,
-          clientName: clientsById[q.client_id] || null,
+          clientName: clientNameByRequestId[q.request_id] || null,
           // Expiration info
           daysToExpiry,
           isExpiringSoon,
