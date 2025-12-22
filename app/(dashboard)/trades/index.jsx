@@ -11,6 +11,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
@@ -23,6 +24,7 @@ import { supabase } from "../../../lib/supabase";
 export default function TradesmanHome() {
   const router = useRouter();
   const { user } = useUser();
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -124,7 +126,7 @@ export default function TradesmanHome() {
 
   if (loading) {
     return (
-      <ThemedView style={styles.container} safe={true}>
+      <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
         <StatusBar style="dark" />
         <View style={styles.center}>
           <ActivityIndicator size="large" color={Colors.light?.tint || "#0ea5e9"} />
@@ -134,7 +136,7 @@ export default function TradesmanHome() {
   }
 
   return (
-    <ThemedView style={styles.container} safe={true}>
+    <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
       <ScrollView
         style={{ flex: 1 }}

@@ -134,7 +134,7 @@ export default function MyProfileScreen() {
 
   if (roleLoading || loadingData) {
     return (
-      <ThemedView style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F9FAFB" }} safe={true}>
+      <ThemedView style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F9FAFB", paddingTop: insets.top }}>
         <StatusBar style="dark" />
         <ActivityIndicator />
       </ThemedView>
@@ -148,14 +148,14 @@ export default function MyProfileScreen() {
   const identity = isTrades ? (trade || selfProfile || {}) : (selfProfile || {});
 
   return (
-    <ThemedView style={{ flex: 1, backgroundColor: "#F9FAFB" }} safe={true}>
+    <ThemedView style={{ flex: 1, backgroundColor: "#F9FAFB", paddingTop: insets.top }}>
       <StatusBar style="dark" />
       {/* Header */}
       <View style={styles.header}>
         <ThemedText style={styles.headerTitle}>Profile</ThemedText>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 32 + insets.bottom }}>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 32 }}>
         {/* ===== CLIENTS: Private notice card (extra), but same overall layout ===== */}
         {isClient && (
           <View style={styles.card}>
