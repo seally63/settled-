@@ -30,20 +30,46 @@ function formatNumber(num) {
 }
 
 // Status badge component with icons (no emojis)
+// Colors based on action context:
+// - ACTION NEEDED (Orange #F59E0B): New Quote, Expires Soon, Confirm Completion
+// - WAITING (Blue #3B82F6): Request Sent, Quote Pending, Awaiting Schedule
+// - ACTIVE/GOOD (Green #10B981): Quote Accepted, Scheduled, On Site, Work in Progress
+// - COMPLETED (Gray #6B7280): Completed
+// - NEGATIVE (Red #EF4444): Declined, Expired, No Response
 function StatusBadge({ type }) {
   const badges = {
-    NEW: { icon: "sparkles", color: "#10B981", bg: "#D1FAE5", text: "New" },
-    DECLINED: { icon: "close-circle", color: "#EF4444", bg: "#FEE2E2", text: "Declined" },
-    EXPIRES_SOON: { icon: "time", color: "#F59E0B", bg: "#FEF3C7", text: "Expires soon" },
-    MULTIPLE_QUOTES: { icon: "document-text", color: "#8B5CF6", bg: "#EDE9FE", text: "Multiple quotes" },
-    RESPONSE_NEEDED: { icon: "alert-circle", color: "#F59E0B", bg: "#FEF3C7", text: "Response needed" },
-    AT_LIMIT: { icon: "warning", color: "#DC2626", bg: "#FEE2E2", text: "At limit" },
+    // ACTION NEEDED (Orange) - client needs to take action
+    NEW_QUOTE: { icon: "document-text", color: "#F59E0B", bg: "#FEF3C7", text: "New Quote" },
+    EXPIRES_SOON: { icon: "time", color: "#F59E0B", bg: "#FEF3C7", text: "Expires Soon" },
+    CONFIRM_COMPLETION: { icon: "checkmark-circle", color: "#F59E0B", bg: "#FEF3C7", text: "Confirm Completion" },
+    RESPONSE_NEEDED: { icon: "alert-circle", color: "#F59E0B", bg: "#FEF3C7", text: "Response Needed" },
+
+    // WAITING (Blue) - waiting for trade
+    REQUEST_SENT: { icon: "send", color: "#3B82F6", bg: "#DBEAFE", text: "Request Sent" },
+    QUOTE_PENDING: { icon: "hourglass", color: "#3B82F6", bg: "#DBEAFE", text: "Quote Pending" },
+    AWAITING_SCHEDULE: { icon: "calendar-outline", color: "#3B82F6", bg: "#DBEAFE", text: "Awaiting Schedule" },
+    AWAITING: { icon: "hourglass", color: "#3B82F6", bg: "#DBEAFE", text: "Awaiting Response" },
+
+    // ACTIVE/GOOD (Green) - positive state
+    QUOTE_ACCEPTED: { icon: "checkmark-circle", color: "#10B981", bg: "#D1FAE5", text: "Quote Accepted" },
+    SCHEDULED: { icon: "calendar", color: "#10B981", bg: "#D1FAE5", text: "Scheduled" },
+    ON_SITE: { icon: "location", color: "#10B981", bg: "#D1FAE5", text: "On Site" },
+    WORK_IN_PROGRESS: { icon: "construct", color: "#10B981", bg: "#D1FAE5", text: "Work in Progress" },
     ACTIVE: { icon: "construct", color: "#10B981", bg: "#D1FAE5", text: "Active" },
-    SCHEDULED: { icon: "calendar", color: "#3B82F6", bg: "#DBEAFE", text: "Scheduled" },
+
+    // COMPLETED (Gray)
     COMPLETED: { icon: "checkmark-done", color: "#6B7280", bg: "#F3F4F6", text: "Completed" },
-    DECLINED_BY_YOU: { icon: "close", color: "#6B7280", bg: "#F3F4F6", text: "Declined by you" },
-    EXPIRED: { icon: "ban", color: "#6B7280", bg: "#F3F4F6", text: "Expired" },
-    AWAITING: { icon: "hourglass", color: "#3B82F6", bg: "#DBEAFE", text: "Awaiting response" },
+
+    // NEGATIVE (Red) - declined, expired, no response
+    DECLINED: { icon: "close-circle", color: "#EF4444", bg: "#FEE2E2", text: "Declined" },
+    DECLINED_BY_YOU: { icon: "close", color: "#EF4444", bg: "#FEE2E2", text: "Declined by You" },
+    EXPIRED: { icon: "ban", color: "#EF4444", bg: "#FEE2E2", text: "Expired" },
+    NO_RESPONSE: { icon: "alert-circle", color: "#EF4444", bg: "#FEE2E2", text: "No Response" },
+
+    // Legacy mappings (for backwards compatibility)
+    NEW: { icon: "sparkles", color: "#F59E0B", bg: "#FEF3C7", text: "New Quote" },
+    AT_LIMIT: { icon: "warning", color: "#EF4444", bg: "#FEE2E2", text: "At Limit" },
+    MULTIPLE_QUOTES: { icon: "document-text", color: "#F59E0B", bg: "#FEF3C7", text: "Multiple Quotes" },
   };
 
   const badge = badges[type] || badges.AWAITING;
@@ -346,20 +372,18 @@ export default function ClientProjects() {
       return Math.floor(diff / (1000 * 60 * 60 * 24));
     };
 
-    // Process quotes needing decision
+    // Process quotes needing decision (CLIENT view)
+    // Client received a quote and needs to decide
     decideQuotes.forEach((q) => {
       const daysOld = daysSince(q.issued_at);
-      const isNew = daysOld < 1;
-      const needsResponse = daysOld >= 7;
 
       // Calculate expiry (assuming 14 day expiry from issued_at)
       const expiryDays = 14 - daysOld;
       const expiresSoon = expiryDays <= 3 && expiryDays > 0;
 
-      let statusType = "RESPONSE_NEEDED";
-      if (isNew) statusType = "NEW";
-      else if (expiresSoon) statusType = "EXPIRES_SOON";
-      else if (needsResponse) statusType = "RESPONSE_NEEDED";
+      // Status for CLIENT: received a quote = "New Quote" (action needed)
+      let statusType = "NEW_QUOTE"; // Orange - action needed
+      if (expiresSoon) statusType = "EXPIRES_SOON"; // Orange - urgent action
 
       const expiryWarning = expiresSoon ? `Expires in ${expiryDays} day${expiryDays !== 1 ? 's' : ''}` : null;
 
@@ -421,14 +445,14 @@ export default function ClientProjects() {
           ],
         });
       } else if (status === "accepted") {
-        // Trade accepted but no quote yet - waiting for quote
+        // Trade accepted but no quote yet - waiting for quote (CLIENT view)
         waitingForQuotes.push({
           id: `response-accepted-${r.id || r.request_id}`,
           type: "response_accepted",
           title: r.suggested_title || "Request",
           subtitle: null,
           metaInfo: `${r.decisions_count || 0} trade${r.decisions_count !== 1 ? 's' : ''} responded • Waiting for quote`,
-          statusType: "AWAITING",
+          statusType: "QUOTE_PENDING", // Blue - waiting for trade to send quote
           actionButtons: [
             {
               label: "View Request",
@@ -440,7 +464,8 @@ export default function ClientProjects() {
       }
     });
 
-    // Process open requests (no responses yet)
+    // Process open requests (no responses yet) - CLIENT view
+    // Client sent a request, waiting for trades to respond
     requests.forEach((req) => {
       const isAtLimit = req.is_direct ? atDirectLimit : atOpenLimit;
       const daysAgo = daysSince(req.created_at);
@@ -452,7 +477,7 @@ export default function ClientProjects() {
         subtitle: req.job_outcode || null,
         metaInfo: `${req.is_direct ? 'Direct' : 'Open'} request • ${daysAgo} day${daysAgo !== 1 ? 's' : ''} ago • No response yet`,
         limitWarning: isAtLimit ? `Daily ${req.is_direct ? 'direct' : 'open'} request limit reached` : null,
-        statusType: isAtLimit ? "AT_LIMIT" : "AWAITING",
+        statusType: isAtLimit ? "AT_LIMIT" : "REQUEST_SENT", // Blue - waiting for trades
         actionButtons: [
           {
             label: "View Request",
@@ -463,7 +488,7 @@ export default function ClientProjects() {
       });
     });
 
-    // Process decided quotes
+    // Process decided quotes (CLIENT view)
     decidedQuotes.forEach((q) => {
       const status = String(q.status || "").toLowerCase();
 
@@ -476,6 +501,12 @@ export default function ClientProjects() {
         const nextAppointment = relatedAppointments[0];
         const scheduledDate = nextAppointment?.scheduled_at ? new Date(nextAppointment.scheduled_at) : null;
         const isScheduled = !!scheduledDate;
+
+        // Determine status based on appointment state
+        let statusType = "QUOTE_ACCEPTED"; // Green - quote accepted
+        if (isScheduled) {
+          statusType = "SCHEDULED"; // Green - work is scheduled
+        }
 
         activeJobs.push({
           id: `active-${q.quote_id}`,
@@ -496,7 +527,7 @@ export default function ClientProjects() {
               })}`
             : null,
           metaInfo: null, // Removed "Accepted" date
-          statusType: isScheduled ? "SCHEDULED" : "ACTIVE",
+          statusType,
           requestId: q.request_id, // Pass request_id for messaging
           actionButtons: [
             {

@@ -1,5 +1,5 @@
 // app/(dashboard)/_layout.jsx
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter, useSegments } from 'expo-router';
 import { useColorScheme, ActivityIndicator, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
@@ -12,9 +12,25 @@ import { supabase } from '../../lib/supabase';
 export default function DashboardLayout() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme] ?? Colors.light;
+  const router = useRouter();
+  const segments = useSegments();
 
   const { user } = useUser();
   const [role, setRole] = useState(null);
+
+  // Handle tab press to reset to main screen when already on that tab
+  const handleTabPress = (tabName, indexRoute) => {
+    // Check if we're currently in the tab's nested routes (not at index)
+    const currentTab = segments[1]; // e.g., "messages", "quotes", "profile"
+    const isNested = segments.length > 2; // e.g., ["(dashboard)", "messages", "[id]"]
+
+    if (currentTab === tabName && isNested) {
+      // Navigate to the tab's index to reset the stack
+      router.replace(`/${tabName}`);
+      return true; // Prevent default behavior
+    }
+    return false; // Allow default behavior
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -146,6 +162,13 @@ export default function DashboardLayout() {
                 color={color}
               />
             ),
+          }}
+          listeners={{
+            tabPress: (e) => {
+              if (handleTabPress('messages')) {
+                e.preventDefault();
+              }
+            },
           }}
         />
 
