@@ -1163,8 +1163,6 @@ export default function QuoteDetails() {
         contentContainerStyle={styles.scrollContents}
         showsVerticalScrollIndicator
       >
-        <Spacer size={8} />
-
         {/* Quote request - styled like client version */}
         {request && (
           <>
@@ -1648,7 +1646,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 
-  scrollContents: { paddingBottom: 40, padding: 20 },
+  scrollContents: { paddingBottom: 40, paddingHorizontal: 20, paddingTop: 8 },
 
   heroCard: {
     marginHorizontal: 16,
@@ -1834,7 +1832,7 @@ const styles = StyleSheet.create({
 
   // Section headers (Airbnb-style)
   sectionHeaderRow: {
-    marginTop: 16,
+    marginTop: 8,
     marginBottom: 12,
   },
   sectionHeaderText: {
