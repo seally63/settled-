@@ -134,7 +134,8 @@ export default function MyProfileScreen() {
 
   if (roleLoading || loadingData) {
     return (
-      <ThemedView style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+      <ThemedView style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F9FAFB" }} safe={true}>
+        <StatusBar style="dark" />
         <ActivityIndicator />
       </ThemedView>
     );
@@ -148,6 +149,7 @@ export default function MyProfileScreen() {
 
   return (
     <ThemedView style={{ flex: 1, backgroundColor: "#F9FAFB" }} safe={true}>
+      <StatusBar style="dark" />
       {/* Header */}
       <View style={styles.header}>
         <ThemedText style={styles.headerTitle}>Profile</ThemedText>

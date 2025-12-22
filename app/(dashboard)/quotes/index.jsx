@@ -25,31 +25,30 @@ function formatNumber(num) {
   return Number(num).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// Status color scheme matching your requirements
-const STATUS_COLORS = {
-  accepted: { bg: "#D1FAE5", fg: "#10B981", icon: "checkmark-circle" },
-  in_progress: { bg: "#FEF3C7", fg: "#F59E0B", icon: "construct" },
-  pending: { bg: "#F3F4F6", fg: "#6B7280", icon: "hourglass" },
-  scheduled: { bg: "#DBEAFE", fg: "#3B82F6", icon: "calendar" },
+// Chip color categories based on action context
+// ACTION NEEDED (Orange #F59E0B): Send Quote, New Quote, Expires Soon, Confirm Completion
+// WAITING (Blue #3B82F6): Request Sent, Quote Sent, Quote Pending, Awaiting Schedule
+// ACTIVE/GOOD (Green #10B981): Quote Accepted, Scheduled, On Site, Work in Progress
+// COMPLETED (Gray #6B7280): Completed
+// NEGATIVE (Red #EF4444): Declined, Expired, No Response
+const CHIP_TONES = {
+  action: { bg: "#FEF3C7", fg: "#F59E0B", icon: "alert-circle" },
+  waiting: { bg: "#DBEAFE", fg: "#3B82F6", icon: "hourglass" },
+  active: { bg: "#D1FAE5", fg: "#10B981", icon: "checkmark-circle" },
   completed: { bg: "#F3F4F6", fg: "#6B7280", icon: "checkmark-done" },
-  declined: { bg: "#FEE2E2", fg: "#EF4444", icon: "close-circle" },
-  expired: { bg: "#F3F4F6", fg: "#9CA3AF", icon: "time" },
-  sent: { bg: "#DBEAFE", fg: "#3B82F6", icon: "send" },
-  new: { bg: "#D1FAE5", fg: "#10B981", icon: "sparkles" },
-  awaiting: { bg: "#FEF3C7", fg: "#F59E0B", icon: "hourglass" },
+  negative: { bg: "#FEE2E2", fg: "#EF4444", icon: "close-circle" },
 };
 
-/* Status Chip component with icons */
-function StatusChip({ status, label }) {
-  const s = status?.toLowerCase() || "pending";
-  const colors = STATUS_COLORS[s] || STATUS_COLORS.pending;
-  const displayLabel = label || (s.charAt(0).toUpperCase() + s.slice(1));
+/* Status Chip component - takes label and tone */
+function StatusChip({ label, tone = "waiting", icon }) {
+  const colors = CHIP_TONES[tone] || CHIP_TONES.waiting;
+  const chipIcon = icon || colors.icon;
 
   return (
     <View style={[styles.statusChip, { backgroundColor: colors.bg }]}>
-      <Ionicons name={colors.icon} size={14} color={colors.fg} />
+      <Ionicons name={chipIcon} size={14} color={colors.fg} />
       <ThemedText style={[styles.statusChipText, { color: colors.fg }]}>
-        {displayLabel}
+        {label}
       </ThemedText>
     </View>
   );
@@ -168,14 +167,17 @@ export default function TradesmanProjects() {
         ])
       );
 
-      // Fetch client names for quotes
+      // Fetch client names for quotes (from profiles table directly)
       const clientIds = [...new Set((quotes || []).map((q) => q.client_id).filter(Boolean))];
       let clientsById = {};
       if (clientIds.length) {
-        const { data: clientsData } = await supabase.rpc("rpc_trade_public_names", {
-          trade_ids: clientIds,
+        const { data: clientsData } = await supabase
+          .from("profiles")
+          .select("id, full_name, business_name, email")
+          .in("id", clientIds);
+        (clientsData || []).forEach((c) => {
+          clientsById[c.id] = c.full_name || c.business_name || c.email || "Client";
         });
-        (clientsData || []).forEach((c) => (clientsById[c.profile_id] = c.business_name || c.full_name));
       }
 
       // Fetch request docs
@@ -459,25 +461,78 @@ function SectionHeader({ title, icon, count }) {
   );
 }
 
+/* Helper to calculate days since a date */
+function daysSince(date) {
+  if (!date) return 0;
+  const diff = new Date() - new Date(date);
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
 /* Project Card Component - Notion/Airbnb style */
 function ProjectCard({ project, onPress, onAction, onMessage, router }) {
   const isInbox = project.type === "inbox";
   const displayStatus = project.displayStatus || "pending";
   const showActionButtons = !isInbox && (displayStatus === "in_progress" || displayStatus === "scheduled" || displayStatus === "sent" || displayStatus === "awaiting");
 
-  // Get status label
-  const statusLabels = {
-    new: "New Request",
-    accepted: "Ready to Quote",
-    sent: "Sent",
-    in_progress: "In Progress",
-    scheduled: "Scheduled",
-    awaiting: "Awaiting Response",
-    completed: "Completed",
-    declined: "Declined",
-    expired: "Expired",
-    pending: "Pending",
-  };
+  // Determine chip label and tone based on context for TRADES view
+  let chipLabel = "";
+  let chipTone = "waiting";
+  let chipIcon = null;
+
+  if (isInbox) {
+    // No quote sent yet - inbox items
+    if (project.state === "declined") {
+      chipLabel = "Declined";
+      chipTone = "negative";
+    } else {
+      // New request that needs quote sent
+      const daysOld = daysSince(project.invited_at || project.created_at);
+      if (daysOld === 0) {
+        chipLabel = "New Request";
+        chipTone = "waiting";
+        chipIcon = "sparkles";
+      } else {
+        chipLabel = "Send Quote";
+        chipTone = "action";
+      }
+    }
+  } else {
+    // Quote exists - determine based on status
+    const status = (project.status || displayStatus || "").toLowerCase();
+    const daysOld = daysSince(project.issued_at);
+
+    if (status === "accepted" || status === "in_progress") {
+      chipLabel = "Quote Accepted";
+      chipTone = "active";
+    } else if (status === "scheduled") {
+      chipLabel = "Scheduled";
+      chipTone = "active";
+      chipIcon = "calendar";
+    } else if (status === "sent" || status === "created" || status === "draft" || status === "awaiting") {
+      // Quote sent, waiting for client response
+      if (daysOld >= 7) {
+        chipLabel = "No Response";
+        chipTone = "negative";
+      } else {
+        chipLabel = "Quote Sent";
+        chipTone = "waiting";
+        chipIcon = "send";
+      }
+    } else if (status === "declined") {
+      chipLabel = "Declined";
+      chipTone = "negative";
+    } else if (status === "expired") {
+      chipLabel = "Expired";
+      chipTone = "negative";
+      chipIcon = "time";
+    } else if (status === "completed") {
+      chipLabel = "Completed";
+      chipTone = "completed";
+    } else {
+      chipLabel = "Quote Sent";
+      chipTone = "waiting";
+    }
+  }
 
   return (
     <Pressable style={styles.projectCard} onPress={onPress}>
@@ -493,10 +548,7 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
             </ThemedText>
           )}
         </View>
-        <StatusChip
-          status={displayStatus}
-          label={statusLabels[displayStatus]}
-        />
+        <StatusChip label={chipLabel} tone={chipTone} icon={chipIcon} />
       </View>
 
       <Spacer height={12} />

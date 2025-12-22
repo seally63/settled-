@@ -8,6 +8,7 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
+import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -123,7 +124,8 @@ export default function TradesmanHome() {
 
   if (loading) {
     return (
-      <ThemedView style={styles.container}>
+      <ThemedView style={styles.container} safe={true}>
+        <StatusBar style="dark" />
         <View style={styles.center}>
           <ActivityIndicator size="large" color={Colors.light?.tint || "#0ea5e9"} />
         </View>
@@ -133,6 +135,7 @@ export default function TradesmanHome() {
 
   return (
     <ThemedView style={styles.container} safe={true}>
+      <StatusBar style="dark" />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.scrollContent}
