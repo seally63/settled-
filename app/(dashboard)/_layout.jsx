@@ -18,18 +18,36 @@ export default function DashboardLayout() {
   const { user } = useUser();
   const [role, setRole] = useState(null);
 
-  // Handle tab press to reset to main screen when already on that tab
-  const handleTabPress = (tabName, indexRoute) => {
-    // Check if we're currently in the tab's nested routes (not at index)
-    const currentTab = segments[1]; // e.g., "messages", "quotes", "profile"
-    const isNested = segments.length > 2; // e.g., ["(dashboard)", "messages", "[id]"]
+  // Track if we need to reset tabs when switching to them
+  const [messagesNeedsReset, setMessagesNeedsReset] = useState(false);
 
-    if (currentTab === tabName && isNested) {
-      // Navigate to the tab's index to reset the stack
-      router.replace(`/${tabName}`);
-      return true; // Prevent default behavior
+  // When navigating to messages from another screen (like project card), mark for reset
+  useEffect(() => {
+    const currentTab = segments[1];
+    // If we're in messages nested route, mark that we need to reset when leaving
+    if (currentTab === 'messages' && segments.length > 2) {
+      setMessagesNeedsReset(true);
     }
-    return false; // Allow default behavior
+  }, [segments]);
+
+  // Handle tab press to reset to main screen
+  const handleMessagesTabPress = () => {
+    const currentTab = segments[1];
+
+    // If coming from a different tab and messages needs reset, go to messages index
+    if (currentTab !== 'messages' && messagesNeedsReset) {
+      setMessagesNeedsReset(false);
+      router.replace('/messages');
+      return true;
+    }
+
+    // If already on messages tab in a nested route, go to index
+    if (currentTab === 'messages' && segments.length > 2) {
+      router.replace('/messages');
+      return true;
+    }
+
+    return false;
   };
 
   useEffect(() => {
@@ -165,7 +183,7 @@ export default function DashboardLayout() {
           }}
           listeners={{
             tabPress: (e) => {
-              if (handleTabPress('messages')) {
+              if (handleMessagesTabPress()) {
                 e.preventDefault();
               }
             },
