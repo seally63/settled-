@@ -167,8 +167,21 @@ export default function TradesmanProjects() {
         ])
       );
 
-      // Fetch client names for quotes (from profiles table directly)
-      const clientIds = [...new Set((quotes || []).map((q) => q.client_id).filter(Boolean))];
+      // Fetch request docs first (we need requester_id for client names)
+      let reqById = {};
+      if (reqIds.length) {
+        const { data: reqs } = await supabase
+          .from("quote_requests")
+          .select("id, details, created_at, status, job_outcode, budget_band, suggested_title, requester_id")
+          .in("id", reqIds);
+        (reqs || []).forEach((r) => (reqById[r.id] = r));
+      }
+
+      // Fetch client names for quotes AND requests (from profiles table directly)
+      // Include both client_id from quotes and requester_id from requests
+      const quoteClientIds = (quotes || []).map((q) => q.client_id).filter(Boolean);
+      const requestClientIds = Object.values(reqById).map((r) => r.requester_id).filter(Boolean);
+      const clientIds = [...new Set([...quoteClientIds, ...requestClientIds])];
       let clientsById = {};
       if (clientIds.length) {
         const { data: clientsData } = await supabase
@@ -178,16 +191,6 @@ export default function TradesmanProjects() {
         (clientsData || []).forEach((c) => {
           clientsById[c.id] = c.full_name || c.business_name || c.email || "Client";
         });
-      }
-
-      // Fetch request docs
-      let reqById = {};
-      if (reqIds.length) {
-        const { data: reqs } = await supabase
-          .from("quote_requests")
-          .select("id, details, created_at, status, job_outcode, budget_band, suggested_title, requester_id")
-          .in("id", reqIds);
-        (reqs || []).forEach((r) => (reqById[r.id] = r));
       }
 
       // Fetch appointments for these quotes
@@ -228,6 +231,8 @@ export default function TradesmanProjects() {
             isUrgent,
             // Calculate response deadline (e.g., 3 days to respond)
             responseDeadline: 3 - requestAge,
+            // Client name from requester_id
+            clientName: r?.requester_id ? clientsById[r.requester_id] || null : null,
           };
         });
 
