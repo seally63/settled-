@@ -1,5 +1,5 @@
 // app/(dashboard)/client/find-business/[id].jsx
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -11,6 +11,7 @@ import {
   Platform,
   Modal,
   ActivityIndicator,
+  Dimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -31,22 +32,27 @@ import { requestDirectQuote } from "../../../../lib/api/directRequest";
 import { getBusinessVerificationPublic, getTradePublicMetrics90d } from "../../../../lib/api/trust";
 import { supabase } from "../../../../lib/supabase";
 import { uploadRequestImages } from "../../../../lib/api/attachments";
+import {
+  getServiceCategories,
+  getServiceTypes,
+  getPropertyTypes,
+  getTimingOptions,
+} from "../../../../lib/api/services";
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 const TEST_PROFILE = {
   id: "test-demo",
   full_name: "TEST Business",
   business_name: "Demo Plumbing Co.",
   trade_title: "Plumber",
-  bio: "We’re a demo company for testing your flow. Fast, friendly, and fictional.",
+  bio: "We're a demo company for testing your flow. Fast, friendly, and fictional.",
   service_areas: "Shoreditch, Hackney, Camden",
   photo_url: null,
   created_at: new Date().toISOString(),
   rating_avg: 4.9,
   rating_count: 30,
 };
-
-const MIN_PHOTOS = 1;
-const CELL = 96;
 
 function monthsSince(ts) {
   if (!ts) return null;
@@ -57,13 +63,12 @@ function monthsSince(ts) {
 }
 
 function Stars({ rating = 0 }) {
-  const full = Math.round(rating);
   return (
     <View style={{ flexDirection: "row", alignItems: "center" }}>
       {Array.from({ length: 5 }).map((_, i) => (
         <Ionicons
           key={i}
-          name={i < full ? "star" : "star-outline"}
+          name={i < Math.round(rating) ? "star" : "star-outline"}
           size={14}
           color="#fbbc04"
           style={{ marginRight: 2 }}
@@ -80,69 +85,11 @@ function fmtHours(n) {
   if (v < 10) return `${v.toFixed(1)}h`;
   return `${Math.round(v)}h`;
 }
+
 function fmtPct(n) {
   if (n == null || isNaN(n)) return "—";
   return `${Math.round(Number(n) * 100)}%`;
 }
-
-const QuestionHeader = ({ title }) => (
-  <View style={styles.questionHeader}>
-    <ThemedText title style={styles.questionTitle}>
-      {title}
-    </ThemedText>
-  </View>
-);
-
-const Option = ({ label, subtitle, selected, onPress, inset = false, theme }) => (
-  <Pressable
-    onPress={onPress}
-    style={[
-      styles.optionCard,
-      { backgroundColor: theme.uiBackground, borderColor: selected ? Colors.primary : theme.iconColor },
-      inset && styles.subOption,
-    ]}
-  >
-    <View style={styles.optionContent}>
-      <View style={[styles.dot, { borderColor: theme.text }, selected && { backgroundColor: theme.text }]} />
-      <View style={{ flex: 1 }}>
-        <ThemedText style={styles.optionLabel}>{label}</ThemedText>
-        {!!subtitle && <ThemedText style={styles.optionSubtitle}>{subtitle}</ThemedText>}
-      </View>
-    </View>
-  </Pressable>
-);
-
-const SubHeader = ({ onBack, stepIndex, theme, insets }) => {
-  const total = 6; // Photos inserted before Timing
-  const pct =
-    stepIndex === 1 ? "16%" :
-    stepIndex === 2 ? "33%" :
-    stepIndex === 3 ? "50%" :
-    stepIndex === 4 ? "66%" :
-    stepIndex === 5 ? "83%" : "100%";
-  const backLabel = stepIndex === 1 ? "Search" : "Back";
-  return (
-    <View
-      style={[
-        styles.subHeader,
-        { paddingTop: insets.top, backgroundColor: theme.uiBackground, borderBottomColor: theme.iconColor },
-      ]}
-    >
-      <Pressable onPress={onBack} style={styles.backButton} hitSlop={10}>
-        <Ionicons name="chevron-back" size={24} color={theme.text} />
-        <ThemedText style={styles.backText}>{backLabel}</ThemedText>
-      </Pressable>
-      <View style={styles.stepRow}>
-        <ThemedText style={styles.stepText}>
-          Step {stepIndex} of {total}
-        </ThemedText>
-      </View>
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: pct, backgroundColor: Colors.primary }]} />
-      </View>
-    </View>
-  );
-};
 
 const VerifyRow = ({ label, verified }) => (
   <View style={styles.verifyRow}>
@@ -156,55 +103,22 @@ const VerifyRow = ({ label, verified }) => (
   </View>
 );
 
-// UPDATED: allow 1–2 letters, optionally digits + letter (G, EH, G3, G14, EH1, etc.)
-function normalizeOutcode(s) {
-  const x = String(s || "").toUpperCase().replace(/\s+/g, "");
-  const ok = /^[A-Z]{1,2}(?:\d{1,2}[A-Z]?)?$/.test(x);
-  return ok ? x : null;
-}
-
-function mapBudgetLabelToBand(label) {
-  switch (label) {
-    case "£0–£3k":
-      return "<£3k";
-    case "£3k–£6k":
-      return "£3k–£6k";
-    case "£6k–£9k":
-      return "£6k–£9k";
-    case "£9k–£12k":
-      return "£9k–£12k";
-    case "More than £12k":
-      return ">£12k";
-    default:
-      return null;
-  }
-}
-
-/* ensure overlay paints before work */
 const paintFrames = (n = 2) =>
   new Promise((resolve) => {
     const step = () => (n-- <= 0 ? resolve() : requestAnimationFrame(step));
     requestAnimationFrame(step);
   });
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/* yield back to UI between big async ops (per file) */
-const yieldToUI = () => new Promise((res) => setTimeout(res, 0));
-
 const MIN_PREP_MS = 600;
 
-// Create lightweight thumbnails (with base64 for upload)
 async function makeThumbnails(uris) {
   const out = [];
   for (const uri of uris) {
     const { uri: thumb, base64 } = await ImageManipulator.manipulateAsync(
       uri,
       [{ resize: { width: 1200 } }],
-      {
-        compress: 0.8,
-        format: ImageManipulator.SaveFormat.JPEG,
-        base64: true,
-      }
+      { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
     );
     out.push({ uri: thumb, base64 });
   }
@@ -224,39 +138,138 @@ export default function BusinessDetail() {
   const [badges, setBadges] = useState(null);
   const [metrics, setMetrics] = useState(null);
 
-  // Steps (+ Photos)
+  // Multi-step form state
   const [step, setStep] = useState(0);
-  const [bathroomMain, setBathroomMain] = useState(null);
-  const [bathroomRefitType, setBathroomRefitType] = useState(null);
-  const [outcode, setOutcode] = useState("");
-  const [photos, setPhotos] = useState([]); // array of { uri, base64? }
 
-  // per-thumb loading
-  const [thumbLoading, setThumbLoading] = useState({}); // { [uri]: true|false }
+  // Step 1: Category
+  const [categories, setCategories] = useState([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(null);
 
-  // PREPARING overlay for newly picked URIs
+  // Step 2: Service type
+  const [serviceTypes, setServiceTypes] = useState([]);
+  const [loadingServiceTypes, setLoadingServiceTypes] = useState(false);
+  const [selectedServiceType, setSelectedServiceType] = useState(null);
+
+  // Step 3: Details
+  const [description, setDescription] = useState("");
+  const [propertyTypes, setPropertyTypes] = useState([]);
+  const [selectedPropertyType, setSelectedPropertyType] = useState(null);
+  const [showPropertyDropdown, setShowPropertyDropdown] = useState(false);
+
+  // Step 4: Photos & Timing
+  const [photos, setPhotos] = useState([]);
+  const [timingOptions, setTimingOptions] = useState([]);
+  const [selectedTiming, setSelectedTiming] = useState(null);
+
+  // Photo preparation overlay
   const [prepVisible, setPrepVisible] = useState(false);
-  const [prepUris, setPrepUris] = useState(new Set()); // thumb URIs being rendered
+  const [prepUris, setPrepUris] = useState(new Set());
   const [prepStartedAt, setPrepStartedAt] = useState(0);
-  const [prepPhase, setPrepPhase] = useState("preparing"); // "preparing" | "rendering"
+  const [prepPhase, setPrepPhase] = useState("preparing");
   const [prepDone, setPrepDone] = useState(0);
   const [prepTotal, setPrepTotal] = useState(0);
 
-  const [viewer, setViewer] = useState({ open: false, index: 0 }); // full-screen preview
-  const [startWhen, setStartWhen] = useState(null);
-  const [budget, setBudget] = useState(null);
-  const [notes, setNotes] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  // Image viewer
+  const [viewer, setViewer] = useState({ open: false, index: 0 });
 
-  // upload overlay state
+  // Submission
+  const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadIdx, setUploadIdx] = useState(0);
   const [uploadTotal, setUploadTotal] = useState(0);
+  const [editingFromReview, setEditingFromReview] = useState(false);
 
-  const outcodeRef = useRef(null);
-  const notesInputRef = useRef(null);
+  // Load trade data
+  useEffect(() => {
+    async function load() {
+      try {
+        const myRole = await getMyRole();
+        setRole(myRole || null);
+        if (isTest) {
+          setBadges({ companies_house_active: true, payments_verified: true, insurance_verified: true });
+          setMetrics({ response_time_p50_hours: 2.5, acceptance_rate: 0.78 });
+          return;
+        }
+        const [t, b, m] = await Promise.all([
+          getTradeById(id),
+          getBusinessVerificationPublic(id).catch(() => null),
+          getTradePublicMetrics90d(id).catch(() => null),
+        ]);
+        setTrade(t);
+        setBadges(b);
+        setMetrics(m);
+      } catch (e) {
+        Alert.alert("Error", e?.message || "Failed to load business");
+      }
+    }
+    if (id) load();
+  }, [id, isTest]);
 
-  // Hard reset utility to prevent "last overlay" flash
+  // Load form data
+  useEffect(() => {
+    loadCategories();
+    loadPropertyTypes();
+    loadTimingOptions();
+  }, []);
+
+  useEffect(() => {
+    if (selectedCategory?.id) {
+      loadServiceTypes(selectedCategory.id);
+    }
+  }, [selectedCategory?.id]);
+
+  async function loadCategories() {
+    setLoadingCategories(true);
+    try {
+      const data = await getServiceCategories();
+      setCategories(data);
+    } catch (e) {
+      console.warn("Failed to load categories:", e.message);
+    } finally {
+      setLoadingCategories(false);
+    }
+  }
+
+  async function loadServiceTypes(categoryId) {
+    setLoadingServiceTypes(true);
+    try {
+      const data = await getServiceTypes(categoryId);
+      setServiceTypes(data);
+    } catch (e) {
+      console.warn("Failed to load service types:", e.message);
+    } finally {
+      setLoadingServiceTypes(false);
+    }
+  }
+
+  async function loadPropertyTypes() {
+    try {
+      const data = await getPropertyTypes();
+      setPropertyTypes(data);
+    } catch (e) {
+      console.warn("Failed to load property types:", e.message);
+    }
+  }
+
+  async function loadTimingOptions() {
+    try {
+      const data = await getTimingOptions();
+      setTimingOptions(data);
+    } catch (e) {
+      console.warn("Failed to load timing options:", e.message);
+    }
+  }
+
+  const monthsHosting = useMemo(() => monthsSince(trade?.created_at), [trade?.created_at]);
+  const ratingText = useMemo(() => {
+    const r = Number(trade?.rating_avg || 0);
+    const c = Number(trade?.rating_count || 0);
+    if (!r || !c) return "No reviews yet";
+    return `${r.toFixed(2)} (${c} reviews)`;
+  }, [trade?.rating_avg, trade?.rating_count]);
+
+  // Photo handling
   function resetPhotoUI() {
     setPrepVisible(false);
     setPrepUris(new Set());
@@ -268,41 +281,6 @@ export default function BusinessDetail() {
     setUploadTotal(0);
   }
 
-  const load = useCallback(async () => {
-    try {
-      const myRole = await getMyRole();
-      setRole(myRole || null);
-      if (isTest) {
-        setBadges({ companies_house_active: true, payments_verified: true, insurance_verified: true });
-        setMetrics({ response_time_p50_hours: 2.5, acceptance_rate: 0.78 });
-        return;
-      }
-      const [t, b, m] = await Promise.all([
-        getTradeById(id),
-        getBusinessVerificationPublic(id).catch(() => null),
-        getTradePublicMetrics90d(id).catch(() => null),
-      ]);
-      setTrade(t);
-      setBadges(b);
-      setMetrics(m);
-    } catch (e) {
-      Alert.alert("Error", e?.message || "Failed to load business");
-    }
-  }, [id, isTest]);
-
-  useEffect(() => {
-    if (id) load();
-  }, [id, load]);
-
-  const monthsHosting = useMemo(() => monthsSince(trade?.created_at), [trade?.created_at]);
-  const ratingText = useMemo(() => {
-    const r = Number(trade?.rating_avg || 0);
-    const c = Number(trade?.rating_count || 0);
-    if (!r || !c) return "No reviews yet";
-    return `${r.toFixed(2)} (${c} reviews)`;
-  }, [trade?.rating_avg, trade?.rating_count]);
-
-  // Prep helpers
   function beginPreparing(count) {
     if (!count || count <= 0) return;
     setPrepStartedAt(Date.now());
@@ -328,7 +306,6 @@ export default function BusinessDetail() {
       next.delete(uri);
       return next;
     });
-    setThumbLoading((prev) => (prev[uri] ? { ...prev, [uri]: false } : prev));
   };
 
   async function pickFromLibrary() {
@@ -354,108 +331,63 @@ export default function BusinessDetail() {
       const newUris = (result.assets || []).slice(0, remaining).map((a) => a.uri);
       if (!newUris.length) return;
 
-      // 1) Overlay immediately -> paint before heavy work
       beginPreparing(newUris.length);
       await paintFrames(2);
-      await sleep(0);
 
-      // 2) Thumbnails with progress + seed cell spinners
+      // Process thumbnails with proper yielding to prevent UI freeze
       const thumbs = [];
-      for (const uri of newUris) {
-        const [thumb] = await makeThumbnails([uri]);
+      for (let i = 0; i < newUris.length; i++) {
+        // Yield to UI thread before each image
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await paintFrames(1);
+
+        const [thumb] = await makeThumbnails([newUris[i]]);
         thumbs.push(thumb);
-        setThumbLoading((prev) => ({ ...prev, [thumb.uri]: true }));
-        setPrepDone((d) => d + 1);
-        await sleep(0);
+        setPrepDone(i + 1);
+
+        // Extra yield after processing
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
 
-      // 3) Rendering phase + mount
       setPrepPhase("rendering");
-      const thumbUris = thumbs.map((t) => t.uri);
-      setPrepUris(new Set(thumbUris));
-      await paintFrames(1);
+      setPrepUris(new Set(thumbs.map((t) => t.uri)));
+      await paintFrames(2);
 
       setPhotos((prev) => [...prev, ...thumbs].slice(0, 5));
-    } catch {}
-  }
 
-  async function takePhoto() {
-    try {
-      if (photos.length >= 5) {
-        Alert.alert("Limit reached", "You can add up to 5 photos.");
-        return;
-      }
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (perm.status !== "granted") {
-        Alert.alert("Permission needed", "Please allow camera access to take photos.");
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 1,
-      });
-      if (result.canceled) return;
-      const asset = result.assets?.[0];
-      if (!asset?.uri) return;
-
-      // 1) Overlay -> paint before work
-      beginPreparing(1);
-      await paintFrames(2);
-      await sleep(0);
-
-      // 2) Make thumb (progress 1/1)
-      const [thumb] = await makeThumbnails([asset.uri]);
-      setThumbLoading((prev) => ({ ...prev, [thumb.uri]: true }));
-      setPrepDone(1);
-
-      // 3) Rendering + mount
-      setPrepPhase("rendering");
-      setPrepUris(new Set([thumb.uri]));
-      await paintFrames(1);
-
-      setPhotos((prev) => [...prev, thumb].slice(0, 5));
-    } catch {}
+      // Close prep overlay after a brief delay
+      await sleep(300);
+      setPrepVisible(false);
+    } catch (e) {
+      console.warn("pickFromLibrary error:", e);
+      setPrepVisible(false);
+    }
   }
 
   function removePhoto(idx) {
-    setPhotos((prev) => {
-      const list = [...prev];
-      const removed = list[idx];
-      if (removed?.uri) {
-        setPrepUris((prevSet) => {
-          if (!prevSet.size) return prevSet;
-          const next = new Set(prevSet);
-          next.delete(removed.uri);
-          return next;
-        });
-        setThumbLoading((s) => {
-          if (!s[removed.uri]) return s;
-          const copy = { ...s };
-          delete copy[removed.uri];
-          return copy;
-        });
-      }
-      list.splice(idx, 1);
-      return list;
-    });
+    const removed = photos[idx];
+    if (removed?.uri) {
+      setPrepUris((prevSet) => {
+        if (!prevSet.size) return prevSet;
+        const next = new Set(prevSet);
+        next.delete(removed.uri);
+        return next;
+      });
+    }
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
   }
 
   async function uploadAndAttach(requestId) {
     const totalPhotos = photos.length;
-
     if (totalPhotos === 0) {
       setUploading(false);
-      setUploadIdx(0);
-      setUploadTotal(0);
       return;
     }
 
-    // Show overlay and give it time to paint
     setUploadTotal(totalPhotos);
     setUploadIdx(0);
     setUploading(true);
-    await new Promise((r) => requestAnimationFrame(r));
-    await new Promise((r) => requestAnimationFrame(r)); // extra frame = snappier show
+    await paintFrames(2);
 
     let uploadedPaths = [];
     try {
@@ -471,97 +403,54 @@ export default function BusinessDetail() {
       setUploadTotal(0);
     }
 
-    if (totalPhotos) {
-      if (!uploadedPaths.length) {
-        Alert.alert(
-          "Photos not attached",
-          "We couldn’t upload your photos, but your request was still sent."
-        );
-      } else if (uploadedPaths.length !== totalPhotos) {
-        Alert.alert(
-          "Partial upload",
-          `Attached ${uploadedPaths.length} of ${totalPhotos} photos.`
-        );
-      }
+    if (totalPhotos && !uploadedPaths.length) {
+      Alert.alert("Photos not attached", "We couldn't upload your photos, but your request was still sent.");
     }
   }
 
+  // Submit
   async function submitDirectRequest() {
     try {
       if (isTest) {
-        // make sure no overlays can appear for demo
         resetPhotoUI();
         Alert.alert("Demo", "This is a demo business — request not sent.");
         return;
       }
-      if (!bathroomMain || (bathroomMain === "Bathroom refit" && !bathroomRefitType)) {
-        Alert.alert("Incomplete", "Please choose your bathroom job details.");
-        return;
-      }
-      const oc = normalizeOutcode(outcode);
-      if (!oc) {
-        Alert.alert("Postcode area required", "Main postcode only.");
-        return;
-      }
-      if (!startWhen) {
-        Alert.alert("Select timing", "Please choose when you'd like the job to start.");
-        return;
-      }
-      if (!budget) {
-        Alert.alert("Select budget", "Please pick your budget.");
-        return;
-      }
+      if (!selectedCategory) return Alert.alert("Please select a category.");
+      if (!selectedServiceType) return Alert.alert("Please select a service type.");
+      if (!selectedTiming) return Alert.alert("Please select when you need this done.");
 
       setSubmitting(true);
 
       const details = [
         `Direct request to: ${trade?.business_name || trade?.full_name || id}`,
-        `Category: Bathrooms`,
-        bathroomMain ? `Main: ${bathroomMain}` : null,
-        bathroomRefitType ? `Refit type: ${bathroomRefitType}` : null,
-        `Address: ${oc}`,
-        `Start: ${startWhen}`,
-        notes?.trim() ? `Notes: ${notes.trim()}` : null,
+        `Category: ${selectedCategory.name}`,
+        `Service: ${selectedServiceType.name}`,
+        description?.trim() ? `Description: ${description.trim()}` : null,
+        selectedPropertyType ? `Property: ${selectedPropertyType.name}` : null,
+        `Timing: ${selectedTiming.name}`,
+        selectedTiming.is_emergency ? `Emergency: Yes` : null,
       ]
         .filter(Boolean)
         .join("\n");
 
-      const suggested_title =
-        bathroomMain === "Bathroom refit" && bathroomRefitType
-          ? `Bathroom - ${bathroomRefitType}`
-          : `Bathroom - ${bathroomMain}`;
-
-      const dbBand = mapBudgetLabelToBand(budget);
+      const suggested_title = `${selectedCategory.name} - ${selectedServiceType.name}`;
 
       const res = await requestDirectQuote(id, {
         details,
         suggested_title,
-        budget_band: dbBand,
-        job_outcode: oc,
+        category_id: selectedCategory.id,
+        service_type_id: selectedServiceType.id,
+        property_type_id: selectedPropertyType?.id || null,
+        timing_option_id: selectedTiming.id,
       });
 
-      const newRequestId =
-        res?.id || res?.request_id || res?.data?.id || res?.data?.request_id || null;
+      const newRequestId = res?.id || res?.request_id || res?.data?.id || res?.data?.request_id || null;
 
       if (newRequestId) {
         await uploadAndAttach(String(newRequestId));
-      } else {
-        try {
-          const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-          const { data: maybe } = await supabase
-            .from("quote_requests")
-            .select("id")
-            .gte("created_at", since)
-            .eq("job_outcode", oc)
-            .order("created_at", { ascending: false })
-            .limit(1);
-          if (maybe?.[0]?.id) {
-            await uploadAndAttach(String(maybe[0].id));
-          }
-        } catch {}
       }
 
-      // make 100% sure no overlay remains after uploads
       resetPhotoUI();
 
       Alert.alert("Request sent", "Your quote request has been sent.", [
@@ -574,6 +463,39 @@ export default function BusinessDetail() {
     }
   }
 
+  // Navigation helpers for edit flow
+  function goToStepForEdit(targetStep) {
+    setEditingFromReview(true);
+    setStep(targetStep);
+  }
+
+  function handleContinueOrReturnToReview(nextStep) {
+    if (editingFromReview) {
+      setEditingFromReview(false);
+      setStep(5); // Return to review
+    } else {
+      setStep(nextStep);
+    }
+  }
+
+  // Category/service selection (auto-advance)
+  function handleCategorySelect(cat) {
+    setSelectedCategory(cat);
+    setSelectedServiceType(null);
+    setStep(2);
+  }
+
+  function handleServiceTypeSelect(type) {
+    setSelectedServiceType(type);
+    // If editing from review, go back to review; otherwise advance to step 3
+    if (editingFromReview) {
+      setEditingFromReview(false);
+      setStep(5);
+    } else {
+      setStep(3);
+    }
+  }
+
   if (role && role !== "client") {
     return (
       <ThemedView style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -582,64 +504,123 @@ export default function BusinessDetail() {
     );
   }
 
-  // Combined Preparing/Upload overlay — now only visible when truly active
+  // Overlays
   const UploadOverlay = () => {
     const isVisible = prepVisible || (uploading && uploadTotal > 0);
     if (!isVisible) return null;
 
     const pct = uploading && uploadTotal ? Math.round((uploadIdx / uploadTotal) * 100) : 0;
     const title = prepVisible
-      ? prepPhase === "preparing"
-        ? "Preparing your photos…"
-        : "Rendering your photos…"
+      ? prepPhase === "preparing" ? "Preparing your photos…" : "Rendering your photos…"
       : "Uploading your photos…";
+
     return (
-      <Modal
-        visible
-        transparent
-        animationType="none"
-        statusBarTranslucent
-        hardwareAccelerated
-        presentationStyle="overFullScreen"
-        onRequestClose={() => {}}
-      >
+      <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={() => {}}>
         <View style={styles.uploadBackdrop}>
           <View style={styles.uploadCard}>
-            <ActivityIndicator size="large" />
+            <ActivityIndicator size="large" color={Colors.primary} />
             <ThemedText style={styles.uploadTitle}>{title}</ThemedText>
-
-            {prepVisible && prepPhase === "preparing" ? (
-              <ThemedText style={styles.uploadSub}>
-                {prepDone} of {prepTotal}
-              </ThemedText>
-            ) : null}
-
-            {!prepVisible && uploading && uploadTotal > 0 ? (
+            {prepVisible && prepPhase === "preparing" && (
+              <ThemedText style={styles.uploadSub}>{prepDone} of {prepTotal}</ThemedText>
+            )}
+            {!prepVisible && uploading && uploadTotal > 0 && (
               <>
-                <ThemedText style={styles.uploadSub}>
-                  {uploadIdx} of {uploadTotal}
-                </ThemedText>
+                <ThemedText style={styles.uploadSub}>{uploadIdx} of {uploadTotal}</ThemedText>
                 <View style={styles.uploadBar}>
                   <View style={[styles.uploadFill, { width: `${pct}%`, backgroundColor: Colors.primary }]} />
                 </View>
               </>
-            ) : null}
+            )}
           </View>
         </View>
       </Modal>
     );
   };
 
-  // ====== Screens ======
+  const ImageViewer = () => {
+    if (!viewer.open || photos.length === 0) return null;
+    const currentPhoto = photos[viewer.index];
+
+    return (
+      <Modal visible={viewer.open} transparent animationType="fade" onRequestClose={() => setViewer({ open: false, index: 0 })} statusBarTranslucent>
+        <View style={styles.viewerBackdrop}>
+          <Pressable style={styles.viewerClose} hitSlop={8} onPress={() => setViewer({ open: false, index: 0 })}>
+            <Ionicons name="close" size={22} color="#fff" />
+          </Pressable>
+
+          {viewer.index > 0 && (
+            <Pressable style={[styles.viewerNav, { left: 12 }]} hitSlop={10} onPress={() => setViewer((v) => ({ ...v, index: v.index - 1 }))}>
+              <Ionicons name="chevron-back" size={28} color="#fff" />
+            </Pressable>
+          )}
+
+          {currentPhoto && <Image source={{ uri: currentPhoto.uri }} style={styles.viewerImg} resizeMode="contain" />}
+
+          {viewer.index < photos.length - 1 && (
+            <Pressable style={[styles.viewerNav, { right: 12 }]} hitSlop={10} onPress={() => setViewer((v) => ({ ...v, index: v.index + 1 }))}>
+              <Ionicons name="chevron-forward" size={28} color="#fff" />
+            </Pressable>
+          )}
+
+          <View style={styles.viewerDots}>
+            {photos.map((_, i) => (
+              <View key={i} style={[styles.viewerDot, i === viewer.index && styles.viewerDotActive]} />
+            ))}
+          </View>
+
+          <Pressable
+            style={styles.viewerDelete}
+            hitSlop={10}
+            onPress={() => {
+              const idx = viewer.index;
+              removePhoto(idx);
+              const remaining = photos.length - 1;
+              if (remaining <= 0) {
+                setViewer({ open: false, index: 0 });
+              } else {
+                setViewer({ open: true, index: Math.min(idx, remaining - 1) });
+              }
+            }}
+          >
+            <Ionicons name="trash-outline" size={18} color="#fff" />
+          </Pressable>
+        </View>
+      </Modal>
+    );
+  };
+
+  // Handle back navigation
+  function handleBack(defaultStep) {
+    if (editingFromReview) {
+      setEditingFromReview(false);
+      setStep(5); // Return to review
+    } else {
+      setStep(defaultStep);
+    }
+  }
+
+  // Sub header
+  const SubHeader = ({ onBack, currentStep, totalSteps = 5 }) => {
+    const pct = `${(currentStep / totalSteps) * 100}%`;
+    return (
+      <View style={[styles.subHeader, { paddingTop: insets.top, backgroundColor: theme.uiBackground, borderBottomColor: theme.iconColor }]}>
+        <Pressable onPress={onBack} style={styles.backButton} hitSlop={10}>
+          <Ionicons name="chevron-back" size={24} color={theme.text} />
+        </Pressable>
+        <View style={styles.progressTrackContainer}>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: pct, backgroundColor: Colors.primary }]} />
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  // About card (step 0)
   const AboutCard = (
     <ScrollView
       keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
-      contentContainerStyle={{
-        paddingTop: insets.top + 16,
-        paddingHorizontal: 16,
-        paddingBottom: 16 + insets.bottom,
-      }}
+      contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 16, paddingBottom: 16 + insets.bottom }}
       showsVerticalScrollIndicator={false}
     >
       {trade && (
@@ -659,13 +640,11 @@ export default function BusinessDetail() {
               <Stars rating={Number(trade?.rating_avg || 0)} />
               <ThemedText style={styles.metricText}>{ratingText}</ThemedText>
               {monthsHosting != null && (
-                <ThemedText style={styles.metricText}>
-                  • {monthsHosting} {monthsHosting === 1 ? "month" : "months"} on Settled
-                </ThemedText>
+                <ThemedText style={styles.metricText}>• {monthsHosting} {monthsHosting === 1 ? "month" : "months"} on Settled</ThemedText>
               )}
             </View>
 
-            {badges ? (
+            {badges && (
               <>
                 <Spacer height={12} />
                 <View style={styles.verifyWrap}>
@@ -677,9 +656,9 @@ export default function BusinessDetail() {
                   </View>
                 </View>
               </>
-            ) : null}
+            )}
 
-            {metrics && (metrics.response_time_p50_hours != null || metrics.acceptance_rate != null) ? (
+            {metrics && (metrics.response_time_p50_hours != null || metrics.acceptance_rate != null) && (
               <>
                 <Spacer height={12} />
                 <View style={styles.kpiRow}>
@@ -693,7 +672,7 @@ export default function BusinessDetail() {
                   </View>
                 </View>
               </>
-            ) : null}
+            )}
 
             <View style={styles.divider} />
 
@@ -728,301 +707,127 @@ export default function BusinessDetail() {
 
           <Spacer height={16} />
           <ThemedButton onPress={() => setStep(1)}>
-            <ThemedText style={{ color: "#fff", fontWeight: "700", textAlign: "center" }}>
-              Request a quote
-            </ThemedText>
+            <ThemedText style={{ color: "#fff", fontWeight: "700", textAlign: "center" }}>Request a quote</ThemedText>
           </ThemedButton>
         </>
       )}
     </ScrollView>
   );
 
-  const Step1 = (
+  // Step 1: Category selection
+  const CategoryStep = (
     <ThemedView style={[styles.container, { backgroundColor: theme.background }]} safe={false}>
-      <SubHeader onBack={() => setStep(0)} stepIndex={1} theme={theme} insets={insets} />
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.select({ ios: 0, android: 0 })}
-      >
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
-          showsVerticalScrollIndicator={false}
-        >
-          <QuestionHeader title="What does your bathroom job involve?" />
-          <Option
-            label="Bathroom refit"
-            subtitle="fitting a brand new bathroom"
-            selected={bathroomMain === "Bathroom refit"}
-            onPress={() => setBathroomMain("Bathroom refit")}
-            theme={theme}
-          />
-          {bathroomMain === "Bathroom refit" && (
-            <>
-              <Option
-                inset
-                label="Fit only"
-                selected={bathroomRefitType === "Fit only"}
-                onPress={() => setBathroomRefitType("Fit only")}
-                theme={theme}
-              />
-              <Option
-                inset
-                label="Supply & fit"
-                selected={bathroomRefitType === "Supply & fit"}
-                onPress={() => setBathroomRefitType("Supply & fit")}
-                theme={theme}
-              />
-              <Option
-                inset
-                label="Supply only"
-                selected={bathroomRefitType === "Supply only"}
-                onPress={() => setBathroomRefitType("Supply only")}
-                theme={theme}
-              />
-            </>
-          )}
-          <Option
-            label="Bathroom fixtures"
-            subtitle="e.g., showers, baths, sinks, toilets"
-            selected={bathroomMain === "Bathroom fixtures"}
-            onPress={() => {
-              setBathroomMain("Bathroom fixtures");
-              setBathroomRefitType(null);
-            }}
-            theme={theme}
-          />
-          <Option
-            label="Plumbing and heating"
-            subtitle="radiators, blockages, etc."
-            selected={bathroomMain === "Plumbing and heating"}
-            onPress={() => {
-              setBathroomMain("Plumbing and heating");
-              setBathroomRefitType(null);
-            }}
-            theme={theme}
-          />
-          <Option
-            label="Tiling"
-            selected={bathroomMain === "Tiling"}
-            onPress={() => {
-              setBathroomMain("Tiling");
-              setBathroomRefitType(null);
-            }}
-            theme={theme}
-          />
-          <Option
-            label="Bathroom design"
-            selected={bathroomMain === "Bathroom design"}
-            onPress={() => {
-              setBathroomMain("Bathroom design");
-              setBathroomRefitType(null);
-            }}
-            theme={theme}
-          />
-          <Option
-            label="Sealant"
-            selected={bathroomMain === "Sealant"}
-            onPress={() => {
-              setBathroomMain("Sealant");
-              setBathroomRefitType(null);
-            }}
-            theme={theme}
-          />
-          <View style={styles.continueButtonContainer}>
-            <ThemedButton
-              onPress={() => setStep(2)}
-              disabled={!bathroomMain || (bathroomMain === "Bathroom refit" && !bathroomRefitType)}
-              style={styles.continueButton}
-            >
-              <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
-            </ThemedButton>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </ThemedView>
-  );
-
-  const Step2 = (
-    <ThemedView style={[styles.container, { backgroundColor: theme.background }]} safe={false}>
-      <SubHeader onBack={() => setStep(1)} stepIndex={2} theme={theme} insets={insets} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
-          showsVerticalScrollIndicator={false}
-        >
-          <QuestionHeader title="What is your postcode area?" />
-          <ThemedTextInput
-            ref={outcodeRef}
-            style={styles.addressInput}
-            placeholder="Main postcode only"
-            value={outcode}
-            onChangeText={setOutcode}
-            autoCapitalize="characters"
-          />
-          <View style={styles.continueButtonContainer}>
-            <ThemedButton onPress={() => setStep(3)} disabled={!normalizeOutcode(outcode)} style={styles.continueButton}>
-              <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
-            </ThemedButton>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </ThemedView>
-  );
-
-  // Step 3 — Photos (MANDATORY + PREVIEW)
-  const Step3_Photos = (
-    <ThemedView style={[styles.container, { backgroundColor: theme.background }]} safe={false}>
-      <SubHeader onBack={() => setStep(2)} stepIndex={3} theme={theme} insets={insets} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
-          showsVerticalScrollIndicator={false}
-        >
-          <QuestionHeader title="Add up to 5 images to help us understand the job." />
-
-          <View style={styles.gridWrap}>
-            {photos.map((p, i) => (
-              <View key={`${p.uri}-${i}`} style={styles.thumbCell}>
-                <Pressable style={{ flex: 1 }} onPress={() => setViewer({ open: true, index: i })}>
-                  <Image
-                    source={{ uri: p.uri }}
-                    style={styles.thumbImg}
-                    onLoad={() => markThumbLoaded(p.uri)}
-                    onLoadEnd={() => markThumbLoaded(p.uri)}
-                    onError={() => markThumbLoaded(p.uri)}
-                  />
-                  {thumbLoading[p.uri] && (
-                    <View style={styles.thumbLoadingOverlay}>
-                      <ActivityIndicator size="small" />
-                    </View>
-                  )}
-                </Pressable>
-                <Pressable onPress={() => setPhotos((prev) => prev.filter((_, idx) => idx !== i))} style={styles.removeBtn} hitSlop={8}>
-                  <Ionicons name="close" size={14} color="#fff" />
-                </Pressable>
-              </View>
-            ))}
-            {photos.length < 5 && (
-              <Pressable onPress={pickFromLibrary} style={styles.addCell} hitSlop={8}>
-                <Ionicons name="images-outline" size={26} color="#666" />
-                <ThemedText style={{ fontSize: 12, marginTop: 6 }}>Add photos</ThemedText>
-              </Pressable>
-            )}
-            {photos.length < 5 && (
-              <Pressable onPress={takePhoto} style={styles.addCell} hitSlop={8}>
-                <Ionicons name="camera-outline" size={26} color="#666" />
-                <ThemedText style={{ fontSize: 12, marginTop: 6 }}>Take photo</ThemedText>
-              </Pressable>
-            )}
-          </View>
-
-          <View style={styles.continueButtonContainer}>
-            <ThemedButton
-              onPress={() => {
-                if (photos.length < MIN_PHOTOS) {
-                  Alert.alert("Photos required", `Please add at least ${MIN_PHOTOS} photo to continue.`);
-                  return;
-                }
-                setStep(4);
-              }}
-              disabled={photos.length < MIN_PHOTOS}
-              style={styles.continueButton}
-            >
-              <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
-            </ThemedButton>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-
-      {/* Full-screen preview modal */}
-      <Modal
-        visible={viewer.open}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setViewer((v) => ({ ...v, open: false }))}
-      >
-        <View style={styles.viewerBackdrop}>
-          <Pressable
-            style={styles.viewerClose}
-            hitSlop={8}
-            onPress={() => setViewer((v) => ({ ...v, open: false }))}
-          >
-            <Ionicons name="close" size={22} color="#fff" />
-          </Pressable>
-
-          {viewer.index > 0 && (
-            <Pressable
-              style={[styles.viewerNav, { left: 12 }]}
-              hitSlop={10}
-              onPress={() => setViewer((v) => ({ ...v, index: Math.max(0, v.index - 1) }))}
-            >
-              <Ionicons name="chevron-back" size={28} color="#fff" />
-            </Pressable>
-          )}
-
-          {photos[viewer.index] && (
-            <Image source={{ uri: photos[viewer.index].uri }} style={styles.viewerImg} />
-          )}
-
-          {viewer.index < photos.length - 1 && (
-            <Pressable
-              style={[styles.viewerNav, { right: 12 }]}
-              hitSlop={10}
-              onPress={() => setViewer((v) => ({ ...v, index: Math.min(photos.length - 1, v.index + 1) }))}
-            >
-              <Ionicons name="chevron-forward" size={28} color="#fff" />
-            </Pressable>
-          )}
-
-          {photos[viewer.index] && (
-            <Pressable
-              style={styles.viewerDelete}
-              hitSlop={10}
-              onPress={() => {
-                const idx = viewer.index;
-                removePhoto(idx);
-                setViewer((v) => {
-                  const remaining = photos.length - 1; // after removal
-                  if (remaining <= 0) return { open: false, index: 0 };
-                  const next = Math.min(idx, remaining - 1);
-                  return { open: true, index: next };
-                });
-              }}
-            >
-              <Ionicons name="trash-outline" size={18} color="#fff" />
-            </Pressable>
-          )}
+      <SubHeader onBack={() => handleBack(0)} currentStep={1} />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 + insets.bottom }} showsVerticalScrollIndicator={false}>
+        <View style={styles.questionHeader}>
+          <ThemedText title style={styles.questionTitle}>What do you need help with?</ThemedText>
         </View>
-      </Modal>
+
+        {loadingCategories ? (
+          <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 40 }} />
+        ) : (
+          <View style={styles.categoryGrid}>
+            {categories.map((cat) => (
+              <Pressable key={cat.id} style={styles.categoryCard} onPress={() => handleCategorySelect(cat)}>
+                <View style={styles.categoryIconWrap}>
+                  <Ionicons name={cat.icon} size={32} color={Colors.primary} />
+                </View>
+                <ThemedText style={styles.categoryName}>{cat.name}</ThemedText>
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </ScrollView>
     </ThemedView>
   );
 
-  const Step4 = (
+  // Step 2: Service type selection
+  const ServiceTypeStep = (
     <ThemedView style={[styles.container, { backgroundColor: theme.background }]} safe={false}>
-      <SubHeader onBack={() => setStep(3)} stepIndex={4} theme={theme} insets={insets} />
+      <SubHeader onBack={() => handleBack(1)} currentStep={2} />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 + insets.bottom }} showsVerticalScrollIndicator={false}>
+        <View style={styles.questionHeader}>
+          <ThemedText title style={styles.questionTitle}>What do you need help with?</ThemedText>
+          {selectedCategory && <ThemedText style={styles.questionSubtitle}>{selectedCategory.name}</ThemedText>}
+        </View>
+
+        {loadingServiceTypes ? (
+          <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 40 }} />
+        ) : (
+          <View style={styles.serviceTypeList}>
+            {serviceTypes.map((type) => (
+              <Pressable key={type.id} style={styles.serviceTypeCard} onPress={() => handleServiceTypeSelect(type)}>
+                <View style={styles.serviceTypeIcon}>
+                  <Ionicons name={type.icon} size={22} color={Colors.primary} />
+                </View>
+                <ThemedText style={styles.serviceTypeName}>{type.name}</ThemedText>
+                <Ionicons name="chevron-forward" size={20} color="#999" />
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </ScrollView>
+    </ThemedView>
+  );
+
+  // Step 3: Details
+  const DetailsStep = (
+    <ThemedView style={[styles.container, { backgroundColor: theme.background }]} safe={false}>
+      <SubHeader onBack={() => handleBack(2)} currentStep={3} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
-          showsVerticalScrollIndicator={false}
-        >
-          <QuestionHeader title="When would you like the job to start?" />
-          {[
-            "I'm flexible on start date",
-            "It's urgent (within 48 hours)",
-            "Within 2 weeks",
-            "Within 1 month",
-            "I'm planning and budgeting",
-          ].map((opt) => (
-            <Option key={opt} label={opt} selected={startWhen === opt} onPress={() => setStartWhen(opt)} theme={theme} />
-          ))}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 + insets.bottom }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <View style={styles.questionHeader}>
+            <ThemedText title style={styles.questionTitle}>Tell us more.</ThemedText>
+            {selectedCategory && selectedServiceType && (
+              <ThemedText style={styles.selectionSummary}>{selectedCategory.name} → {selectedServiceType.name}</ThemedText>
+            )}
+          </View>
+
+          <View style={styles.fieldContainer}>
+            <ThemedText style={styles.fieldLabel}>Describe the job</ThemedText>
+            <ThemedTextInput
+              style={styles.textArea}
+              placeholder="e.g., Need to fix a leaky tap under the kitchen sink..."
+              value={description}
+              onChangeText={(t) => { if (t.length <= 500) setDescription(t); }}
+              multiline
+              textAlignVertical="top"
+            />
+            <ThemedText style={styles.charCount}>{description.length}/500</ThemedText>
+          </View>
+
+          <View style={styles.fieldContainer}>
+            <ThemedText style={styles.fieldLabel}>Property type</ThemedText>
+            <Pressable style={styles.dropdown} onPress={() => setShowPropertyDropdown(!showPropertyDropdown)}>
+              <ThemedText style={selectedPropertyType ? styles.dropdownText : styles.dropdownPlaceholder}>
+                {selectedPropertyType?.name || "Select property type"}
+              </ThemedText>
+              <Ionicons name={showPropertyDropdown ? "chevron-up" : "chevron-down"} size={20} color="#666" />
+            </Pressable>
+
+            {showPropertyDropdown && (
+              <View style={styles.dropdownMenu}>
+                {propertyTypes.map((pt) => (
+                  <Pressable
+                    key={pt.id}
+                    style={[styles.dropdownItem, selectedPropertyType?.id === pt.id && styles.dropdownItemSelected]}
+                    onPress={() => { setSelectedPropertyType(pt); setShowPropertyDropdown(false); }}
+                  >
+                    <ThemedText style={[styles.dropdownItemText, selectedPropertyType?.id === pt.id && styles.dropdownItemTextSelected]}>
+                      {pt.name}
+                    </ThemedText>
+                    {selectedPropertyType?.id === pt.id && <Ionicons name="checkmark" size={18} color={Colors.primary} />}
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+
           <View style={styles.continueButtonContainer}>
-            <ThemedButton onPress={() => setStep(5)} disabled={!startWhen} style={styles.continueButton}>
-              <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
+            <ThemedButton onPress={() => handleContinueOrReturnToReview(4)} style={styles.continueButton}>
+              <ThemedText style={styles.continueButtonText}>
+                {editingFromReview ? "Save changes" : "Continue"}
+              </ThemedText>
             </ThemedButton>
           </View>
         </ScrollView>
@@ -1030,71 +835,162 @@ export default function BusinessDetail() {
     </ThemedView>
   );
 
-  const Step5 = (
+  // Step 4: Photos & Timing
+  const PhotosTimingStep = (
     <ThemedView style={[styles.container, { backgroundColor: theme.background }]} safe={false}>
-      <SubHeader onBack={() => setStep(4)} stepIndex={5} theme={theme} insets={insets} />
+      <SubHeader onBack={() => handleBack(3)} currentStep={4} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
-          showsVerticalScrollIndicator={false}
-        >
-          <QuestionHeader title="How much budget do you have?" />
-          {["£0–£3k", "£3k–£6k", "£6k–£9k", "£9k–£12k", "More than £12k"].map((opt) => (
-            <Option key={opt} label={opt} selected={budget === opt} onPress={() => setBudget(opt)} theme={theme} />
-          ))}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 + insets.bottom }} showsVerticalScrollIndicator={false}>
+          <View style={styles.questionHeader}>
+            <ThemedText title style={styles.questionTitle}>Almost done!</ThemedText>
+          </View>
+
+          <View style={styles.sectionContainer}>
+            <ThemedText style={styles.sectionTitle}>Add photos (optional)</ThemedText>
+            <ThemedText style={styles.sectionHint}>Helps tradespeople give accurate quotes</ThemedText>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll} contentContainerStyle={styles.photoScrollContent}>
+              {photos.map((p, i) => (
+                <View key={`${p.uri}-${i}`} style={styles.photoCell}>
+                  <Pressable style={{ flex: 1 }} onPress={() => setViewer({ open: true, index: i })}>
+                    <Image source={{ uri: p.uri }} style={styles.photoImg} onLoadEnd={() => markThumbLoaded(p.uri)} />
+                  </Pressable>
+                  <Pressable onPress={() => removePhoto(i)} style={styles.photoRemove} hitSlop={8}>
+                    <Ionicons name="close" size={14} color="#fff" />
+                  </Pressable>
+                </View>
+              ))}
+              {photos.length < 5 && (
+                <Pressable onPress={pickFromLibrary} style={styles.addPhotoCell}>
+                  <Ionicons name="add" size={28} color="#666" />
+                  <ThemedText style={styles.addPhotoText}>Add</ThemedText>
+                </Pressable>
+              )}
+            </ScrollView>
+          </View>
+
+          <View style={styles.sectionContainer}>
+            <ThemedText style={styles.sectionTitle}>When do you need this done?</ThemedText>
+            <View style={styles.timingList}>
+              {timingOptions.map((opt) => (
+                <Pressable
+                  key={opt.id}
+                  style={[styles.timingOption, selectedTiming?.id === opt.id && styles.timingOptionSelected]}
+                  onPress={() => setSelectedTiming(opt)}
+                >
+                  <View style={[styles.radioOuter, selectedTiming?.id === opt.id && styles.radioOuterSelected]}>
+                    {selectedTiming?.id === opt.id && <View style={styles.radioInner} />}
+                  </View>
+                  <ThemedText style={[styles.timingText, opt.is_emergency && styles.timingTextEmergency]}>{opt.name}</ThemedText>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
           <View style={styles.continueButtonContainer}>
-            <ThemedButton onPress={() => setStep(6)} disabled={!budget} style={styles.continueButton}>
-              <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
+            <ThemedButton onPress={() => handleContinueOrReturnToReview(5)} disabled={!selectedTiming} style={styles.continueButton}>
+              <ThemedText style={styles.continueButtonText}>
+                {editingFromReview ? "Save changes" : "Review request"}
+              </ThemedText>
             </ThemedButton>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      <ImageViewer />
     </ThemedView>
   );
 
-  const Step6 = (
+  // Step 5: Review
+  const ReviewStep = (
     <ThemedView style={[styles.container, { backgroundColor: theme.background }]} safe={false}>
-      <SubHeader onBack={() => setStep(5)} stepIndex={6} theme={theme} insets={insets} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
-          showsVerticalScrollIndicator={false}
-        >
-          <QuestionHeader title="Any additional details that you want to add?" />
-          <ThemedTextInput
-            ref={notesInputRef}
-            style={styles.notesInput}
-            placeholder="Add details (max 500 characters)"
-            value={notes}
-            onChangeText={(t) => {
-              if (t.length <= 500) setNotes(t);
-            }}
-            multiline
-          />
-          <ThemedText style={styles.characterCount}>{notes.length}/500</ThemedText>
-          <View style={styles.continueButtonContainer}>
-            <ThemedButton disabled={submitting} onPress={submitDirectRequest} style={styles.continueButton}>
-              <ThemedText style={styles.continueButtonText}>{submitting ? "Submitting…" : "Request quote"}</ThemedText>
-            </ThemedButton>
+      <SubHeader onBack={() => setStep(4)} currentStep={5} />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 + insets.bottom }} showsVerticalScrollIndicator={false}>
+        <View style={styles.questionHeader}>
+          <ThemedText title style={styles.questionTitle}>Review your request.</ThemedText>
+        </View>
+
+        <View style={styles.reviewCard}>
+          <View style={styles.reviewSection}>
+            <ThemedText style={styles.reviewLabel}>BUSINESS</ThemedText>
+            <ThemedText style={styles.reviewValue}>{trade?.business_name || trade?.full_name}</ThemedText>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+
+          <View style={styles.reviewDivider} />
+
+          <View style={styles.reviewSection}>
+            <ThemedText style={styles.reviewLabel}>SERVICE</ThemedText>
+            <ThemedText style={styles.reviewValue}>{selectedCategory?.name} → {selectedServiceType?.name}</ThemedText>
+            <Pressable onPress={() => goToStepForEdit(1)} style={styles.editButton}>
+              <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+            </Pressable>
+          </View>
+
+          <View style={styles.reviewDivider} />
+
+          <View style={styles.reviewSection}>
+            <ThemedText style={styles.reviewLabel}>DETAILS</ThemedText>
+            <ThemedText style={styles.reviewValue} numberOfLines={3}>{description?.trim() || "No description provided"}</ThemedText>
+            <Pressable onPress={() => goToStepForEdit(3)} style={styles.editButton}>
+              <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+            </Pressable>
+          </View>
+
+          <View style={styles.reviewDivider} />
+
+          <View style={styles.reviewSection}>
+            <ThemedText style={styles.reviewLabel}>PROPERTY</ThemedText>
+            <ThemedText style={styles.reviewValue}>{selectedPropertyType?.name || "Not specified"}</ThemedText>
+            <Pressable onPress={() => goToStepForEdit(3)} style={styles.editButton}>
+              <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+            </Pressable>
+          </View>
+
+          <View style={styles.reviewDivider} />
+
+          <View style={styles.reviewSection}>
+            <ThemedText style={styles.reviewLabel}>TIMING</ThemedText>
+            <ThemedText style={styles.reviewValue}>{selectedTiming?.name}</ThemedText>
+            <Pressable onPress={() => goToStepForEdit(4)} style={styles.editButton}>
+              <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+            </Pressable>
+          </View>
+
+          <View style={styles.reviewDivider} />
+
+          <View style={styles.reviewSection}>
+            <ThemedText style={styles.reviewLabel}>PHOTOS</ThemedText>
+            <View style={styles.reviewPhotos}>
+              {photos.length > 0 ? photos.map((p, i) => (
+                <Image key={i} source={{ uri: p.uri }} style={styles.reviewPhotoThumb} />
+              )) : (
+                <ThemedText style={styles.reviewValue}>No photos added</ThemedText>
+              )}
+            </View>
+            <Pressable onPress={() => goToStepForEdit(4)} style={styles.editButton}>
+              <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.continueButtonContainer}>
+          <ThemedButton onPress={submitDirectRequest} disabled={submitting} style={styles.continueButton}>
+            <ThemedText style={styles.continueButtonText}>{submitting ? "Submitting…" : "Submit request"}</ThemedText>
+          </ThemedButton>
+        </View>
+
+        <ThemedText style={styles.disclaimer}>By submitting, you agree to receive quotes from this tradesperson</ThemedText>
+      </ScrollView>
     </ThemedView>
   );
 
   return (
     <ThemedView style={{ flex: 1, backgroundColor: Colors.light.background }}>
-      {step === 0 ? (
+      {step === 0 && (
         <>
           <StatusBar style="light" backgroundColor={Colors.primary} />
           <View style={[styles.header, { paddingTop: insets.top }]}>
             <Pressable
-              onPress={() => {
-                if (router.canGoBack()) router.back();
-                else router.replace("/client/find-business");
-              }}
+              onPress={() => router.canGoBack() ? router.back() : router.replace("/client/find-business")}
               hitSlop={8}
               style={styles.backBtn}
             >
@@ -1106,15 +1002,13 @@ export default function BusinessDetail() {
             {AboutCard}
           </KeyboardAvoidingView>
         </>
-      ) : null}
-      {step === 1 && Step1}
-      {step === 2 && Step2}
-      {step === 3 && Step3_Photos}
-      {step === 4 && Step4}
-      {step === 5 && Step5}
-      {step === 6 && Step6}
+      )}
+      {step === 1 && CategoryStep}
+      {step === 2 && ServiceTypeStep}
+      {step === 3 && DetailsStep}
+      {step === 4 && PhotosTimingStep}
+      {step === 5 && ReviewStep}
 
-      {/* Overlay covers all steps — always mounted */}
       <UploadOverlay />
     </ThemedView>
   );
@@ -1127,51 +1021,93 @@ const styles = StyleSheet.create({
   headerTitle: { color: "#fff", fontSize: 18, fontWeight: "bold" },
 
   subHeader: { paddingBottom: 12, paddingHorizontal: 20, borderBottomWidth: 1 },
-  backButton: { flexDirection: "row", alignItems: "center" },
-  backText: { fontSize: 16, marginLeft: 4 },
-  stepRow: { marginTop: 10, flexDirection: "row", justifyContent: "flex-end" },
-  stepText: { fontSize: 12 },
-  progressTrack: { height: 3, marginTop: 8, borderRadius: 2, backgroundColor: "rgba(0,0,0,0.08)", overflow: "hidden" },
+  backButton: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
+  progressTrackContainer: { marginTop: 12 },
+  progressTrack: { height: 3, borderRadius: 2, backgroundColor: "rgba(0,0,0,0.08)", overflow: "hidden" },
   progressFill: { height: 3, borderRadius: 2 },
 
   questionHeader: { paddingHorizontal: 20, paddingVertical: 24 },
-  questionTitle: { fontSize: 22, fontWeight: "bold", lineHeight: 28, textAlign: "left" },
+  questionTitle: { fontSize: 24, fontWeight: "bold", lineHeight: 30 },
+  questionSubtitle: { fontSize: 14, color: "#666", marginTop: 4 },
+  selectionSummary: { fontSize: 14, color: Colors.primary, marginTop: 8, fontWeight: "500" },
 
-  optionCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 20,
-    marginBottom: 12,
+  // Category grid
+  categoryGrid: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 16, gap: 12 },
+  categoryCard: {
+    width: (SCREEN_WIDTH - 56) / 2,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+    alignItems: "center",
     borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.08)",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  optionContent: { flexDirection: "row", alignItems: "center", gap: 12 },
-  optionLabel: { fontSize: 16, fontWeight: "600", marginBottom: 2 },
-  optionSubtitle: { fontSize: 14 },
-  dot: { width: 18, height: 18, borderRadius: 9, borderWidth: 2 },
-  subOption: { marginLeft: 28 },
+  categoryIconWrap: { width: 60, height: 60, borderRadius: 30, backgroundColor: `${Colors.primary}15`, alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  categoryName: { fontSize: 15, fontWeight: "600", textAlign: "center" },
 
-  addressInput: { marginHorizontal: 20, marginTop: 8, fontSize: 16 },
-  notesInput: { marginHorizontal: 20, marginTop: 8, fontSize: 16, minHeight: 120, textAlignVertical: "top" },
-  characterCount: { fontSize: 12, marginHorizontal: 20, marginTop: 8, textAlign: "right" },
+  // Service type list
+  serviceTypeList: { paddingHorizontal: 20 },
+  serviceTypeCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 12, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: "rgba(0,0,0,0.08)" },
+  serviceTypeIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: `${Colors.primary}15`, alignItems: "center", justifyContent: "center", marginRight: 14 },
+  serviceTypeName: { flex: 1, fontSize: 16, fontWeight: "500" },
+
+  // Details form
+  fieldContainer: { paddingHorizontal: 20, marginBottom: 20 },
+  fieldLabel: { fontSize: 14, fontWeight: "600", marginBottom: 8, color: "#333" },
+  textArea: { minHeight: 120, borderWidth: 1, borderColor: "rgba(0,0,0,0.15)", borderRadius: 12, padding: 14, fontSize: 16, backgroundColor: "#fff" },
+  charCount: { fontSize: 12, color: "#999", textAlign: "right", marginTop: 4 },
+  dropdown: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: "rgba(0,0,0,0.15)", borderRadius: 12, padding: 14, backgroundColor: "#fff" },
+  dropdownText: { fontSize: 16, color: "#333" },
+  dropdownPlaceholder: { fontSize: 16, color: "#999" },
+  dropdownMenu: { marginTop: 4, borderWidth: 1, borderColor: "rgba(0,0,0,0.1)", borderRadius: 12, backgroundColor: "#fff", overflow: "hidden" },
+  dropdownItem: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.05)" },
+  dropdownItemSelected: { backgroundColor: `${Colors.primary}10` },
+  dropdownItemText: { fontSize: 16 },
+  dropdownItemTextSelected: { color: Colors.primary, fontWeight: "500" },
+
+  // Photos & Timing
+  sectionContainer: { paddingHorizontal: 20, marginBottom: 28 },
+  sectionTitle: { fontSize: 16, fontWeight: "600", marginBottom: 4 },
+  sectionHint: { fontSize: 13, color: "#666", marginBottom: 14 },
+  photoScroll: { marginLeft: -20, marginRight: -20 },
+  photoScrollContent: { paddingHorizontal: 20, gap: 10 },
+  photoCell: { width: 100, height: 100, borderRadius: 12, overflow: "hidden", backgroundColor: "#eee", position: "relative" },
+  photoImg: { width: "100%", height: "100%" },
+  photoRemove: { position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: 12, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" },
+  addPhotoCell: { width: 100, height: 100, borderRadius: 12, borderWidth: 2, borderStyle: "dashed", borderColor: "rgba(0,0,0,0.2)", alignItems: "center", justifyContent: "center", backgroundColor: "#fafafa" },
+  addPhotoText: { fontSize: 12, color: "#666", marginTop: 4 },
+  timingList: { marginTop: 12 },
+  timingOption: { flexDirection: "row", alignItems: "center", paddingVertical: 14, paddingHorizontal: 4 },
+  timingOptionSelected: {},
+  radioOuter: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: "#ccc", alignItems: "center", justifyContent: "center", marginRight: 14 },
+  radioOuterSelected: { borderColor: Colors.primary },
+  radioInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: Colors.primary },
+  timingText: { fontSize: 16 },
+  timingTextEmergency: { color: "#e53935", fontWeight: "600" },
+
+  // Review
+  reviewCard: { marginHorizontal: 20, backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "rgba(0,0,0,0.08)", overflow: "hidden" },
+  reviewSection: { padding: 16, position: "relative" },
+  reviewLabel: { fontSize: 11, fontWeight: "600", color: "#999", letterSpacing: 0.5, marginBottom: 6 },
+  reviewValue: { fontSize: 15, lineHeight: 21, paddingRight: 40 },
+  reviewDivider: { height: 1, backgroundColor: "rgba(0,0,0,0.06)" },
+  editButton: { position: "absolute", right: 16, top: 16 },
+  editButtonText: { fontSize: 14, color: Colors.primary, fontWeight: "500" },
+  reviewPhotos: { flexDirection: "row", gap: 8, marginTop: 4 },
+  reviewPhotoThumb: { width: 50, height: 50, borderRadius: 8, backgroundColor: "#eee" },
+  disclaimer: { fontSize: 13, color: "#999", textAlign: "center", marginTop: 16, paddingHorizontal: 40 },
 
   continueButtonContainer: { paddingHorizontal: 20, marginTop: 24 },
   continueButton: { borderRadius: 28, paddingVertical: 14, marginVertical: 0 },
   continueButtonText: { color: "white", fontSize: 16, fontWeight: "600", textAlign: "center" },
 
-  topCard: {
-    borderRadius: 16,
-    padding: 16,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.08)",
-    alignItems: "stretch",
-    margin: 16,
-  },
+  // About card
+  topCard: { borderRadius: 16, padding: 16, backgroundColor: "#fff", borderWidth: 1, borderColor: "rgba(0,0,0,0.08)", alignItems: "stretch", margin: 16 },
   avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: "#eee", alignSelf: "center" },
   avatarFallback: { borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(0,0,0,0.15)" },
   name: { fontWeight: "800", fontSize: 18, textAlign: "center" },
@@ -1179,14 +1115,7 @@ const styles = StyleSheet.create({
   metricText: { marginLeft: 6, color: "#555" },
 
   verifyWrap: { marginTop: 2 },
-  verifyList: {
-    marginTop: 8,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.06)",
-  },
+  verifyList: { marginTop: 8, paddingVertical: 8, borderRadius: 12, backgroundColor: "#f8fafc", borderWidth: 1, borderColor: "rgba(0,0,0,0.06)" },
   verifyRow: { flexDirection: "row", alignItems: "center", paddingVertical: 6, paddingHorizontal: 10 },
   verifyIcon: { marginRight: 8 },
   verifyLabel: { fontSize: 15, fontWeight: "700" },
@@ -1198,135 +1127,25 @@ const styles = StyleSheet.create({
   kpiValue: { fontSize: 18, fontWeight: "800", marginTop: 2 },
 
   divider: { height: 1, backgroundColor: "rgba(0,0,0,0.08)", marginVertical: 12 },
-  infoLabel: {
-    fontSize: 12,
-    color: "#666",
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.2,
-  },
+  infoLabel: { fontSize: 12, color: "#666", fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.2 },
   infoValue: { fontSize: 16, fontWeight: "600" },
   infoBody: { fontSize: 15, lineHeight: 20 },
 
-  // Photos grid
-  gridWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    paddingHorizontal: 20,
-    paddingTop: 6,
-  },
-  thumbCell: {
-    width: CELL,
-    height: CELL,
-    borderRadius: 10,
-    overflow: "hidden",
-    backgroundColor: "#eee",
-    position: "relative",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(0,0,0,0.1)",
-  },
-  thumbImg: { width: "100%", height: "100%" },
-  thumbLoadingOverlay: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.35)",
-  },
-  removeBtn: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  addCell: {
-    width: CELL,
-    height: CELL,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(0,0,0,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fafafa",
-  },
-
-  // Viewer modal
-  viewerBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.95)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  viewerImg: { width: "90%", height: "70%", resizeMode: "contain" },
-  viewerClose: {
-    position: "absolute",
-    top: 18,
-    right: 18,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  viewerNav: {
-    position: "absolute",
-    top: "50%",
-    marginTop: -18,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  viewerDelete: {
-    position: "absolute",
-    bottom: 28,
-    alignSelf: "center",
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  // Upload / Preparing overlay styles
-  uploadBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  uploadCard: {
-    width: "86%",
-    maxWidth: 360,
-    borderRadius: 16,
-    paddingVertical: 20,
-    paddingHorizontal: 18,
-    backgroundColor: "#fff",
-    alignItems: "center",
-  },
+  // Upload overlay
+  uploadBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center", padding: 24 },
+  uploadCard: { width: "86%", maxWidth: 360, borderRadius: 16, paddingVertical: 20, paddingHorizontal: 18, backgroundColor: "#fff", alignItems: "center" },
   uploadTitle: { marginTop: 12, fontWeight: "800", fontSize: 16 },
   uploadSub: { marginTop: 4, fontSize: 13, color: "#666" },
-  uploadBar: {
-    marginTop: 12,
-    width: "100%",
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "rgba(0,0,0,0.08)",
-    overflow: "hidden",
-  },
+  uploadBar: { marginTop: 12, width: "100%", height: 6, borderRadius: 3, backgroundColor: "rgba(0,0,0,0.08)", overflow: "hidden" },
   uploadFill: { height: 6, borderRadius: 3 },
+
+  // Image viewer
+  viewerBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.95)", alignItems: "center", justifyContent: "center" },
+  viewerImg: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT * 0.7 },
+  viewerClose: { position: "absolute", top: 50, right: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", zIndex: 10 },
+  viewerNav: { position: "absolute", top: "50%", marginTop: -18, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", zIndex: 10 },
+  viewerDots: { position: "absolute", bottom: 100, flexDirection: "row", gap: 8 },
+  viewerDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.4)" },
+  viewerDotActive: { backgroundColor: "#fff" },
+  viewerDelete: { position: "absolute", bottom: 40, width: 50, height: 50, borderRadius: 25, backgroundColor: "rgba(255,0,0,0.4)", alignItems: "center", justifyContent: "center" },
 });
