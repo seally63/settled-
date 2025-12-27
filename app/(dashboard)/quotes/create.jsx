@@ -67,7 +67,7 @@ function deriveProjectTitle(req) {
     req.requested_title, req.project_title, req.project_type, req.job_type, req.category, req.title,
   ].filter(Boolean);
   const base = candidates.length ? String(candidates[0]).trim() : null;
-  const out = (req.job_outcode || "").toString().trim().toUpperCase();
+  const out = (req.postcode || "").toString().trim().toUpperCase();
   if (base) return out ? `${base} in ${out}` : base;
 
   if (req.details) {
@@ -130,8 +130,8 @@ export default function Create() {
       try {
         const { data, error } = await supabase
           .from("quote_requests")
-          // ✅ include job_outcode so we can append “in EH48”
-          .select("id, requested_title, project_title, project_type, job_type, category, details, job_outcode")
+          // ✅ include postcode so we can append “in EH48”
+          .select("id, requested_title, project_title, project_type, job_type, category, details, postcode")
           .eq("id", requestId)
           .maybeSingle();
         if (error) throw error;

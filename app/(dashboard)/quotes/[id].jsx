@@ -253,7 +253,7 @@ export default function QuoteDetails() {
           const { data: reqRow, error: reqErr } = await supabase
             .from("quote_requests")
             .select(
-              "id, details, created_at, budget_band, job_outcode, status, suggested_title"
+              "id, details, created_at, budget_band, postcode, status, suggested_title"
             )
             .eq("id", reqId)
             .maybeSingle();
@@ -767,8 +767,8 @@ export default function QuoteDetails() {
   const appointmentName = appointment?.notes || "Appointment";
   const locationText =
     parsedDetails.address ||
-    (request?.job_outcode
-      ? `Area ${request.job_outcode}`
+    (request?.postcode
+      ? `Area ${request.postcode}`
       : "Location not provided");
 
   const niceDate =
@@ -1023,9 +1023,9 @@ export default function QuoteDetails() {
                 <ThemedText style={styles.heroJobTitle}>
                   {quote.project_title || parsedDetails.title || "Quote"}
                 </ThemedText>
-                {request?.job_outcode && (
+                {request?.postcode && (
                   <ThemedText style={styles.heroLocation} variant="muted">
-                    {request.job_outcode}
+                    {request.postcode}
                   </ThemedText>
                 )}
               </>
@@ -1198,12 +1198,12 @@ export default function QuoteDetails() {
                 </View>
               )}
 
-              {!!request.job_outcode && (
+              {!!request.postcode && (
                 <View style={styles.requestDetailRow}>
                   <Ionicons name="location-outline" size={18} color="#6B7280" />
                   <View style={styles.requestDetailContent}>
                     <ThemedText style={styles.requestDetailLabel}>Area</ThemedText>
-                    <ThemedText style={styles.requestDetailValue}>{request.job_outcode}</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>{request.postcode}</ThemedText>
                   </View>
                 </View>
               )}

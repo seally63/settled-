@@ -47,10 +47,14 @@ export default function ClientStackLayout() {
   if (role === 'trades') return <Redirect href="/quotes" />;
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      {/* Keep index for clienthome as the stack's entry */}
-      <Stack.Screen name="index" options={{ headerShown: false }} />
-      {/* myquotes (index + [id]) live under this stack, no extra options needed */}
+    <Stack
+      screenOptions={{ headerShown: false }}
+      initialRouteName="index"
+    >
+      <Stack.Screen name="index" />
+      <Stack.Screen name="clienthome" />
+      <Stack.Screen name="myquotes" />
+      <Stack.Screen name="find-business" />
     </Stack>
   );
 }
