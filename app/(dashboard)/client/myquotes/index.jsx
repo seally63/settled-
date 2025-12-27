@@ -283,7 +283,8 @@ export default function ClientProjects() {
       }
 
       // Requests (no quotes yet)
-      const { data: reqData } = await supabase.rpc("rpc_client_list_requests");
+      const { data: reqData, error: reqError } = await supabase.rpc("rpc_client_list_requests");
+      console.log("[myquotes] rpc_client_list_requests:", { reqData, reqError });
       setRequests(reqData || []);
 
       // Responses (trades responded)
@@ -474,7 +475,7 @@ export default function ClientProjects() {
         id: `request-${req.id}`,
         type: "request",
         title: req.suggested_title || (req.is_direct ? "Direct request" : "Open request"),
-        subtitle: req.job_outcode || null,
+        subtitle: req.postcode || null,
         metaInfo: `${req.is_direct ? 'Direct' : 'Open'} request • ${daysAgo} day${daysAgo !== 1 ? 's' : ''} ago • No response yet`,
         limitWarning: isAtLimit ? `Daily ${req.is_direct ? 'direct' : 'open'} request limit reached` : null,
         statusType: isAtLimit ? "AT_LIMIT" : "REQUEST_SENT", // Blue - waiting for trades

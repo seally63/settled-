@@ -50,6 +50,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const MIN_PREP_MS = 600;
 const CELL = 96;
 
+// Budget options for the form
+const BUDGET_OPTIONS = [
+  { id: "under_250", label: "Under £250", value: "<£250" },
+  { id: "250_500", label: "£250 - £500", value: "£250–£500" },
+  { id: "500_1000", label: "£500 - £1,000", value: "£500–£1k" },
+  { id: "1000_3000", label: "£1,000 - £3,000", value: "£1k–£3k" },
+  { id: "3000_7500", label: "£3,000 - £7,500", value: "£3k–£7.5k" },
+  { id: "7500_15000", label: "£7,500 - £15,000", value: "£7.5k–£15k" },
+  { id: "over_15000", label: "£15,000+", value: ">£15k" },
+  { id: "not_sure", label: "I'm not sure yet", value: "Not specified" },
+];
+
 // Create lightweight thumbnails with base64 for upload
 async function makeThumbnails(uris) {
   const out = [];
@@ -88,12 +100,16 @@ export default function ClientHome() {
 
   // Step 3: Details
   const [description, setDescription] = useState("");
+  const [postcode, setPostcode] = useState("");
   const [propertyTypes, setPropertyTypes] = useState([]);
   const [selectedPropertyType, setSelectedPropertyType] = useState(null);
   const [loadingPropertyTypes, setLoadingPropertyTypes] = useState(false);
   const [showPropertyDropdown, setShowPropertyDropdown] = useState(false);
 
-  // Step 4: Photos & Timing
+  // Step 4: Budget
+  const [selectedBudget, setSelectedBudget] = useState(null);
+
+  // Step 5: Photos & Timing
   const [photos, setPhotos] = useState([]);
   const [timingOptions, setTimingOptions] = useState([]);
   const [selectedTiming, setSelectedTiming] = useState(null);
@@ -110,7 +126,7 @@ export default function ClientHome() {
   // Full-screen image viewer
   const [viewer, setViewer] = useState({ open: false, index: 0 });
 
-  // Step 5: Review & Submit
+  // Step 6: Review & Submit
   const [submitting, setSubmitting] = useState(false);
   const [editingFromReview, setEditingFromReview] = useState(false);
 
@@ -372,8 +388,12 @@ export default function ClientHome() {
       if (!selectedCategory) return Alert.alert("Please select a category.");
       if (!selectedServiceType) return Alert.alert("Please select a service type.");
       if (!selectedTiming) return Alert.alert("Please select when you need this done.");
+      if (!postcode?.trim()) return Alert.alert("Please enter your postcode.");
 
       setSubmitting(true);
+
+      // Normalize postcode to uppercase
+      const normalizedPostcode = postcode.trim().toUpperCase();
 
       // Build structured details
       const details = [
@@ -381,23 +401,33 @@ export default function ClientHome() {
         `Service: ${selectedServiceType.name}`,
         description?.trim() ? `Description: ${description.trim()}` : null,
         selectedPropertyType ? `Property: ${selectedPropertyType.name}` : null,
+        `Postcode: ${normalizedPostcode}`,
+        selectedBudget ? `Budget: ${selectedBudget.label}` : null,
         `Timing: ${selectedTiming.name}`,
         selectedTiming.is_emergency ? `Emergency: Yes` : null,
       ]
         .filter(Boolean)
         .join("\n");
 
+      // Build suggested title: "Category - Service" (no location for client view)
+      const suggested_title = `${selectedCategory.name} - ${selectedServiceType.name}`;
+
       // Create the request
+      // Note: budget_band is stored as null until DB constraint is updated
+      // Budget info is included in the details text for now
       const { data: created, error: reqError } = await supabase
         .from("quote_requests")
         .insert({
           requester_id: user.id,
           details,
           status: "open",
+          suggested_title,
           category_id: selectedCategory.id,
           service_type_id: selectedServiceType.id,
           property_type_id: selectedPropertyType?.id || null,
           timing_option_id: selectedTiming.id,
+          postcode: normalizedPostcode,
+          // budget_band temporarily null - run SQL to update constraint for new values
         })
         .select("id")
         .single();
@@ -424,7 +454,9 @@ export default function ClientHome() {
       setSelectedCategory(null);
       setSelectedServiceType(null);
       setDescription("");
+      setPostcode("");
       setSelectedPropertyType(null);
+      setSelectedBudget(null);
       setPhotos([]);
       setSelectedTiming(null);
       resetPhotoUI();
@@ -444,7 +476,7 @@ export default function ClientHome() {
   function handleContinueOrReturnToReview(nextStep) {
     if (editingFromReview) {
       setEditingFromReview(false);
-      setStep(5); // Return to review
+      setStep(6); // Return to review
     } else {
       setStep(nextStep);
     }
@@ -604,14 +636,14 @@ export default function ClientHome() {
   function handleBack(defaultStep) {
     if (editingFromReview) {
       setEditingFromReview(false);
-      setStep(5); // Return to review
+      setStep(6); // Return to review
     } else {
       setStep(defaultStep);
     }
   }
 
   // ===== Headers =====
-  const SubHeader = ({ onBack, currentStep, totalSteps = 5 }) => {
+  const SubHeader = ({ onBack, currentStep, totalSteps = 6 }) => {
     const pct = `${(currentStep / totalSteps) * 100}%`;
 
     return (
@@ -791,6 +823,24 @@ export default function ClientHome() {
             <ThemedText style={styles.charCount}>{description.length}/500</ThemedText>
           </View>
 
+          {/* Postcode - Required */}
+          <View style={styles.fieldContainer}>
+            <ThemedText style={styles.fieldLabel}>
+              Your postcode <ThemedText style={styles.requiredAsterisk}>*</ThemedText>
+            </ThemedText>
+            <ThemedTextInput
+              style={styles.textInput}
+              placeholder="e.g., EH48 3NN"
+              value={postcode}
+              onChangeText={(t) => setPostcode(t.toUpperCase())}
+              autoCapitalize="characters"
+              maxLength={10}
+            />
+            <ThemedText style={styles.fieldHint}>
+              This helps tradespeople know if they can service your area
+            </ThemedText>
+          </View>
+
           {/* Property Type Dropdown */}
           <View style={styles.fieldContainer}>
             <ThemedText style={styles.fieldLabel}>Property type</ThemedText>
@@ -852,10 +902,73 @@ export default function ClientHome() {
     </ThemedView>
   );
 
-  // ===== Step 4: Photos & Timing =====
+  // ===== Step 4: Budget =====
+  const BudgetStep = (
+    <ThemedView style={styles.container} safe={false}>
+      <SubHeader onBack={() => handleBack(3)} currentStep={4} totalSteps={6} />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.questionHeader}>
+          <ThemedText title style={styles.questionTitle}>
+            What's your budget?
+          </ThemedText>
+          <ThemedText style={styles.questionSubtitle}>
+            This helps tradespeople give you accurate quotes.
+          </ThemedText>
+        </View>
+
+        <View style={styles.budgetList}>
+          {BUDGET_OPTIONS.map((option) => (
+            <Pressable
+              key={option.id}
+              style={[
+                styles.budgetOption,
+                selectedBudget?.id === option.id && styles.budgetOptionSelected,
+              ]}
+              onPress={() => setSelectedBudget(option)}
+            >
+              <View
+                style={[
+                  styles.radioOuter,
+                  selectedBudget?.id === option.id && styles.radioOuterSelected,
+                ]}
+              >
+                {selectedBudget?.id === option.id && <View style={styles.radioInner} />}
+              </View>
+              <ThemedText
+                style={[
+                  styles.budgetOptionText,
+                  option.id === "not_sure" && styles.budgetOptionTextMuted,
+                ]}
+              >
+                {option.label}
+              </ThemedText>
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={styles.continueButtonContainer}>
+          <ThemedButton
+            onPress={() => handleContinueOrReturnToReview(5)}
+            disabled={!selectedBudget}
+            style={styles.continueButton}
+          >
+            <ThemedText style={styles.continueButtonText}>
+              {editingFromReview ? "Save changes" : "Continue"}
+            </ThemedText>
+          </ThemedButton>
+        </View>
+      </ScrollView>
+    </ThemedView>
+  );
+
+  // ===== Step 5: Photos & Timing =====
   const PhotosTimingStep = (
     <ThemedView style={styles.container} safe={false}>
-      <SubHeader onBack={() => handleBack(3)} currentStep={4} />
+      <SubHeader onBack={() => handleBack(4)} currentStep={5} totalSteps={6} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
           style={{ flex: 1 }}
@@ -945,7 +1058,7 @@ export default function ClientHome() {
 
           <View style={styles.continueButtonContainer}>
             <ThemedButton
-              onPress={() => handleContinueOrReturnToReview(5)}
+              onPress={() => handleContinueOrReturnToReview(6)}
               disabled={!selectedTiming}
               style={styles.continueButton}
             >
@@ -961,10 +1074,10 @@ export default function ClientHome() {
     </ThemedView>
   );
 
-  // ===== Step 5: Review & Submit =====
+  // ===== Step 6: Review & Submit =====
   const ReviewStep = (
     <ThemedView style={styles.container} safe={false}>
-      <SubHeader onBack={() => setStep(4)} currentStep={5} />
+      <SubHeader onBack={() => setStep(5)} currentStep={6} totalSteps={6} />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
@@ -1016,11 +1129,37 @@ export default function ClientHome() {
 
           <View style={styles.reviewDivider} />
 
+          {/* Postcode */}
+          <View style={styles.reviewSection}>
+            <ThemedText style={styles.reviewLabel}>POSTCODE</ThemedText>
+            <ThemedText style={styles.reviewValue}>
+              {postcode?.trim() || "Not specified"}
+            </ThemedText>
+            <Pressable onPress={() => goToStepForEdit(3)} style={styles.editButton}>
+              <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+            </Pressable>
+          </View>
+
+          <View style={styles.reviewDivider} />
+
+          {/* Budget */}
+          <View style={styles.reviewSection}>
+            <ThemedText style={styles.reviewLabel}>BUDGET</ThemedText>
+            <ThemedText style={styles.reviewValue}>
+              {selectedBudget?.label || "Not specified"}
+            </ThemedText>
+            <Pressable onPress={() => goToStepForEdit(4)} style={styles.editButton}>
+              <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+            </Pressable>
+          </View>
+
+          <View style={styles.reviewDivider} />
+
           {/* Timing */}
           <View style={styles.reviewSection}>
             <ThemedText style={styles.reviewLabel}>TIMING</ThemedText>
             <ThemedText style={styles.reviewValue}>{selectedTiming?.name}</ThemedText>
-            <Pressable onPress={() => goToStepForEdit(4)} style={styles.editButton}>
+            <Pressable onPress={() => goToStepForEdit(5)} style={styles.editButton}>
               <ThemedText style={styles.editButtonText}>Edit</ThemedText>
             </Pressable>
           </View>
@@ -1039,7 +1178,7 @@ export default function ClientHome() {
                 <ThemedText style={styles.reviewValue}>No photos added</ThemedText>
               )}
             </View>
-            <Pressable onPress={() => goToStepForEdit(4)} style={styles.editButton}>
+            <Pressable onPress={() => goToStepForEdit(5)} style={styles.editButton}>
               <ThemedText style={styles.editButtonText}>Edit</ThemedText>
             </Pressable>
           </View>
@@ -1070,8 +1209,9 @@ export default function ClientHome() {
   if (step === 1) return CategoryStep;
   if (step === 2) return ServiceTypeStep;
   if (step === 3) return DetailsStep;
-  if (step === 4) return PhotosTimingStep;
-  if (step === 5) return ReviewStep;
+  if (step === 4) return BudgetStep;
+  if (step === 5) return PhotosTimingStep;
+  if (step === 6) return ReviewStep;
   return Landing;
 }
 
@@ -1217,6 +1357,23 @@ const styles = StyleSheet.create({
     textAlign: "right",
     marginTop: 4,
   },
+  requiredAsterisk: {
+    color: "#EF4444",
+    fontWeight: "600",
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.15)",
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    backgroundColor: "#fff",
+  },
+  fieldHint: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 6,
+  },
   dropdown: {
     flexDirection: "row",
     alignItems: "center",
@@ -1361,7 +1518,35 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // Review (Step 5)
+  // Budget (Step 4)
+  budgetList: {
+    paddingHorizontal: 20,
+  },
+  budgetOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.08)",
+  },
+  budgetOptionSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: `${Colors.primary}08`,
+  },
+  budgetOptionText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  budgetOptionTextMuted: {
+    color: "#6B7280",
+    fontStyle: "italic",
+  },
+
+  // Review (Step 6)
   reviewCard: {
     marginHorizontal: 20,
     backgroundColor: "#fff",

@@ -172,7 +172,7 @@ export default function TradesmanProjects() {
       if (reqIds.length) {
         const { data: reqs } = await supabase
           .from("quote_requests")
-          .select("id, details, created_at, status, job_outcode, budget_band, suggested_title, requester_id")
+          .select("id, details, created_at, status, postcode, budget_band, suggested_title, requester_id")
           .in("id", reqIds);
         (reqs || []).forEach((r) => (reqById[r.id] = r));
       }
@@ -222,7 +222,7 @@ export default function TradesmanProjects() {
             title: r?.suggested_title || extractTitle(r),
             created_at: r?.created_at,
             budget_band: r?.budget_band || null,
-            job_outcode: r?.job_outcode || null,
+            postcode: r?.postcode || null,
             requestAge,
             isUrgent,
             // Calculate response deadline (e.g., 3 days to respond)
@@ -263,7 +263,7 @@ export default function TradesmanProjects() {
           title: r?.suggested_title || extractTitle(r),
           request_type: t?.invited_by || "system",
           budget_band: r?.budget_band || null,
-          job_outcode: r?.job_outcode || null,
+          postcode: r?.postcode || null,
           acceptedByTrade: t?.state === "accepted",
           currency: q.currency,
           grand_total: q.grand_total,
@@ -564,8 +564,8 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
               text={project.request_type === "client" ? "Direct request" : "Open request"}
             />
           )}
-          {project.job_outcode && (
-            <InfoRow icon="location-outline" text={project.job_outcode} />
+          {project.postcode && (
+            <InfoRow icon="location-outline" text={project.postcode} />
           )}
         </View>
 

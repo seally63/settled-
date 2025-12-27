@@ -150,7 +150,7 @@ export default function ClientMyQuoteDetail() {
         const { data, error } = await supabase
           .from("quote_requests")
           .select(
-            "id, details, created_at, budget_band, job_outcode, status, suggested_title"
+            "id, details, created_at, budget_band, postcode, status, suggested_title"
           )
           .eq("id", requestId)
           .maybeSingle();
@@ -736,12 +736,12 @@ export default function ClientMyQuoteDetail() {
                     </View>
                   )}
 
-                  {!!req.job_outcode && (
+                  {!!req.postcode && (
                     <View style={styles.requestDetailRow}>
                       <Ionicons name="location-outline" size={18} color="#6B7280" />
                       <View style={styles.requestDetailContent}>
                         <ThemedText style={styles.requestDetailLabel}>Area</ThemedText>
-                        <ThemedText style={styles.requestDetailValue}>{req.job_outcode}</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>{req.postcode}</ThemedText>
                       </View>
                     </View>
                   )}

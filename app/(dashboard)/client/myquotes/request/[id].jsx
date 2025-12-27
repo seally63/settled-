@@ -1,4 +1,5 @@
-// app/(dashboard)/quotes/request/[id].jsx
+// app/(dashboard)/client/myquotes/request/[id].jsx
+// Client view of their own request - read-only, no accept/decline actions
 import {
   StyleSheet,
   View,
@@ -15,19 +16,15 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import ThemedView from "../../../../components/ThemedView";
-import ThemedText from "../../../../components/ThemedText";
-import Spacer from "../../../../components/Spacer";
-import { Colors } from "../../../../constants/Colors";
-import { useUser } from "../../../../hooks/useUser";
-import { supabase } from "../../../../lib/supabase";
+import ThemedView from "../../../../../components/ThemedView";
+import ThemedText from "../../../../../components/ThemedText";
+import Spacer from "../../../../../components/Spacer";
+import { Colors } from "../../../../../constants/Colors";
+import { useUser } from "../../../../../hooks/useUser";
+import { supabase } from "../../../../../lib/supabase";
+import { listRequestImagePaths } from "../../../../../lib/api/attachments";
 
-// RPC wrappers
-import { acceptRequest, declineRequest } from "../../../../lib/api/requests";
-import { listRequestImagePaths } from "../../../../lib/api/attachments";
-
-const BUCKET = "request-attachments"; // change if your bucket name differs
-const CELL = 96;
+const BUCKET = "request-attachments";
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
 function parseDetails(details) {
@@ -40,7 +37,7 @@ function parseDetails(details) {
     timing: null,
     emergency: null,
     budget: null,
-    // Legacy fields for backwards compatibility
+    directTo: null, // "Direct request to: Business Name"
     start: null,
     address: null,
     main: null,
@@ -57,7 +54,6 @@ function parseDetails(details) {
     if (!rest.length) continue;
     const key = (k || "").trim().toLowerCase();
     const v = rest.join(":").trim();
-    // New multi-step form fields
     if (key === "category") res.category = v;
     else if (key === "service") res.service = v;
     else if (key === "description") res.description = v;
@@ -65,7 +61,7 @@ function parseDetails(details) {
     else if (key === "timing") res.timing = v;
     else if (key === "emergency") res.emergency = v;
     else if (key === "budget") res.budget = v;
-    // Legacy fields
+    else if (key === "direct request to") res.directTo = v;
     else if (key.includes("start")) res.start = v;
     else if (key.includes("address")) res.address = v;
     else if (key === "main") res.main = v;
@@ -75,12 +71,7 @@ function parseDetails(details) {
   return res;
 }
 
-// Chip color categories matching app-wide CHIP_TONES standard
-// ACTION NEEDED (Orange #F59E0B): Send Quote, New Quote, Expires Soon
-// WAITING (Blue #3B82F6): Request Sent, Quote Sent, Quote Pending
-// ACTIVE/GOOD (Green #10B981): Quote Accepted, Scheduled, Claimed
-// COMPLETED (Gray #6B7280): Completed, Neutral
-// NEGATIVE (Red #EF4444): Declined, Expired, No Response
+// Chip tones
 const CHIP_TONES = {
   action: { bg: "#FEF3C7", fg: "#F59E0B", icon: "alert-circle" },
   waiting: { bg: "#DBEAFE", fg: "#3B82F6", icon: "hourglass" },
@@ -113,8 +104,8 @@ function Chip({ children, tone = "muted", icon }) {
   );
 }
 
-export default function RequestDetails() {
-  const { id } = useLocalSearchParams(); // request_id
+export default function ClientRequestDetails() {
+  const { id } = useLocalSearchParams();
   const router = useRouter();
   const { user } = useUser();
   const insets = useSafeAreaInsets();
@@ -122,32 +113,19 @@ export default function RequestDetails() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
-  const [req, setReq] = useState(null); // quote_requests row
-  const [tgt, setTgt] = useState(null); // request_targets row for this trade (optional)
-  const [hasQuote, setHasQuote] = useState(false);
-  const [clientName, setClientName] = useState(null); // Client name from requester profile
+  const [req, setReq] = useState(null);
+  const [targetTrade, setTargetTrade] = useState(null); // Trade business info for direct requests
+  const [isDirectRequest, setIsDirectRequest] = useState(false); // Whether this is a direct request
+  const [responseCount, setResponseCount] = useState(0);
 
-  const [attachments, setAttachments] = useState([]); // string[] of final URLs
+  const [attachments, setAttachments] = useState([]);
   const [attachmentsCount, setAttachmentsCount] = useState(0);
 
-  // Full-screen viewer state: open + current index
   const [viewer, setViewer] = useState({ open: false, index: 0 });
 
   const closeViewer = useCallback(() => {
     setViewer((v) => ({ ...v, open: false }));
   }, []);
-
-  // Pull down to dismiss: only when page is active AND zoomed out (≈1)
-  const handleZoomScrollEndDrag = useCallback(
-    (e, pageIndex) => {
-      if (!viewer.open || pageIndex !== viewer.index) return;
-      const { contentOffset, zoomScale } = e.nativeEvent || {};
-      if (zoomScale && zoomScale <= 1.01 && contentOffset?.y < -40) {
-        closeViewer();
-      }
-    },
-    [viewer.open, viewer.index, closeViewer]
-  );
 
   const parsed = useMemo(() => parseDetails(req?.details), [req?.details]);
 
@@ -162,13 +140,11 @@ export default function RequestDetails() {
         return;
       }
 
-      // Build public URLs from paths (bucket must be public=true)
       const urls = p
         .map((raw) => String(raw || "").replace(/^\//, ""))
         .map(
           (cleanPath) =>
-            supabase.storage.from(BUCKET).getPublicUrl(cleanPath).data
-              ?.publicUrl
+            supabase.storage.from(BUCKET).getPublicUrl(cleanPath).data?.publicUrl
         )
         .filter(Boolean);
 
@@ -185,48 +161,50 @@ export default function RequestDetails() {
     setLoading(true);
     setErr(null);
     try {
-      const myId = user.id;
-
-      const [{ data: r, error: rErr }, { data: t }, { data: q }] =
-        await Promise.all([
-          supabase
-            .from("quote_requests")
-            .select(`
-              id, details, created_at, status, claimed_by, claimed_at, budget_band, postcode, requester_id,
-              service_categories(id, name, icon),
-              service_types(id, name, icon),
-              property_types(id, name),
-              timing_options(id, name, description, is_emergency)
-            `)
-            .eq("id", id)
-            .maybeSingle(),
-          supabase
-            .from("request_targets")
-            .select("request_id, trade_id, state, invited_by, created_at")
-            .eq("request_id", id)
-            .eq("trade_id", myId)
-            .maybeSingle(),
-          supabase
-            .from("tradify_native_app_db")
-            .select("id")
-            .eq("trade_id", myId)
-            .eq("request_id", id)
-            .limit(1),
-        ]);
+      // Fetch request details
+      const { data: r, error: rErr } = await supabase
+        .from("quote_requests")
+        .select(`
+          id, details, created_at, status, budget_band, postcode, requester_id,
+          service_categories(id, name, icon),
+          service_types(id, name, icon),
+          property_types(id, name),
+          timing_options(id, name, description, is_emergency)
+        `)
+        .eq("id", id)
+        .eq("requester_id", user.id) // Only fetch if client owns this request
+        .maybeSingle();
 
       if (rErr) throw rErr;
-      setReq(r || null);
-      setTgt(t || null);
-      setHasQuote(!!(q && q.length));
+      if (!r) throw new Error("Request not found or you don't have access.");
 
-      // Fetch client name from requester profile
-      if (r?.requester_id) {
-        const { data: profile } = await supabase
+      setReq(r);
+
+      // Check for direct request target
+      const { data: targets, error: targetsError } = await supabase
+        .from("request_targets")
+        .select("trade_id, invited_by, state")
+        .eq("request_id", id);
+
+      console.log("[client/request] targets query:", { targets, targetsError, requestId: id });
+
+      // Check for client-invited target (case-insensitive)
+      const directTarget = targets?.find((t) =>
+        (t.invited_by || "").toLowerCase() === "client"
+      );
+      console.log("[client/request] directTarget:", directTarget, "isDirectRequest:", !!directTarget);
+
+      setIsDirectRequest(!!directTarget); // Set based on whether a client-invited target exists
+      setResponseCount(targets?.length || 0);
+
+      // If direct request, fetch trade business name
+      if (directTarget?.trade_id) {
+        const { data: tradeProfile } = await supabase
           .from("profiles")
-          .select("full_name")
-          .eq("id", r.requester_id)
+          .select("business_name, full_name")
+          .eq("id", directTarget.trade_id)
           .maybeSingle();
-        setClientName(profile?.full_name || null);
+        setTargetTrade(tradeProfile);
       }
 
       await loadAttachments(id);
@@ -243,99 +221,33 @@ export default function RequestDetails() {
     load();
   }, [load]);
 
-  const status = (req?.status || "open").toLowerCase(); // open | claimed | declined
+  const status = (req?.status || "open").toLowerCase();
+  const tradeName = targetTrade?.business_name || targetTrade?.full_name || parsed.directTo;
 
   function statusTone(s) {
     if (s === "claimed") return "active";
     if (s === "declined") return "negative";
-    if (s === "open") return "action"; // Open = action needed
+    if (s === "open") return "waiting"; // For client view, open = waiting for response
     return "muted";
   }
 
-  async function onAccept() {
-    if (!id) return;
-    Alert.alert("Accept request", "Confirm you want to accept this request?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Accept",
-        onPress: async () => {
-          try {
-            const updated = await acceptRequest(id);
-            setReq((prev) => ({
-              ...(prev || {}),
-              ...updated,
-              status: "claimed",
-            }));
-          } catch (e) {
-            Alert.alert("Failed", e?.message || "Unable to accept this request.");
-          }
-        },
-      },
-    ]);
+  function statusText(s) {
+    if (s === "open") return "Awaiting Response";
+    if (s === "claimed") return "Trade Accepted";
+    if (s === "declined") return "Declined";
+    return s.charAt(0).toUpperCase() + s.slice(1);
   }
-
-  async function onDecline() {
-    if (!id) return;
-    Alert.alert("Decline request", "Are you sure you want to decline?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Decline",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            const updated = await declineRequest(id);
-            setReq((prev) => ({
-              ...(prev || {}),
-              ...updated,
-              status: "declined",
-            }));
-            setHasQuote(false);
-          } catch (e) {
-            Alert.alert("Failed", e?.message || "Unable to decline this request.");
-          }
-        },
-      },
-    ]);
-  }
-
-  const canAccept = status === "open";
-  const canDecline = status === "open";
-  const canCreateQuote = status === "claimed" && !hasQuote;
-
-  // Build titles - prioritize suggested_title for professional display
-  // Skip any title that starts with "Direct request to:" as that's metadata, not a title
-  const rawTitle = parsed.title || "";
-  const cleanedParsedTitle = rawTitle.toLowerCase().startsWith("direct request to")
-    ? null
-    : rawTitle;
-
-  const baseTitle =
-    req?.suggested_title ||
-    (parsed.main && parsed.refit && `${parsed.main} – ${parsed.refit}`) ||
-    parsed.main ||
-    cleanedParsedTitle ||
-    (parsed.category && parsed.service ? `${parsed.category} - ${parsed.service}` : null) ||
-    "Project";
-
-  const out = (req?.postcode || "").toString().trim().toUpperCase();
-  const derivedTitleForCreate = out ? `${baseTitle} in ${out}` : baseTitle;
 
   const hasAttachments = attachments.length > 0;
 
   return (
     <ThemedView style={styles.container}>
-      {/* Header - Shows client name with close button */}
+      {/* Header - "Your Request" title with close button */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <ThemedText style={styles.headerTitle}>
-              {clientName || "Client Request"}
-            </ThemedText>
-          </View>
+          <ThemedText style={styles.headerTitle}>Your Request</ThemedText>
           <Pressable
-            onPress={() =>
-              router.canGoBack?.() ? router.back() : router.replace("/quotes")
-            }
+            onPress={() => router.replace("/myquotes")}
             hitSlop={10}
             style={styles.closeButton}
           >
@@ -347,17 +259,17 @@ export default function RequestDetails() {
       {loading ? (
         <>
           <Spacer />
-          <ThemedText>Loading…</ThemedText>
+          <ThemedText style={{ textAlign: "center" }}>Loading...</ThemedText>
         </>
       ) : err ? (
         <>
           <Spacer />
-          <ThemedText>Error: {err}</ThemedText>
+          <ThemedText style={{ textAlign: "center", color: "#EF4444" }}>Error: {err}</ThemedText>
         </>
       ) : !req ? (
         <>
           <Spacer />
-          <ThemedText>Request not found.</ThemedText>
+          <ThemedText style={{ textAlign: "center" }}>Request not found.</ThemedText>
         </>
       ) : (
         <ScrollView
@@ -366,16 +278,13 @@ export default function RequestDetails() {
           contentInsetAdjustmentBehavior="always"
           keyboardShouldPersistTaps="handled"
         >
+          {/* Status chips */}
           <View style={styles.chipsRow}>
-            <Chip tone="waiting" icon="information-circle">
-              {(tgt?.invited_by || "").toLowerCase() === "client"
-                ? "Direct request"
-                : "Open request"}
+            <Chip tone="muted" icon="information-circle">
+              {isDirectRequest ? "Direct request" : "Open request"}
             </Chip>
             <Chip tone={statusTone(status)}>
-              {status === "open"
-                ? "Action needed"
-                : status[0].toUpperCase() + status.slice(1)}
+              {statusText(status)}
             </Chip>
             {!!req?.budget_band && (
               <Chip tone="muted" icon="cash-outline">{req.budget_band}</Chip>
@@ -392,23 +301,20 @@ export default function RequestDetails() {
               <ThemedText style={styles.sectionTitle}>Service Details</ThemedText>
             </View>
 
-            {/* Category - from joined table or parsed */}
             <View style={styles.kvRow}>
               <ThemedText style={styles.kvKey}>Category</ThemedText>
               <ThemedText style={styles.kvVal}>
-                {req?.service_categories?.name || parsed.category || "—"}
+                {req?.service_categories?.name || parsed.category || "-"}
               </ThemedText>
             </View>
 
-            {/* Service Type - from joined table or parsed */}
             <View style={styles.kvRow}>
               <ThemedText style={styles.kvKey}>Service</ThemedText>
               <ThemedText style={styles.kvVal}>
-                {req?.service_types?.name || parsed.service || parsed.main || "—"}
+                {req?.service_types?.name || parsed.service || parsed.main || "-"}
               </ThemedText>
             </View>
 
-            {/* Property Type - from joined table or parsed */}
             <View style={styles.kvRow}>
               <ThemedText style={styles.kvKey}>Property</ThemedText>
               <ThemedText style={styles.kvVal}>
@@ -416,15 +322,13 @@ export default function RequestDetails() {
               </ThemedText>
             </View>
 
-            {/* Timing - from joined table or parsed */}
             <View style={styles.kvRow}>
               <ThemedText style={styles.kvKey}>Timing</ThemedText>
               <ThemedText style={styles.kvVal}>
-                {req?.timing_options?.name || parsed.timing || "—"}
+                {req?.timing_options?.name || parsed.timing || "-"}
               </ThemedText>
             </View>
 
-            {/* Location if available */}
             {!!req?.postcode && (
               <View style={styles.kvRow}>
                 <ThemedText style={styles.kvKey}>Location</ThemedText>
@@ -432,7 +336,6 @@ export default function RequestDetails() {
               </View>
             )}
 
-            {/* Budget - from database or parsed from details */}
             {(!!req?.budget_band || !!parsed.budget) && (
               <View style={styles.kvRow}>
                 <ThemedText style={styles.kvKey}>Budget</ThemedText>
@@ -440,7 +343,6 @@ export default function RequestDetails() {
               </View>
             )}
 
-            {/* Legacy: Address if available */}
             {!!parsed.address && (
               <View style={styles.kvRow}>
                 <ThemedText style={styles.kvKey}>Address</ThemedText>
@@ -448,23 +350,6 @@ export default function RequestDetails() {
               </View>
             )}
 
-            {/* Legacy: Start date if available */}
-            {!!parsed.start && (
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Start</ThemedText>
-                <ThemedText style={styles.kvVal}>{parsed.start}</ThemedText>
-              </View>
-            )}
-
-            {/* Legacy: Refit type if available */}
-            {!!parsed.refit && (
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Refit type</ThemedText>
-                <ThemedText style={styles.kvVal}>{parsed.refit}</ThemedText>
-              </View>
-            )}
-
-            {/* Description - always show, even if empty */}
             <View style={styles.divider} />
             <View style={styles.descriptionSection}>
               <ThemedText style={styles.descriptionLabel}>Description</ThemedText>
@@ -477,7 +362,7 @@ export default function RequestDetails() {
             </View>
           </View>
 
-          {/* Photos Card - horizontally scrollable */}
+          {/* Photos Card */}
           <View style={styles.card}>
             <View style={styles.sectionHeader}>
               <Ionicons name="images-outline" size={18} color="#6B7280" />
@@ -505,9 +390,6 @@ export default function RequestDetails() {
                       source={{ uri: url }}
                       style={styles.photoImg}
                       resizeMode="cover"
-                      onError={(e) =>
-                        console.warn("thumb error:", url, e?.nativeEvent?.error)
-                      }
                     />
                   </Pressable>
                 ))}
@@ -544,83 +426,48 @@ export default function RequestDetails() {
                 <ThemedText style={styles.kvVal}>{req.budget_band}</ThemedText>
               </View>
             )}
+            {responseCount > 0 && (
+              <View style={styles.kvRow}>
+                <ThemedText style={styles.kvKey}>Responses</ThemedText>
+                <ThemedText style={styles.kvVal}>{responseCount} trade{responseCount !== 1 ? 's' : ''}</ThemedText>
+              </View>
+            )}
           </View>
 
-          {/* Actions - Airbnb/Notion style */}
+          {/* Status info banner */}
           {status === "open" && (
-            <View style={styles.actionButtonsContainer}>
-              <Pressable
-                onPress={onDecline}
-                style={styles.declineButton}
-              >
-                <ThemedText style={styles.declineButtonText}>Decline</ThemedText>
-              </Pressable>
-
-              <Pressable
-                onPress={onAccept}
-                style={styles.acceptButton}
-              >
-                <ThemedText style={styles.acceptButtonText}>Accept request</ThemedText>
-              </Pressable>
+            <View style={styles.statusBanner}>
+              <View style={styles.statusBannerIcon}>
+                <Ionicons name="hourglass" size={24} color="#3B82F6" />
+              </View>
+              <View style={styles.statusBannerContent}>
+                <ThemedText style={styles.statusBannerTitle}>Waiting for response</ThemedText>
+                <ThemedText style={styles.statusBannerSubtitle}>
+                  {isDirectRequest
+                    ? `Waiting for ${tradeName || 'the trade'} to respond`
+                    : "Waiting for tradespeople to respond to your request"}
+                </ThemedText>
+              </View>
             </View>
           )}
 
-          {/* Status indicator when already actioned */}
           {status === "claimed" && (
-            <View style={styles.statusBanner}>
+            <View style={[styles.statusBanner, { backgroundColor: "#D1FAE5" }]}>
               <View style={styles.statusBannerIcon}>
                 <Ionicons name="checkmark-circle" size={24} color="#10B981" />
               </View>
               <View style={styles.statusBannerContent}>
-                <ThemedText style={styles.statusBannerTitle}>Request accepted</ThemedText>
+                <ThemedText style={styles.statusBannerTitle}>Trade accepted</ThemedText>
                 <ThemedText style={styles.statusBannerSubtitle}>
-                  You can now create a quote for this job
+                  A tradesperson has accepted your request and will send a quote
                 </ThemedText>
               </View>
-            </View>
-          )}
-
-          {status === "declined" && (
-            <View style={[styles.statusBanner, styles.statusBannerDeclined]}>
-              <View style={[styles.statusBannerIcon, styles.statusBannerIconDeclined]}>
-                <Ionicons name="close-circle" size={24} color="#EF4444" />
-              </View>
-              <View style={styles.statusBannerContent}>
-                <ThemedText style={styles.statusBannerTitle}>Request declined</ThemedText>
-                <ThemedText style={styles.statusBannerSubtitle}>
-                  You have declined this request
-                </ThemedText>
-              </View>
-            </View>
-          )}
-
-          {canCreateQuote && (
-            <View style={styles.createQuoteContainer}>
-              <Pressable
-                onPress={() => {
-                  router.push({
-                    pathname: "/quotes/create",
-                    params: {
-                      requestId: String(id || ""),
-                      title: encodeURIComponent(derivedTitleForCreate),
-                      lockTitle: "1",
-                    },
-                  });
-                }}
-                style={styles.createQuoteButton}
-                hitSlop={8}
-              >
-                <Ionicons name="document-text-outline" size={20} color="#fff" />
-                <ThemedText style={styles.createQuoteButtonText}>
-                  Create quote
-                </ThemedText>
-              </Pressable>
             </View>
           )}
         </ScrollView>
       )}
 
-      {/* Image preview modal – zoom + swipe + pull-down-to-dismiss */}
+      {/* Image preview modal */}
       {viewer.open && hasAttachments && (
         <Modal
           visible={viewer.open}
@@ -629,7 +476,6 @@ export default function RequestDetails() {
           onDismiss={closeViewer}
         >
           <View style={styles.modalBackdrop}>
-            {/* Horizontal pager of zoomable images */}
             <FlatList
               data={attachments}
               keyExtractor={(url, idx) => `${url}-${idx}`}
@@ -651,36 +497,17 @@ export default function RequestDetails() {
                   setViewer((v) => ({ ...v, index: newIndex }));
                 }
               }}
-              renderItem={({ item: url, index }) => (
-                <ScrollView
-                  style={styles.zoomScroll}
-                  contentContainerStyle={styles.zoomContent}
-                  maximumZoomScale={3}
-                  minimumZoomScale={1}
-                  showsHorizontalScrollIndicator={false}
-                  showsVerticalScrollIndicator={false}
-                  bounces
-                  centerContent
-                  scrollEventThrottle={16}
-                  onScrollEndDrag={(e) => handleZoomScrollEndDrag(e, index)}
-                >
+              renderItem={({ item: url }) => (
+                <View style={styles.zoomScroll}>
                   <Image
                     source={{ uri: url }}
                     style={styles.modalImage}
                     resizeMode="contain"
-                    onError={(e) =>
-                      console.warn(
-                        "preview error:",
-                        url,
-                        e?.nativeEvent?.error
-                      )
-                    }
                   />
-                </ScrollView>
+                </View>
               )}
             />
 
-            {/* Close button */}
             <Pressable
               style={styles.modalClose}
               onPress={closeViewer}
@@ -701,11 +528,10 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     backgroundColor: "#F9FAFB",
   },
-  // Header - Profile-style matching Quote Overview
   header: {
     backgroundColor: "#F9FAFB",
     paddingHorizontal: 20,
-    paddingBottom: 6,
+    paddingBottom: 12,
   },
   headerRow: {
     flexDirection: "row",
@@ -716,12 +542,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "700",
     color: "#111827",
-  },
-  headerSubtitle: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#6B7280",
-    marginTop: 4,
   },
   closeButton: {
     padding: 4,
@@ -735,7 +555,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     paddingHorizontal: 16,
   },
-
   card: {
     marginTop: 16,
     marginHorizontal: 16,
@@ -744,15 +563,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
     padding: 16,
-    // Subtle shadow for Notion/Airbnb style
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 8,
     elevation: 2,
   },
-
-  // Section headers
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -765,12 +581,9 @@ const styles = StyleSheet.create({
     color: "#374151",
     flex: 1,
   },
-
   kvRow: { flexDirection: "row", gap: 10, marginVertical: 6 },
   kvKey: { width: 100, fontWeight: "600", color: "#6B7280", fontSize: 14 },
   kvVal: { flex: 1, color: "#111827", fontSize: 14 },
-
-  // Description section
   descriptionSection: {
     marginTop: 4,
   },
@@ -789,8 +602,6 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
     fontStyle: "italic",
   },
-
-  // Photo gallery - horizontal scroll
   photoCountBadge: {
     backgroundColor: "#E5E7EB",
     borderRadius: 10,
@@ -826,63 +637,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#9CA3AF",
   },
-
   divider: {
     marginTop: 12,
     marginBottom: 4,
     height: StyleSheet.hairlineWidth,
     backgroundColor: "#E5E7EB",
   },
-
-  // Action buttons - Airbnb/Notion style
-  actionButtonsContainer: {
-    marginTop: 24,
-    marginHorizontal: 16,
-    flexDirection: "row",
-    gap: 12,
-  },
-  declineButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  declineButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  acceptButton: {
-    flex: 2,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: Colors.primary, // Purple primary color
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  acceptButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-  },
-
-  // Status banners (after action taken)
   statusBanner: {
     marginTop: 24,
     marginHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#D1FAE5",
+    backgroundColor: "#DBEAFE",
     borderRadius: 12,
     padding: 16,
     gap: 12,
-  },
-  statusBannerDeclined: {
-    backgroundColor: "#FEE2E2",
   },
   statusBannerIcon: {
     width: 40,
@@ -891,9 +660,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
-  },
-  statusBannerIconDeclined: {
-    backgroundColor: "#fff",
   },
   statusBannerContent: {
     flex: 1,
@@ -908,28 +674,6 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     marginTop: 2,
   },
-
-  // Create quote button
-  createQuoteContainer: {
-    marginTop: 16,
-    marginHorizontal: 16,
-  },
-  createQuoteButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: Colors.primary,
-  },
-  createQuoteButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-  },
-
-  // modal
   modalBackdrop: {
     flex: 1,
     backgroundColor: "#000",
@@ -937,24 +681,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   modalClose: { position: "absolute", top: 48, right: 24, padding: 8 },
-
-  // horizontal pager
   carousel: {
     flex: 1,
     width: "100%",
   },
-
-  // zoom container per image
   zoomScroll: {
     flex: 1,
     width: SCREEN_WIDTH,
-  },
-  zoomContent: {
-    flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-
   modalImage: {
     width: "90%",
     height: "70%",

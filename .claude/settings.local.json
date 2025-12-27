@@ -11,7 +11,15 @@
       "Bash(git push:*)",
       "Bash(git pull:*)",
       "Bash(git log:*)",
-      "Bash(tail:*)"
+      "Bash(tail:*)",
+      "Bash(cd:*)",
+      "Bash(git diff:*)",
+      "Bash(head:*)",
+      "Bash(npx eslint:*)",
+      "Bash(node -e \"require(''''./app/(dashboard)/quotes/request/[id].jsx'''')\")",
+      "Bash(wc:*)",
+      "Bash(git stash:*)",
+      "Bash(node -e \"require(''''./app/(dashboard)/client/clienthome.jsx'''')\")"
     ],
     "deny": [],
     "ask": []

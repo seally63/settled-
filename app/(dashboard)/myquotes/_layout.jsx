@@ -42,6 +42,12 @@ export default function MyQuotesClientOnly() {
   // Trades users should not access My Quotes at all
   if (role === 'trades') return <Redirect href="/quotes" />;
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="[id]" />
+      <Stack.Screen name="request" />
+    </Stack>
+  );
 }
 

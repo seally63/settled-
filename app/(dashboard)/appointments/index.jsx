@@ -146,7 +146,7 @@ function AppointmentList({ rows, onOpenQuote, onOpenRequest, role, onConfirm, on
           quote_status,
           grand_total,
           currency,
-          job_outcode,
+          postcode,
           client_name,
         } = row;
 
@@ -159,11 +159,11 @@ function AppointmentList({ rows, onOpenQuote, onOpenRequest, role, onConfirm, on
         // For trades: show project title and client name
         const primaryText = isClient
           ? (client_name || 'Tradesperson')
-          : (project_title || (job_outcode ? `Appointment in ${String(job_outcode).toUpperCase()}` : "Appointment"));
+          : (project_title || (postcode ? `Appointment in ${String(postcode).toUpperCase()}` : "Appointment"));
 
         const secondaryText = isClient
-          ? (project_title || (job_outcode ? `Project in ${String(job_outcode).toUpperCase()}` : "Project"))
-          : (client_name || (job_outcode ? String(job_outcode).toUpperCase() : ""));
+          ? (project_title || (postcode ? `Project in ${String(postcode).toUpperCase()}` : "Project"))
+          : (client_name || (postcode ? String(postcode).toUpperCase() : ""));
 
         return (
           <Pressable
