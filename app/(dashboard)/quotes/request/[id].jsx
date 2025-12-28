@@ -565,20 +565,6 @@ export default function RequestDetails() {
             </View>
           )}
 
-          {/* Status indicator when already actioned */}
-          {status === "claimed" && (
-            <View style={styles.statusBanner}>
-              <View style={styles.statusBannerIcon}>
-                <Ionicons name="checkmark-circle" size={24} color="#10B981" />
-              </View>
-              <View style={styles.statusBannerContent}>
-                <ThemedText style={styles.statusBannerTitle}>Request accepted</ThemedText>
-                <ThemedText style={styles.statusBannerSubtitle}>
-                  You can now create a quote for this job
-                </ThemedText>
-              </View>
-            </View>
-          )}
 
           {status === "declined" && (
             <View style={[styles.statusBanner, styles.statusBannerDeclined]}>
