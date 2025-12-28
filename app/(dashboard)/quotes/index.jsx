@@ -25,6 +25,22 @@ function formatNumber(num) {
   return Number(num).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Format title: "Service, Category" -> "Category, Service"
+// Sometimes the title already contains "in POSTCODE" - we need to strip it first
+function formatTitle(suggestedTitle) {
+  if (!suggestedTitle) return "Project";
+
+  // Strip any existing "in POSTCODE" from the title to avoid duplication
+  // Postcode pattern: UK postcodes like "EH48 3NN", "SW1A 1AA", etc.
+  let cleanTitle = suggestedTitle.replace(/\s+in\s+[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}/gi, '').trim();
+
+  const parts = cleanTitle.split(",").map(s => s.trim()).filter(s => s.length > 0);
+  if (parts.length >= 2) {
+    return `${parts[1]}, ${parts[0]}`;
+  }
+  return cleanTitle;
+}
+
 // Chip color categories based on action context
 // ACTION NEEDED (Orange #F59E0B): Send Quote, New Quote, Expires Soon, Confirm Completion
 // WAITING (Blue #3B82F6): Request Sent, Quote Sent, Quote Pending, Awaiting Schedule
@@ -535,13 +551,19 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
     }
   }
 
+  // Format title: "Category, Service in Postcode"
+  const formattedTitle = formatTitle(project.title);
+  const titleWithLocation = project.postcode
+    ? `${formattedTitle} in ${project.postcode}`
+    : formattedTitle;
+
   return (
     <Pressable style={styles.projectCard} onPress={onPress}>
       {/* Header */}
       <View style={styles.cardHeader}>
         <View style={{ flex: 1 }}>
           <ThemedText style={styles.cardTitle} numberOfLines={2}>
-            {project.title || "Project"}
+            {titleWithLocation}
           </ThemedText>
           {project.clientName && (
             <ThemedText style={styles.cardSubtitle}>
@@ -563,9 +585,6 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
               icon={project.request_type === "client" ? "person" : "globe"}
               text={project.request_type === "client" ? "Direct request" : "Open request"}
             />
-          )}
-          {project.postcode && (
-            <InfoRow icon="location-outline" text={project.postcode} />
           )}
         </View>
 

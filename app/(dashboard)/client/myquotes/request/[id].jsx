@@ -186,13 +186,10 @@ export default function ClientRequestDetails() {
         .select("trade_id, invited_by, state")
         .eq("request_id", id);
 
-      console.log("[client/request] targets query:", { targets, targetsError, requestId: id });
-
       // Check for client-invited target (case-insensitive)
       const directTarget = targets?.find((t) =>
         (t.invited_by || "").toLowerCase() === "client"
       );
-      console.log("[client/request] directTarget:", directTarget, "isDirectRequest:", !!directTarget);
 
       setIsDirectRequest(!!directTarget); // Set based on whether a client-invited target exists
       setResponseCount(targets?.length || 0);
@@ -247,7 +244,9 @@ export default function ClientRequestDetails() {
         <View style={styles.headerRow}>
           <ThemedText style={styles.headerTitle}>Your Request</ThemedText>
           <Pressable
-            onPress={() => router.replace("/myquotes")}
+            onPress={() =>
+              router.canGoBack?.() ? router.back() : router.replace("/myquotes")
+            }
             hitSlop={10}
             style={styles.closeButton}
           >
@@ -429,7 +428,9 @@ export default function ClientRequestDetails() {
             {responseCount > 0 && (
               <View style={styles.kvRow}>
                 <ThemedText style={styles.kvKey}>Responses</ThemedText>
-                <ThemedText style={styles.kvVal}>{responseCount} trade{responseCount !== 1 ? 's' : ''}</ThemedText>
+                <ThemedText style={styles.kvVal}>
+                  {isDirectRequest && tradeName ? tradeName : `${responseCount} trade${responseCount !== 1 ? 's' : ''}`}
+                </ThemedText>
               </View>
             )}
           </View>
@@ -451,19 +452,6 @@ export default function ClientRequestDetails() {
             </View>
           )}
 
-          {status === "claimed" && (
-            <View style={[styles.statusBanner, { backgroundColor: "#D1FAE5" }]}>
-              <View style={styles.statusBannerIcon}>
-                <Ionicons name="checkmark-circle" size={24} color="#10B981" />
-              </View>
-              <View style={styles.statusBannerContent}>
-                <ThemedText style={styles.statusBannerTitle}>Trade accepted</ThemedText>
-                <ThemedText style={styles.statusBannerSubtitle}>
-                  A tradesperson has accepted your request and will send a quote
-                </ThemedText>
-              </View>
-            </View>
-          )}
         </ScrollView>
       )}
 

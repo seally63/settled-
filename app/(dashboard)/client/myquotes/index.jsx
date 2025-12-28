@@ -6,6 +6,7 @@ import {
   Alert,
   ScrollView,
   RefreshControl,
+  Image,
 } from "react-native";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,10 +24,137 @@ import { Colors } from "../../../../constants/Colors";
 
 const TINT = Colors?.light?.tint || "#6849a7";
 
+// Get initials from a name (e.g., "John Builder" -> "JB")
+function getInitials(name) {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+// Avatar component with photo or initials fallback
+function Avatar({ name, photoUrl, size = 40, style }) {
+  const initials = getInitials(name);
+  const colors = ["#6849a7", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
+  const colorIndex = name ? name.charCodeAt(0) % colors.length : 0;
+  const bgColor = colors[colorIndex];
+
+  if (photoUrl) {
+    return (
+      <Image
+        source={{ uri: photoUrl }}
+        style={[
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: "#E5E7EB",
+          },
+          style,
+        ]}
+      />
+    );
+  }
+
+  return (
+    <View
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: bgColor,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        style,
+      ]}
+    >
+      <ThemedText
+        style={{
+          color: "#FFFFFF",
+          fontSize: size * 0.4,
+          fontWeight: "700",
+        }}
+      >
+        {initials}
+      </ThemedText>
+    </View>
+  );
+}
+
+// Stacked avatars for multiple trades
+// trades: array of { name, photoUrl }
+function AvatarStack({ trades, size = 36, maxVisible = 3 }) {
+  const visibleTrades = trades.slice(0, maxVisible);
+  const overflow = trades.length - maxVisible;
+
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center" }}>
+      {visibleTrades.map((trade, idx) => (
+        <Avatar
+          key={idx}
+          name={trade.name}
+          photoUrl={trade.photoUrl}
+          size={size}
+          style={{
+            marginLeft: idx > 0 ? -size * 0.3 : 0,
+            borderWidth: 2,
+            borderColor: "#FFFFFF",
+            zIndex: visibleTrades.length - idx,
+          }}
+        />
+      ))}
+      {overflow > 0 && (
+        <View
+          style={{
+            marginLeft: -size * 0.3,
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: "#E5E7EB",
+            alignItems: "center",
+            justifyContent: "center",
+            borderWidth: 2,
+            borderColor: "#FFFFFF",
+          }}
+        >
+          <ThemedText style={{ fontSize: size * 0.35, fontWeight: "600", color: "#6B7280" }}>
+            +{overflow}
+          </ThemedText>
+        </View>
+      )}
+    </View>
+  );
+}
+
 // Format number with thousand separators (commas)
 function formatNumber(num) {
   if (num == null || isNaN(num)) return "0.00";
   return Number(num).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Build tertiary text: "Category, Service in Postcode"
+// suggested_title is usually "Service, Category" format
+// Sometimes the title already contains "in POSTCODE" - we need to strip it first
+function buildTertiaryText(suggestedTitle, postcode) {
+  if (!suggestedTitle) return postcode ? `in ${postcode}` : null;
+
+  // Strip any existing "in POSTCODE" from the title to avoid duplication
+  // Postcode pattern: UK postcodes like "EH48 3NN", "SW1A 1AA", etc.
+  let cleanTitle = suggestedTitle.replace(/\s+in\s+[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}/gi, '').trim();
+
+  // Parse "Service, Category" -> "Category, Service"
+  const parts = cleanTitle.split(",").map(s => s.trim()).filter(s => s.length > 0);
+  let formatted;
+  if (parts.length >= 2) {
+    // Reverse: "Full Bathroom Refit, Bathroom" -> "Bathroom, Full Bathroom Refit"
+    formatted = `${parts[1]}, ${parts[0]}`;
+  } else {
+    formatted = cleanTitle;
+  }
+
+  return postcode ? `${formatted} in ${postcode}` : formatted;
 }
 
 // Status badge component with icons (no emojis)
@@ -98,113 +226,92 @@ function FilterBtn({ active, label, count, onPress }) {
   );
 }
 
-// Project card component
-function ProjectCard({ item, onPress, statusType, actionButtons }) {
+// Project card component - NEW DESIGN
+// Hierarchy: WHO (primary) -> STATUS (secondary) -> WHAT (tertiary)
+function ProjectCard({ item, onPress, statusType }) {
+  const hasTrades = item.trades && item.trades.length > 0;
+  const singleTrade = hasTrades && item.trades.length === 1;
+  const multipleTrades = hasTrades && item.trades.length > 1;
+
   return (
     <Pressable style={styles.projectCard} onPress={onPress}>
-      {/* Header */}
+      {/* Row 1: Avatar(s) + Primary info + Chip */}
       <View style={styles.cardHeader}>
-        <View style={{ flex: 1 }}>
-          <ThemedText style={styles.cardTitle}>
-            {item.title || "Project"}
+        {/* Avatar section */}
+        {singleTrade && (
+          <Avatar name={item.trades[0].name} photoUrl={item.trades[0].photoUrl} size={44} />
+        )}
+        {multipleTrades && (
+          <AvatarStack trades={item.trades} size={40} maxVisible={3} />
+        )}
+        {!hasTrades && (
+          <View style={styles.noTradeIcon}>
+            <Ionicons name="hourglass-outline" size={24} color="#9CA3AF" />
+          </View>
+        )}
+
+        {/* Primary info */}
+        <View style={styles.cardPrimaryInfo}>
+          {/* Primary: Trade name(s) or Job title */}
+          <ThemedText style={styles.cardPrimaryText} numberOfLines={1}>
+            {singleTrade
+              ? item.trades[0].name
+              : multipleTrades
+              ? `${item.trades.length} trades`
+              : item.jobTitle || "Untitled job"}
           </ThemedText>
-          {!!item.subtitle && (
-            <ThemedText style={styles.cardSubtitle} variant="muted">
-              {item.subtitle}
-            </ThemedText>
-          )}
+
+          {/* Secondary: Status description */}
+          <ThemedText style={styles.cardSecondaryText} numberOfLines={1}>
+            {item.statusDescription}
+          </ThemedText>
         </View>
+
+        {/* Chip */}
         <StatusBadge type={statusType} />
       </View>
 
-      <Spacer height={12} />
-
-      {/* Content area */}
-      <View style={styles.cardContent}>
-        {!!item.tradeName && (
-          <View style={styles.infoRow}>
-            <Ionicons name="business" size={16} color="#6B7280" />
-            <ThemedText style={styles.infoText}>{item.tradeName}</ThemedText>
-          </View>
-        )}
-
-        {!!item.amount && (
-          <View style={styles.amountRow}>
-            <ThemedText style={styles.amountLabel}>Quote total</ThemedText>
-            <ThemedText style={styles.amountValue}>
-              {item.currency || "GBP"} {formatNumber(item.amount)}
-            </ThemedText>
-          </View>
-        )}
-
-        {!!item.startDate && (
-          <View style={styles.infoRow}>
-            <Ionicons name="calendar-outline" size={16} color="#6B7280" />
-            <ThemedText style={styles.infoText}>Can start: {item.startDate}</ThemedText>
-          </View>
-        )}
-
-        {!!item.appointmentDate && (
-          <View style={styles.infoRow}>
-            <Ionicons name="calendar" size={16} color={Colors.primary} />
-            <ThemedText style={[styles.infoText, { color: Colors.primary, fontWeight: "600" }]}>
-              {item.appointmentDate}
-            </ThemedText>
-          </View>
-        )}
-
-        {!!item.expiryWarning && (
-          <View style={styles.warningRow}>
-            <Ionicons name="alert-circle" size={16} color="#F59E0B" />
-            <ThemedText style={[styles.infoText, { color: "#F59E0B" }]}>
-              {item.expiryWarning}
-            </ThemedText>
-          </View>
-        )}
-
-        {!!item.limitWarning && (
-          <View style={styles.warningRow}>
-            <Ionicons name="warning" size={16} color="#DC2626" />
-            <ThemedText style={[styles.infoText, { color: "#DC2626" }]}>
-              {item.limitWarning}
-            </ThemedText>
-          </View>
-        )}
-
-        {!!item.metaInfo && (
-          <ThemedText style={styles.metaText} variant="muted">
-            {item.metaInfo}
+      {/* Row 2: Tertiary info (Category, Service in Postcode) */}
+      {item.tertiaryText && (
+        <View style={styles.cardTertiaryRow}>
+          <ThemedText style={styles.cardTertiaryText} numberOfLines={1}>
+            {item.tertiaryText}
           </ThemedText>
-        )}
-      </View>
+        </View>
+      )}
 
-      {/* Action buttons */}
-      {actionButtons && actionButtons.length > 0 && (
-        <>
-          <Spacer height={12} />
-          <View style={styles.cardActions}>
-            {actionButtons.map((btn, idx) => (
-              <ThemedButton
-                key={idx}
-                style={[
-                  styles.actionBtn,
-                  btn.variant === "secondary" && styles.actionBtnSecondary,
-                  { flex: 1 },
-                ]}
-                onPress={btn.onPress}
-              >
-                <ThemedText
-                  style={[
-                    styles.actionBtnText,
-                    btn.variant === "secondary" && styles.actionBtnTextSecondary,
-                  ]}
-                >
-                  {btn.label}
-                </ThemedText>
-              </ThemedButton>
-            ))}
-          </View>
-        </>
+      {/* Row 2 alt: Location only when no trades and no tertiaryText */}
+      {!item.tertiaryText && !hasTrades && item.location && (
+        <View style={styles.cardTertiaryRow}>
+          <Ionicons name="location-outline" size={14} color="#9CA3AF" />
+          <ThemedText style={styles.cardTertiaryText}>
+            {item.location}
+          </ThemedText>
+        </View>
+      )}
+
+      {/* Row 3: Price info (for quotes received) */}
+      {item.priceInfo && (
+        <View style={styles.priceRow}>
+          <ThemedText style={styles.priceLabel}>{item.priceLabel || "Quote"}</ThemedText>
+          <ThemedText style={styles.priceValue}>{item.priceInfo}</ThemedText>
+        </View>
+      )}
+
+      {/* Row 4: Appointment info */}
+      {item.appointmentInfo && (
+        <View style={styles.appointmentRow}>
+          <Ionicons name="calendar" size={16} color={TINT} />
+          <ThemedText style={styles.appointmentText}>{item.appointmentInfo}</ThemedText>
+        </View>
+      )}
+
+      {/* Row 5: Warning/expiry */}
+      {item.warningText && (
+        <View style={styles.warningRow}>
+          <Ionicons name="alert-circle" size={16} color="#F59E0B" />
+          <ThemedText style={styles.warningText}>{item.warningText}</ThemedText>
+        </View>
       )}
     </Pressable>
   );
@@ -283,29 +390,25 @@ export default function ClientProjects() {
       }
 
       // Requests (no quotes yet)
-      const { data: reqData, error: reqError } = await supabase.rpc("rpc_client_list_requests");
-      console.log("[myquotes] rpc_client_list_requests:", { reqData, reqError });
+      const { data: reqData } = await supabase.rpc("rpc_client_list_requests");
       setRequests(reqData || []);
 
       // Responses (trades responded)
-      const { data: resData, error: resError } = await supabase.rpc("rpc_client_list_responses");
-      console.log("[myquotes] rpc_client_list_responses:", { resData, resError });
+      const { data: resData } = await supabase.rpc("rpc_client_list_responses");
       setResponses(resData || []);
 
       // Quotes to decide
-      const { data: decideData, error: decideError } = await supabase.rpc("rpc_client_list_decide_v2", {
+      const { data: decideData } = await supabase.rpc("rpc_client_list_decide_v2", {
         p_days: 30,
         p_limit: 50,
       });
-      console.log("[myquotes] rpc_client_list_decide_v2:", { decideData, decideError });
       setDecideQuotes(decideData || []);
 
       // Past decisions
-      const { data: decidedData, error: decidedError } = await supabase.rpc("rpc_client_list_decided_quotes", {
+      const { data: decidedData } = await supabase.rpc("rpc_client_list_decided_quotes", {
         p_days: 90,
         p_limit: 50,
       });
-      console.log("[myquotes] rpc_client_list_decided_quotes:", { decidedData, decidedError });
       setDecidedQuotes(decidedData || []);
 
       // Appointments (upcoming only)
@@ -353,15 +456,13 @@ export default function ClientProjects() {
     };
   }, [user?.id, fetchAllData]);
 
-  // Transform data into project cards with proper categorization
+  // Transform data into project cards GROUPED BY REQUEST
+  // New hierarchy: WHO (primary) -> STATUS (secondary) -> WHAT (tertiary)
   const projects = useMemo(() => {
     const needsAttention = [];
     const waitingForQuotes = [];
     const activeJobs = [];
     const completedProjects = [];
-
-    const atDirectLimit = caps.direct_used >= caps.direct_cap;
-    const atOpenLimit = caps.open_used >= caps.open_cap;
 
     // Helper to calculate days difference
     const daysSince = (date) => {
@@ -370,253 +471,306 @@ export default function ClientProjects() {
       return Math.floor(diff / (1000 * 60 * 60 * 24));
     };
 
-    const daysUntil = (date) => {
-      if (!date) return 0;
-      const diff = new Date(date) - new Date();
-      return Math.floor(diff / (1000 * 60 * 60 * 24));
-    };
+    // Group quotes by request_id
+    const quotesByRequest = {};
 
-    // Process quotes needing decision (CLIENT view)
-    // Client received a quote and needs to decide
+    // Group decideQuotes (pending quotes) by request
     decideQuotes.forEach((q) => {
-      const daysOld = daysSince(q.issued_at);
+      const reqId = q.request_id;
+      if (!reqId) return;
+      if (!quotesByRequest[reqId]) {
+        quotesByRequest[reqId] = {
+          requestId: reqId,
+          jobTitle: q.request_suggested_title || q.project_title || "Untitled job",
+          location: q.postcode || null,
+          tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
+          trades: [],
+          quotes: [],
+          hasNewQuotes: false,
+          lowestPrice: null,
+          currency: q.currency || "GBP",
+        };
+      }
+      quotesByRequest[reqId].quotes.push(q);
+      quotesByRequest[reqId].trades.push({
+        id: q.trade_id,
+        name: q.trade_business_name || "Trade",
+        photoUrl: q.trade_photo_url || null,
+        hasQuote: true,
+        quoteId: q.quote_id,
+        amount: q.grand_total,
+        issuedAt: q.issued_at,
+      });
+      quotesByRequest[reqId].hasNewQuotes = true;
+      const price = q.grand_total;
+      if (price && (quotesByRequest[reqId].lowestPrice === null || price < quotesByRequest[reqId].lowestPrice)) {
+        quotesByRequest[reqId].lowestPrice = price;
+      }
+    });
 
-      // Calculate expiry (assuming 14 day expiry from issued_at)
+    // Process grouped quotes needing decision
+    Object.values(quotesByRequest).forEach((group) => {
+      const quotesReceived = group.quotes.length;
+      const tradesCount = group.trades.length;
+
+      // Check for expiry
+      const oldestQuote = group.quotes.reduce((oldest, q) => {
+        const qDate = new Date(q.issued_at);
+        return !oldest || qDate < new Date(oldest.issued_at) ? q : oldest;
+      }, null);
+      const daysOld = oldestQuote ? daysSince(oldestQuote.issued_at) : 0;
       const expiryDays = 14 - daysOld;
       const expiresSoon = expiryDays <= 3 && expiryDays > 0;
 
-      // Status for CLIENT: received a quote = "New Quote" (action needed)
-      let statusType = "NEW_QUOTE"; // Orange - action needed
-      if (expiresSoon) statusType = "EXPIRES_SOON"; // Orange - urgent action
+      let statusType = "NEW_QUOTE";
+      if (expiresSoon) statusType = "EXPIRES_SOON";
 
-      const expiryWarning = expiresSoon ? `Expires in ${expiryDays} day${expiryDays !== 1 ? 's' : ''}` : null;
+      // Build status description based on count
+      let statusDescription;
+      if (tradesCount === 1) {
+        statusDescription = "Quote received";
+      } else {
+        statusDescription = `${quotesReceived} quote${quotesReceived !== 1 ? "s" : ""} received`;
+      }
 
       needsAttention.push({
-        id: `decide-${q.quote_id}`,
-        type: "decide",
-        title: q.request_suggested_title || q.project_title || "Quote",
-        subtitle: null,
-        tradeName: q.trade_business_name,
-        amount: q.grand_total,
-        currency: q.currency || "GBP",
-        startDate: null,
-        expiryWarning,
-        metaInfo: `Received ${daysOld} day${daysOld !== 1 ? 's' : ''} ago`,
+        id: `grouped-${group.requestId}`,
+        type: "grouped_quotes",
+        requestId: group.requestId,
+        jobTitle: group.jobTitle,
+        location: group.location,
+        tertiaryText: group.tertiaryText,
+        trades: group.trades,
+        statusDescription,
         statusType,
-        actionButtons: [
-          {
-            label: "Accept Quote",
-            variant: "primary",
-            onPress: () => {
-              // TODO: Implement accept quote flow
-              router.push(`/myquotes/${q.quote_id}`);
-            },
-          },
-          {
-            label: "Decline",
-            variant: "secondary",
-            onPress: () => {
-              // TODO: Implement decline quote flow
-              router.push(`/myquotes/${q.quote_id}`);
-            },
-          },
-        ],
+        priceInfo: group.lowestPrice
+          ? tradesCount > 1
+            ? `From £${formatNumber(group.lowestPrice)}`
+            : `£${formatNumber(group.lowestPrice)}`
+          : null,
+        priceLabel: tradesCount > 1 ? "Prices from" : "Quote total",
+        warningText: expiresSoon ? `Expires in ${expiryDays} day${expiryDays !== 1 ? "s" : ""}` : null,
       });
     });
 
-    // Process responses (trades declined requests)
+    // Process responses - trades who accepted but haven't sent quote yet
+    // Group by request to combine with existing grouped cards
+    const responsesByRequest = {};
     responses.forEach((r) => {
+      const reqId = r.request_id;
       const status = String(r.decision_status || "").toLowerCase();
+      if (!reqId) return;
 
-      if (status === "declined") {
-        const daysAgo = daysSince(r.created_at);
+      if (!responsesByRequest[reqId]) {
+        responsesByRequest[reqId] = {
+          requestId: reqId,
+          jobTitle: r.suggested_title || "Untitled job",
+          location: r.postcode || null,
+          tertiaryText: buildTertiaryText(r.suggested_title, r.postcode),
+          preparingTrades: [],
+          declinedTrades: [],
+        };
+      }
 
-        needsAttention.push({
-          id: `response-declined-${r.id || r.request_id}`,
-          type: "response_declined",
-          title: r.suggested_title || "Request",
-          subtitle: null,
-          tradeName: null,
-          metaInfo: `Declined ${daysAgo} day${daysAgo !== 1 ? 's' : ''} ago`,
-          limitWarning: `Direct requests remaining: ${caps.direct_cap - caps.direct_used}/${caps.direct_cap}`,
-          statusType: "DECLINED",
-          actionButtons: [
-            {
-              label: "Find Other Trades",
-              variant: "primary",
-              onPress: () => router.push(`/myquotes/request/${r.request_id}`),
-            },
-          ],
+      if (status === "accepted") {
+        responsesByRequest[reqId].preparingTrades.push({
+          id: r.trade_id,
+          name: r.trade_business_name || "Trade",
+          photoUrl: r.trade_photo_url || null,
+          hasQuote: false,
         });
-      } else if (status === "accepted") {
-        // Trade accepted but no quote yet - waiting for quote (CLIENT view)
-        waitingForQuotes.push({
-          id: `response-accepted-${r.id || r.request_id}`,
-          type: "response_accepted",
-          title: r.suggested_title || "Request",
-          subtitle: null,
-          metaInfo: `${r.decisions_count || 0} trade${r.decisions_count !== 1 ? 's' : ''} responded • Waiting for quote`,
-          statusType: "QUOTE_PENDING", // Blue - waiting for trade to send quote
-          actionButtons: [
-            {
-              label: "View Request",
-              variant: "primary",
-              onPress: () => router.push(`/myquotes/request/${r.request_id}`),
-            },
-          ],
+      } else if (status === "declined") {
+        responsesByRequest[reqId].declinedTrades.push({
+          id: r.trade_id,
+          name: r.trade_business_name || "Trade",
         });
       }
     });
 
-    // Process open requests (no responses yet) - CLIENT view
-    // Client sent a request, waiting for trades to respond
-    requests.forEach((req) => {
-      const isAtLimit = req.is_direct ? atDirectLimit : atOpenLimit;
-      const daysAgo = daysSince(req.created_at);
+    // Merge responses with existing grouped cards or create new ones
+    Object.values(responsesByRequest).forEach((respGroup) => {
+      // Check if we already have a card for this request (from decideQuotes)
+      const existingIdx = needsAttention.findIndex(
+        (p) => p.type === "grouped_quotes" && p.requestId === respGroup.requestId
+      );
 
+      if (existingIdx >= 0) {
+        // Add preparing trades to existing card
+        const existing = needsAttention[existingIdx];
+        respGroup.preparingTrades.forEach((t) => {
+          if (!existing.trades.find((et) => et.id === t.id)) {
+            existing.trades.push(t);
+          }
+        });
+        // Update status description
+        const quotesReceived = existing.trades.filter((t) => t.hasQuote).length;
+        const preparing = existing.trades.filter((t) => !t.hasQuote).length;
+        if (preparing > 0) {
+          existing.statusDescription = `${quotesReceived} quote${quotesReceived !== 1 ? "s" : ""} received, ${preparing} preparing`;
+        }
+      } else if (respGroup.preparingTrades.length > 0) {
+        // Create new card for trades preparing quotes
+        const preparing = respGroup.preparingTrades.length;
+        waitingForQuotes.push({
+          id: `preparing-${respGroup.requestId}`,
+          type: "preparing_quotes",
+          requestId: respGroup.requestId,
+          jobTitle: respGroup.jobTitle,
+          location: respGroup.location,
+          tertiaryText: respGroup.tertiaryText,
+          trades: respGroup.preparingTrades,
+          statusDescription: preparing === 1 ? "Preparing quote" : `${preparing} preparing quotes`,
+          statusType: "QUOTE_PENDING",
+          priceInfo: null,
+        });
+      }
+
+      // Handle all-declined scenario
+      if (respGroup.declinedTrades.length > 0 && respGroup.preparingTrades.length === 0) {
+        const declined = respGroup.declinedTrades.length;
+        needsAttention.push({
+          id: `declined-req-${respGroup.requestId}`,
+          type: "request_declined",
+          requestId: respGroup.requestId,
+          jobTitle: respGroup.jobTitle,
+          location: respGroup.location,
+          tertiaryText: respGroup.tertiaryText,
+          trades: [], // No active trades
+          statusDescription: declined === 1 ? "Trade declined" : `${declined} trades declined`,
+          statusType: "DECLINED",
+          priceInfo: null,
+        });
+      }
+    });
+
+    // Process open requests (no responses yet)
+    requests.forEach((req) => {
       waitingForQuotes.push({
         id: `request-${req.id}`,
         type: "request",
-        title: req.suggested_title || (req.is_direct ? "Direct request" : "Open request"),
-        subtitle: req.postcode || null,
-        metaInfo: `${req.is_direct ? 'Direct' : 'Open'} request • ${daysAgo} day${daysAgo !== 1 ? 's' : ''} ago • No response yet`,
-        limitWarning: isAtLimit ? `Daily ${req.is_direct ? 'direct' : 'open'} request limit reached` : null,
-        statusType: isAtLimit ? "AT_LIMIT" : "REQUEST_SENT", // Blue - waiting for trades
-        actionButtons: [
-          {
-            label: "View Request",
-            variant: "primary",
-            onPress: () => router.push(`/myquotes/request/${req.id}`),
-          },
-        ],
+        requestId: req.id,
+        jobTitle: req.suggested_title || "Untitled job",
+        location: req.postcode || null,
+        tertiaryText: buildTertiaryText(req.suggested_title, req.postcode),
+        trades: [], // No trades yet
+        statusDescription: "Waiting for trades to respond",
+        statusType: "REQUEST_SENT",
+        priceInfo: null,
       });
     });
 
-    // Process decided quotes (CLIENT view)
+    // Process decided quotes (accepted quotes = active jobs)
+    const activeByRequest = {};
     decidedQuotes.forEach((q) => {
       const status = String(q.status || "").toLowerCase();
+      const reqId = q.request_id;
 
       if (status === "accepted") {
-        // Find next appointment (earliest upcoming or confirmed)
-        const relatedAppointments = appointments.filter(
-          (appt) => appt.quote_id === q.quote_id
-        ).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-
-        const nextAppointment = relatedAppointments[0];
-        const scheduledDate = nextAppointment?.scheduled_at ? new Date(nextAppointment.scheduled_at) : null;
-        const isScheduled = !!scheduledDate;
-
-        // Determine status based on appointment state
-        let statusType = "QUOTE_ACCEPTED"; // Green - quote accepted
-        if (isScheduled) {
-          statusType = "SCHEDULED"; // Green - work is scheduled
+        // Group active jobs by request
+        if (!activeByRequest[reqId]) {
+          activeByRequest[reqId] = {
+            requestId: reqId,
+            jobTitle: q.request_suggested_title || q.project_title || "Active job",
+            location: q.postcode || null,
+            tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
+            trades: [],
+            quoteId: q.quote_id, // For single-trade navigation
+          };
         }
-
-        activeJobs.push({
-          id: `active-${q.quote_id}`,
-          type: "active",
-          title: q.request_suggested_title || q.project_title || "Active job",
-          subtitle: null,
-          tradeName: q.trade_business_name,
+        activeByRequest[reqId].trades.push({
+          id: q.trade_id,
+          name: q.trade_business_name || "Trade",
+          photoUrl: q.trade_photo_url || null,
+          hasQuote: true,
+          quoteId: q.quote_id,
           amount: q.grand_total,
-          currency: q.currency || "GBP",
-          appointmentDate: scheduledDate
-            ? `${nextAppointment.title || "Appointment"}: ${scheduledDate.toLocaleDateString(undefined, {
-                weekday: "short",
-                month: "short",
-                day: "numeric"
-              })} at ${scheduledDate.toLocaleTimeString(undefined, {
-                hour: "2-digit",
-                minute: "2-digit"
-              })}`
-            : null,
-          metaInfo: null, // Removed "Accepted" date
-          statusType,
-          requestId: q.request_id, // Pass request_id for messaging
-          actionButtons: [
-            {
-              label: "Message",
-              variant: "secondary",
-              onPress: () => {
-                if (q.request_id) {
-                  router.push({
-                    pathname: "/(dashboard)/messages/[id]",
-                    params: {
-                      id: String(q.request_id),
-                      name: q.trade_business_name || "",
-                      quoteId: String(q.quote_id),
-                      returnTo: "/myquotes", // Tell messages screen to return to projects
-                    },
-                  });
-                } else {
-                  router.push(`/messages`);
-                }
-              },
-            },
-            {
-              label: "View Details",
-              variant: "primary",
-              onPress: () => router.push(`/myquotes/${q.quote_id}`),
-            },
-          ],
         });
       } else if (status === "declined") {
         const daysAgo = daysSince(q.issued_at);
-
         completedProjects.push({
           id: `declined-${q.quote_id}`,
           type: "declined",
-          title: q.request_suggested_title || q.project_title || "Quote",
-          subtitle: null,
-          tradeName: q.trade_business_name,
-          amount: q.grand_total,
-          currency: q.currency || "GBP",
-          metaInfo: `You declined ${daysAgo} day${daysAgo !== 1 ? 's' : ''} ago`,
+          requestId: reqId,
+          jobTitle: q.request_suggested_title || q.project_title || "Quote",
+          location: q.postcode || null,
+          tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
+          trades: [{
+            id: q.trade_id,
+            name: q.trade_business_name || "Trade",
+            photoUrl: q.trade_photo_url || null,
+            hasQuote: true,
+            quoteId: q.quote_id,
+          }],
+          statusDescription: `You declined ${daysAgo} day${daysAgo !== 1 ? "s" : ""} ago`,
           statusType: "DECLINED_BY_YOU",
-          actionButtons: [
-            {
-              label: "View Quote",
-              variant: "secondary",
-              onPress: () => router.push(`/myquotes/${q.quote_id}`),
-            },
-          ],
+          priceInfo: null,
         });
       } else if (status === "expired") {
         const daysAgo = daysSince(q.issued_at);
-
         completedProjects.push({
           id: `expired-${q.quote_id}`,
           type: "expired",
-          title: q.request_suggested_title || q.project_title || "Quote",
-          subtitle: null,
-          tradeName: q.trade_business_name,
-          amount: q.grand_total,
-          currency: q.currency || "GBP",
-          metaInfo: `Expired ${daysAgo} days ago (no response)`,
+          requestId: reqId,
+          jobTitle: q.request_suggested_title || q.project_title || "Quote",
+          location: q.postcode || null,
+          tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
+          trades: [{
+            id: q.trade_id,
+            name: q.trade_business_name || "Trade",
+            photoUrl: q.trade_photo_url || null,
+            hasQuote: true,
+            quoteId: q.quote_id,
+          }],
+          statusDescription: `Expired ${daysAgo} day${daysAgo !== 1 ? "s" : ""} ago`,
           statusType: "EXPIRED",
-          actionButtons: [
-            {
-              label: "Request Updated Quote",
-              variant: "primary",
-              onPress: () => router.push(`/myquotes/${q.quote_id}`),
-            },
-          ],
+          priceInfo: null,
         });
       }
     });
 
-    console.log("[myquotes] computed projects:", {
-      needsAttention: needsAttention.length,
-      waitingForQuotes: waitingForQuotes.length,
-      activeJobs: activeJobs.length,
-      completedProjects: completedProjects.length,
-      rawCounts: {
-        requests: requests.length,
-        responses: responses.length,
-        decideQuotes: decideQuotes.length,
-        decidedQuotes: decidedQuotes.length,
+    // Process active jobs
+    Object.values(activeByRequest).forEach((group) => {
+      // Find appointment for this job
+      const relatedAppointments = appointments.filter(
+        (appt) => group.trades.some((t) => t.quoteId === appt.quote_id)
+      ).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+
+      const nextAppointment = relatedAppointments[0];
+      const scheduledDate = nextAppointment?.scheduled_at ? new Date(nextAppointment.scheduled_at) : null;
+      const isScheduled = !!scheduledDate;
+
+      let statusType = "QUOTE_ACCEPTED";
+      let statusDescription = "Quote accepted";
+      if (isScheduled) {
+        statusType = "SCHEDULED";
+        statusDescription = "Work scheduled";
       }
+
+      activeJobs.push({
+        id: `active-${group.requestId}`,
+        type: "active",
+        requestId: group.requestId,
+        jobTitle: group.jobTitle,
+        location: group.location,
+        tertiaryText: group.tertiaryText,
+        trades: group.trades,
+        statusDescription,
+        statusType,
+        priceInfo: null,
+        appointmentInfo: scheduledDate
+          ? `${nextAppointment.title || "Appointment"}: ${scheduledDate.toLocaleDateString(undefined, {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+            })} at ${scheduledDate.toLocaleTimeString(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}`
+          : null,
+        quoteId: group.quoteId, // For single-trade navigation
+      });
     });
+
     return { needsAttention, waitingForQuotes, activeJobs, completedProjects };
   }, [requests, responses, decideQuotes, decidedQuotes, appointments, caps, router]);
 
@@ -694,14 +848,17 @@ export default function ClientProjects() {
                 key={project.id}
                 item={project}
                 statusType={project.statusType}
-                actionButtons={project.actionButtons}
                 onPress={() => {
                   // Navigate based on project type
-                  if (project.type === "decide" && project.id.includes("decide-")) {
-                    const quoteId = project.id.replace("decide-", "");
-                    router.push(`/myquotes/${quoteId}`);
-                  } else if (project.type === "response_declined" && project.actionButtons?.[0]) {
-                    project.actionButtons[0].onPress();
+                  if (project.trades && project.trades.length > 1) {
+                    // Multiple trades -> go to quote list
+                    router.push(`/myquotes/quotes/${project.requestId}`);
+                  } else if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
+                    // Single trade with quote -> go to quote detail
+                    router.push(`/myquotes/${project.trades[0].quoteId}`);
+                  } else {
+                    // No trades or request view
+                    router.push(`/myquotes/request/${project.requestId}`);
                   }
                 }}
               />
@@ -723,11 +880,14 @@ export default function ClientProjects() {
                 key={project.id}
                 item={project}
                 statusType={project.statusType}
-                actionButtons={project.actionButtons}
                 onPress={() => {
-                  // Navigate to request detail
-                  if (project.actionButtons?.[0]) {
-                    project.actionButtons[0].onPress();
+                  // Navigate based on project type
+                  if (project.trades && project.trades.length > 1) {
+                    router.push(`/myquotes/quotes/${project.requestId}`);
+                  } else if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
+                    router.push(`/myquotes/${project.trades[0].quoteId}`);
+                  } else {
+                    router.push(`/myquotes/request/${project.requestId}`);
                   }
                 }}
               />
@@ -749,11 +909,15 @@ export default function ClientProjects() {
                 key={project.id}
                 item={project}
                 statusType={project.statusType}
-                actionButtons={project.actionButtons}
                 onPress={() => {
-                  // Navigate to quote detail (View Details action)
-                  const quoteId = project.id.replace("active-", "");
-                  router.push(`/myquotes/${quoteId}`);
+                  // Active jobs - go to quote detail (single trade) or quote list (multiple)
+                  if (project.trades && project.trades.length > 1) {
+                    router.push(`/myquotes/quotes/${project.requestId}`);
+                  } else if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
+                    router.push(`/myquotes/${project.trades[0].quoteId}`);
+                  } else if (project.quoteId) {
+                    router.push(`/myquotes/${project.quoteId}`);
+                  }
                 }}
               />
             ))}
@@ -774,11 +938,10 @@ export default function ClientProjects() {
                 key={project.id}
                 item={project}
                 statusType={project.statusType}
-                actionButtons={project.actionButtons}
                 onPress={() => {
-                  // Navigate to quote detail
-                  if (project.actionButtons?.[0]) {
-                    project.actionButtons[0].onPress();
+                  // Completed projects - go to quote detail
+                  if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
+                    router.push(`/myquotes/${project.trades[0].quoteId}`);
                   }
                 }}
               />
@@ -894,20 +1057,91 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  // New card design styles
   cardHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 12,
   },
-  cardTitle: {
+  noTradeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardPrimaryInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  cardPrimaryText: {
     fontSize: 16,
     fontWeight: "600",
     color: "#111827",
   },
-  cardSubtitle: {
+  cardSecondaryText: {
     fontSize: 14,
-    marginTop: 2,
+    color: "#6B7280",
+  },
+  cardTertiaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  cardTertiaryText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+  },
+  priceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 10,
+  },
+  priceLabel: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  priceValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  appointmentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+  },
+  appointmentText: {
+    fontSize: 14,
+    color: TINT,
+    fontWeight: "600",
+  },
+  warningRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: "#FEF3C7",
+    borderRadius: 8,
+  },
+  warningText: {
+    fontSize: 13,
+    color: "#F59E0B",
+    fontWeight: "500",
   },
   badge: {
     flexDirection: "row",
@@ -920,6 +1154,16 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 12,
     fontWeight: "600",
+  },
+  // Legacy styles kept for compatibility
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  cardSubtitle: {
+    fontSize: 14,
+    marginTop: 2,
   },
   cardContent: {
     gap: 8,
@@ -947,15 +1191,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-  },
-  warningRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    backgroundColor: "#FEF3C7",
-    borderRadius: 8,
   },
   infoText: {
     fontSize: 14,

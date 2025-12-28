@@ -43,10 +43,16 @@ export default function MyQuotesClientOnly() {
   if (role === 'trades') return <Redirect href="/quotes" />;
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        animation: 'slide_from_right',
+      }}
+    >
       <Stack.Screen name="index" />
       <Stack.Screen name="[id]" />
       <Stack.Screen name="request" />
+      <Stack.Screen name="quotes" />
     </Stack>
   );
 }
