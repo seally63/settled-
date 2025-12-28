@@ -288,21 +288,24 @@ export default function ClientProjects() {
       setRequests(reqData || []);
 
       // Responses (trades responded)
-      const { data: resData } = await supabase.rpc("rpc_client_list_responses");
+      const { data: resData, error: resError } = await supabase.rpc("rpc_client_list_responses");
+      console.log("[myquotes] rpc_client_list_responses:", { resData, resError });
       setResponses(resData || []);
 
       // Quotes to decide
-      const { data: decideData } = await supabase.rpc("rpc_client_list_decide_v2", {
+      const { data: decideData, error: decideError } = await supabase.rpc("rpc_client_list_decide_v2", {
         p_days: 30,
         p_limit: 50,
       });
+      console.log("[myquotes] rpc_client_list_decide_v2:", { decideData, decideError });
       setDecideQuotes(decideData || []);
 
       // Past decisions
-      const { data: decidedData } = await supabase.rpc("rpc_client_list_decided_quotes", {
+      const { data: decidedData, error: decidedError } = await supabase.rpc("rpc_client_list_decided_quotes", {
         p_days: 90,
         p_limit: 50,
       });
+      console.log("[myquotes] rpc_client_list_decided_quotes:", { decidedData, decidedError });
       setDecidedQuotes(decidedData || []);
 
       // Appointments (upcoming only)
@@ -602,6 +605,18 @@ export default function ClientProjects() {
       }
     });
 
+    console.log("[myquotes] computed projects:", {
+      needsAttention: needsAttention.length,
+      waitingForQuotes: waitingForQuotes.length,
+      activeJobs: activeJobs.length,
+      completedProjects: completedProjects.length,
+      rawCounts: {
+        requests: requests.length,
+        responses: responses.length,
+        decideQuotes: decideQuotes.length,
+        decidedQuotes: decidedQuotes.length,
+      }
+    });
     return { needsAttention, waitingForQuotes, activeJobs, completedProjects };
   }, [requests, responses, decideQuotes, decidedQuotes, appointments, caps, router]);
 
