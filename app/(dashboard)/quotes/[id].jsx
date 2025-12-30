@@ -6,13 +6,12 @@ import {
   Pressable,
   useColorScheme,
   Image,
-  Modal,
   Platform,
   Alert,
   TextInput,
-  FlatList,
   Dimensions,
 } from "react-native";
+import ImageViewing from "react-native-image-viewing";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -66,7 +65,8 @@ function money(n, currency = "GBP") {
   return c === "GBP" ? `£${formatNumber(v)}` : `${c} ${formatNumber(v)}`;
 }
 
-// Same parser we used on the client "Your request" screen
+// Parse the details string to extract individual fields
+// Details format: "Category: X\nService: Y\nDescription: Z\nProperty: W\n..."
 function parseDetails(details) {
   const res = {
     title: null,
@@ -76,6 +76,10 @@ function parseDetails(details) {
     main: null,
     refit: null,
     notes: null,
+    description: null,
+    property: null,
+    budget: null,
+    timing: null,
   };
   if (!details) return res;
   const lines = String(details)
@@ -89,10 +93,14 @@ function parseDetails(details) {
     const v = rest.join(":").trim();
     if (key.includes("start")) res.start = v;
     else if (key.includes("address")) res.address = v;
-    else if (key.includes("category")) res.category = v;
+    else if (key === "category") res.category = v;
     else if (key === "main") res.main = v;
     else if (key.includes("refit")) res.refit = v;
     else if (key.includes("notes")) res.notes = v;
+    else if (key === "description") res.description = v;
+    else if (key === "property") res.property = v;
+    else if (key === "budget") res.budget = v;
+    else if (key === "timing") res.timing = v;
   }
   return res;
 }
@@ -166,18 +174,13 @@ export default function QuoteDetails() {
     setViewer((v) => ({ ...v, open: false }));
   }, []);
 
-  const handleZoomScrollEndDrag = (e) => {
-    const native = e?.nativeEvent || {};
-    const contentOffset = native.contentOffset || {};
-    const zoomScale = native.zoomScale;
-
-    // If user pulled down while at min zoom, close the viewer
-    if (zoomScale && zoomScale <= 1.01 && contentOffset.y < -40) {
-      closeViewer();
-    }
-  };
-
   const hasAttachments = attachments.length > 0;
+
+  // Convert attachments to format expected by ImageViewing
+  const imageViewerData = useMemo(
+    () => attachments.map((url) => ({ uri: url })),
+    [attachments]
+  );
 
   // Fetch user role
   useEffect(() => {
@@ -248,12 +251,14 @@ export default function QuoteDetails() {
           return;
         }
 
-        // 2) Load request summary
+        // 2) Load request summary with property type and timing
         try {
           const { data: reqRow, error: reqErr } = await supabase
             .from("quote_requests")
             .select(
-              "id, details, created_at, budget_band, postcode, status, suggested_title"
+              `id, details, created_at, budget_band, postcode, status, suggested_title,
+               property_types(id, name),
+               timing_options(id, name, description, is_emergency)`
             )
             .eq("id", reqId)
             .maybeSingle();
@@ -1208,42 +1213,48 @@ export default function QuoteDetails() {
                 </View>
               )}
 
-              {!!request.budget_band && (
+              {!!parsedDetails.description && (
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="document-text-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Details</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>{parsedDetails.description}</ThemedText>
+                  </View>
+                </View>
+              )}
+
+              {!!(request.property_types?.name || parsedDetails.property) && (
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="home-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Property</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>
+                      {request.property_types?.name || parsedDetails.property}
+                    </ThemedText>
+                  </View>
+                </View>
+              )}
+
+              {!!(request.budget_band || parsedDetails.budget) && (
                 <View style={styles.requestDetailRow}>
                   <Ionicons name="cash-outline" size={18} color="#6B7280" />
                   <View style={styles.requestDetailContent}>
                     <ThemedText style={styles.requestDetailLabel}>Budget</ThemedText>
-                    <ThemedText style={styles.requestDetailValue}>{request.budget_band}</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>
+                      {request.budget_band || parsedDetails.budget}
+                    </ThemedText>
                   </View>
                 </View>
               )}
 
-              {!!parsedDetails.start && (
+              {!!(request.timing_options?.name || parsedDetails.timing) && (
                 <View style={styles.requestDetailRow}>
-                  <Ionicons name="time-outline" size={18} color="#6B7280" />
+                  <Ionicons name="time-outline" size={18} color={request.timing_options?.is_emergency ? "#EF4444" : "#6B7280"} />
                   <View style={styles.requestDetailContent}>
-                    <ThemedText style={styles.requestDetailLabel}>Start date</ThemedText>
-                    <ThemedText style={styles.requestDetailValue}>{parsedDetails.start}</ThemedText>
-                  </View>
-                </View>
-              )}
-
-              {!!parsedDetails.refit && (
-                <View style={styles.requestDetailRow}>
-                  <Ionicons name="construct-outline" size={18} color="#6B7280" />
-                  <View style={styles.requestDetailContent}>
-                    <ThemedText style={styles.requestDetailLabel}>Job type</ThemedText>
-                    <ThemedText style={styles.requestDetailValue}>{parsedDetails.refit}</ThemedText>
-                  </View>
-                </View>
-              )}
-
-              {!!parsedDetails.notes && (
-                <View style={styles.requestDetailRow}>
-                  <Ionicons name="document-text-outline" size={18} color="#6B7280" />
-                  <View style={styles.requestDetailContent}>
-                    <ThemedText style={styles.requestDetailLabel}>Notes</ThemedText>
-                    <ThemedText style={styles.requestDetailValue}>{parsedDetails.notes}</ThemedText>
+                    <ThemedText style={styles.requestDetailLabel}>Timing</ThemedText>
+                    <ThemedText style={[styles.requestDetailValue, request.timing_options?.is_emergency && { color: "#EF4444" }]}>
+                      {request.timing_options?.name || parsedDetails.timing}
+                    </ThemedText>
                   </View>
                 </View>
               )}
@@ -1345,6 +1356,9 @@ export default function QuoteDetails() {
                   : "0.00";
                 return (
                   <View key={`li-${i}`} style={styles.lineItemRow}>
+                    <View style={styles.lineItemNumberBadge}>
+                      <ThemedText style={styles.lineItemNumberText}>{i + 1}</ThemedText>
+                    </View>
                     <View style={{ flex: 1 }}>
                       <ThemedText style={styles.lineItemName}>
                         {item?.name || "Item"}
@@ -1528,85 +1542,15 @@ export default function QuoteDetails() {
         <Spacer size={20} />
       </ScrollView>
 
-      {/* Image preview modal – zoom + swipe + pull-down-to-dismiss */}
-      {viewer.open && hasAttachments && (
-        <Modal
-          visible={viewer.open}
-          transparent
-          animationType="fade"
-          onRequestClose={closeViewer}
-          onDismiss={closeViewer}
-        >
-          <View style={styles.modalBackdrop}>
-            {/* Horizontal pager of zoomable images */}
-            <FlatList
-              data={attachments}
-              keyExtractor={(url, idx) => `${url}-${idx}`}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              style={styles.carousel}
-              initialScrollIndex={
-                attachments.length > 0
-                  ? Math.min(
-                      Math.max(viewer.index || 0, 0),
-                      attachments.length - 1
-                    )
-                  : 0
-              }
-              getItemLayout={(data, index) => ({
-                length: SCREEN_WIDTH,
-                offset: SCREEN_WIDTH * index,
-                index,
-              })}
-              onMomentumScrollEnd={(e) => {
-                const newIndex = Math.round(
-                  e.nativeEvent.contentOffset.x / SCREEN_WIDTH
-                );
-                if (!Number.isNaN(newIndex)) {
-                  setViewer((v) => ({ ...v, index: newIndex }));
-                }
-              }}
-              renderItem={({ item: url }) => (
-                <ScrollView
-                  style={styles.zoomScroll}
-                  contentContainerStyle={styles.zoomContent}
-                  maximumZoomScale={3}
-                  minimumZoomScale={1}
-                  showsHorizontalScrollIndicator={false}
-                  showsVerticalScrollIndicator={false}
-                  bounces
-                  centerContent
-                  scrollEventThrottle={16}
-                  onScrollEndDrag={handleZoomScrollEndDrag}
-                >
-                  <Image
-                    source={{ uri: url }}
-                    style={styles.modalImage}
-                    resizeMode="contain"
-                    onError={(e) =>
-                      console.warn(
-                        "preview error (trade quote):",
-                        url,
-                        e?.nativeEvent?.error
-                      )
-                    }
-                  />
-                </ScrollView>
-              )}
-            />
-
-            {/* Close button */}
-            <Pressable
-              style={styles.modalClose}
-              onPress={closeViewer}
-              hitSlop={8}
-            >
-              <Ionicons name="close" size={24} color="#fff" />
-            </Pressable>
-          </View>
-        </Modal>
-      )}
+      {/* Image viewer with zoom, swipe and drag-to-dismiss */}
+      <ImageViewing
+        images={imageViewerData}
+        imageIndex={viewer.index}
+        visible={viewer.open}
+        onRequestClose={closeViewer}
+        swipeToCloseEnabled={true}
+        doubleTapToZoomEnabled={true}
+      />
     </ThemedView>
   );
 }
@@ -1893,6 +1837,21 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#E5E7EB",
+  },
+  lineItemNumberBadge: {
+    backgroundColor: PRIMARY,
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    marginTop: 2,
+  },
+  lineItemNumberText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "700",
   },
   lineItemName: {
     fontSize: 15,
