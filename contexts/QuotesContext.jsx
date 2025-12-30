@@ -61,7 +61,7 @@ export function QuotesProvider({ children }) {
 
       const payload = {
 
-        request_id: data?.request_id ?? null, // <-- ensure it’s sent to the DB
+        request_id: data?.request_id ?? null, // <-- ensure it's sent to the DB
         // NEW
         project_title: data?.project_title ?? null,
 
@@ -106,6 +106,45 @@ export function QuotesProvider({ children }) {
       return inserted
     } catch (error) {
       console.error('Create quote error:', error.message)
+      throw error
+    }
+  }
+
+  // Update an existing quote (e.g., editing a draft)
+  async function updateQuote(id, data) {
+    try {
+      const items = Array.isArray(data?.line_items) ? data.line_items : []
+      const { subtotal, tax_total, grand_total } = computeTotals(items)
+
+      const payload = {
+        project_title: data?.project_title ?? null,
+        comments: data?.comments ?? null,
+        status: data?.status || 'draft',
+        valid_until: data?.valid_until ?? null,
+        measurements: Array.isArray(data?.measurements) ? data.measurements : [],
+        line_items: items,
+        subtotal,
+        tax_total,
+        grand_total,
+      }
+
+      const { data: updated, error } = await supabase
+        .from('tradify_native_app_db')
+        .update(payload)
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setQuotes((prev) =>
+        Array.isArray(prev)
+          ? prev.map((q) => (q.id === id ? updated : q))
+          : [updated]
+      )
+      return updated
+    } catch (error) {
+      console.error('Update quote error:', error.message)
       throw error
     }
   }
@@ -172,7 +211,7 @@ export function QuotesProvider({ children }) {
 
   return (
     <QuotesContext.Provider
-      value={{ quotes, fetchQuotes, fetchQuoteById, createQuote, deleteQuote }}
+      value={{ quotes, fetchQuotes, fetchQuoteById, createQuote, updateQuote, deleteQuote }}
     >
       {children}
     </QuotesContext.Provider>

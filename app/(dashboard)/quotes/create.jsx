@@ -1,11 +1,13 @@
 // app/(dashboard)/quotes/create.jsx
+// Clean 2-step quote creation with inline item editing
 import {
   StyleSheet, Text, View, ScrollView, Pressable, useColorScheme, Platform,
-  KeyboardAvoidingView, Alert, TextInput,
+  KeyboardAvoidingView, Alert, TextInput, Switch, InputAccessoryView, Keyboard,
 } from "react-native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useQuotes } from "../../../hooks/useQuotes";
 import { useUser } from "../../../hooks/useUser";
@@ -13,13 +15,10 @@ import { supabase } from "../../../lib/supabase";
 
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
-import ThemedTextInput from "../../../components/ThemedTextInput";
-import ThemedButton from "../../../components/ThemedButton";
 import Spacer from "../../../components/Spacer";
-import AddItemModal from "../../../components/AddItemModal";
-import { Colors } from "../../../constants/Colors";
 
-const VAT_RATE = 0.20;
+const PRIMARY = "#6849a7";
+const DEFAULT_VAT_RATE = 0.20;
 
 /* ----------------------- helpers ----------------------- */
 function asString(v) {
@@ -32,527 +31,1044 @@ function asBool(v) {
   const s = typeof v === "string" ? v.toLowerCase() : "";
   return s === "1" || s === "true";
 }
-function computeTotals(items = []) {
+function computeTotals(items = [], vatEnabled = true, vatRate = DEFAULT_VAT_RATE) {
   let subtotal = 0;
   for (const it of items) subtotal += Number(it?.qty || 0) * Number(it?.unit_price || 0);
   const r2 = (n) => Math.round(n * 100) / 100;
-  const tax_total = r2(subtotal * VAT_RATE);
+  const tax_total = vatEnabled ? r2(subtotal * vatRate) : 0;
   const grand_total = r2(subtotal + tax_total);
   return { subtotal: r2(subtotal), tax_total, grand_total };
 }
-function todayDMY() {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = String(d.getFullYear());
-  return `${dd}-${mm}-${yyyy}`;
-}
-function dmyToIso(s) {
-  if (!s) return null;
-  const m = s.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  if (!m) return null;
-  const [, dd, mm, yyyy] = m;
-  const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-  if (d.getFullYear() !== Number(yyyy) || d.getMonth() + 1 !== Number(mm) || d.getDate() !== Number(dd)) return null;
-  return `${yyyy}-${mm}-${dd}`;
-}
-function isValidDMY(s) {
-  return dmyToIso(s) !== null;
+function formatNumber(num) {
+  if (num == null || isNaN(num)) return "0.00";
+  return Number(num).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** Derive a clean project title; we’ll append the outcode if present. */
-function deriveProjectTitle(req) {
-  if (!req) return null;
-  const candidates = [
-    req.requested_title, req.project_title, req.project_type, req.job_type, req.category, req.title,
-  ].filter(Boolean);
-  const base = candidates.length ? String(candidates[0]).trim() : null;
-  const out = (req.postcode || "").toString().trim().toUpperCase();
-  if (base) return out ? `${base} in ${out}` : base;
+/** Derive project info from request data - includes category, service, postcode */
+function deriveProjectInfo(req) {
+  if (!req) return { category: null, service: null, postcode: null };
 
-  if (req.details) {
-    try {
-      const j = typeof req.details === "string" ? JSON.parse(req.details) : req.details;
-      const jsonCands = [j?.project_title, j?.project_type, j?.type, j?.category, j?.title].filter(Boolean);
-      const b2 = jsonCands.length ? String(jsonCands[0]).trim() : null;
-      return b2 ? (out ? `${b2} in ${out}` : b2) : null;
-    } catch { /* ignore */ }
+  // Get category name from join
+  const category = req.service_categories?.name || null;
+
+  // Get service type name from join
+  const service = req.service_types?.name || null;
+
+  // Get postcode
+  const postcode = (req.postcode || "").toString().trim().toUpperCase();
+
+  return { category, service, postcode };
+}
+
+/** Get client display name from request */
+async function getClientDisplayName(requestId) {
+  if (!requestId) return null;
+  try {
+    // Try the privacy-aware RPC first
+    const { data } = await supabase.rpc("rpc_get_client_contact_for_request", {
+      p_request_id: requestId,
+    });
+    if (data?.name_display) return data.name_display;
+    if (data?.name) return data.name;
+
+    // Fallback: try rpc_list_conversations to get client name
+    const { data: convData } = await supabase.rpc("rpc_list_conversations", { p_limit: 100 });
+    if (convData) {
+      const conv = convData.find((c) => c.request_id === requestId);
+      if (conv?.other_party_name) return conv.other_party_name;
+    }
+
+    return null;
+  } catch {
+    return null;
   }
-  return out || null;
 }
 
-/* ----------------------- screen ----------------------- */
+// Unique ID for InputAccessoryView on iOS
+const INPUT_ACCESSORY_ID = "quote-create-keyboard-accessory";
+
+/* ----------------------- Main Screen ----------------------- */
 export default function Create() {
+  const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
-  const theme = Colors[scheme] ?? Colors.light;
-  const iconColor = theme.text;
+  const iconColor = scheme === "dark" ? "#fff" : "#000";
 
   const params = useLocalSearchParams();
   const titleParamRaw = asString(params?.title);
   const requestId = asString(params?.requestId) || null;
+  const quoteId = asString(params?.quoteId) || null; // For editing existing drafts
   const lockParam = asBool(params?.lockTitle);
 
   const titleParam = titleParamRaw ? decodeURIComponent(titleParamRaw) : "";
   const initialLocked = lockParam || !!titleParam;
 
-  const [titleLocked, setTitleLocked] = useState(initialLocked);
+  // Form state
   const [projectTitle, setProjectTitle] = useState(titleParam || "");
-
-  const [step, setStep] = useState(1);
-  const [issueDate, setIssueDate] = useState(todayDMY());
-  const [expiryDate, setExpiryDate] = useState("");
-
+  const [projectCategory, setProjectCategory] = useState("");
+  const [projectService, setProjectService] = useState("");
+  const [projectPostcode, setProjectPostcode] = useState("");
+  const [clientName, setClientName] = useState(null);
+  const [titleLocked, setTitleLocked] = useState(initialLocked);
   const [items, setItems] = useState([]);
-  const [itemModalOpen, setItemModalOpen] = useState(false);
-  const [editIndex, setEditIndex] = useState(null);
-
   const [comments, setComments] = useState("");
+  const [step, setStep] = useState(1);
+  const [isEditing, setIsEditing] = useState(false); // True when editing existing draft
 
-  const projectInputRef = useRef(null);
-  const totals = useMemo(() => computeTotals(items), [items]);
+  // VAT state
+  const [vatEnabled, setVatEnabled] = useState(true);
+  const [vatRate, setVatRate] = useState(DEFAULT_VAT_RATE);
 
-  const { createQuote } = useQuotes();
+  const totals = useMemo(
+    () => computeTotals(items, vatEnabled, vatRate),
+    [items, vatEnabled, vatRate]
+  );
+
+  const { createQuote, updateQuote, fetchQuoteById } = useQuotes();
   const { user } = useUser();
   const router = useRouter();
 
+  // Load existing draft data when editing
   useEffect(() => {
-    if (titleParam) {
-      setProjectTitle(titleParam);
-      setTitleLocked(true);
-    }
-  }, [titleParam]);
+    if (!quoteId) return;
+    let alive = true;
 
-  // Fallback: derive title (with outcode) from requestId
+    (async () => {
+      try {
+        const quote = await fetchQuoteById(quoteId);
+        if (!alive || !quote) return;
+
+        setIsEditing(true);
+        setProjectTitle(quote.project_title || "");
+        setComments(quote.comments || "");
+        setTitleLocked(true);
+
+        // Load line items
+        if (Array.isArray(quote.line_items) && quote.line_items.length > 0) {
+          setItems(quote.line_items);
+        }
+
+        // Load VAT settings if stored
+        if (quote.vat_enabled !== undefined) setVatEnabled(quote.vat_enabled);
+        if (quote.vat_rate !== undefined) setVatRate(quote.vat_rate);
+
+        // Fetch client name from request if available
+        if (quote.request_id) {
+          const name = await getClientDisplayName(quote.request_id);
+          if (alive && name) setClientName(name);
+        }
+      } catch { /* ignore */ }
+    })();
+
+    return () => { alive = false; };
+  }, [quoteId]);
+
+  // Load project info from request (for new quotes)
   useEffect(() => {
+    if (quoteId) return; // Skip if editing existing draft
     let alive = true;
     (async () => {
-      if (titleParam || !requestId) return;
+      // Always try to fetch client name if we have a requestId
+      if (requestId) {
+        try {
+          const name = await getClientDisplayName(requestId);
+          if (alive && name) setClientName(name);
+        } catch { /* ignore */ }
+      }
+
+      // If we already have a title param, use it and skip fetching request details
+      if (titleParam) {
+        setProjectTitle(titleParam);
+        setTitleLocked(true);
+        return;
+      }
+
+      if (!requestId) return;
+
       try {
         const { data, error } = await supabase
           .from("quote_requests")
-          // ✅ include postcode so we can append “in EH48”
-          .select("id, requested_title, project_title, project_type, job_type, category, details, postcode")
+          .select(`
+            id, postcode,
+            service_categories(id, name),
+            service_types(id, name)
+          `)
           .eq("id", requestId)
           .maybeSingle();
         if (error) throw error;
         if (!alive) return;
-        const derived = deriveProjectTitle(data);
-        if (derived) {
-          setProjectTitle(derived);
+
+        const info = deriveProjectInfo(data);
+        if (info.category) {
+          setProjectCategory(info.category);
+        }
+        if (info.service) {
+          setProjectService(info.service);
+        }
+        if (info.postcode) {
+          setProjectPostcode(info.postcode);
+        }
+        // Build project title from category - service
+        if (info.category && info.service) {
+          setProjectTitle(`${info.category} - ${info.service}`);
+          setTitleLocked(true);
+        } else if (info.category) {
+          setProjectTitle(info.category);
           setTitleLocked(true);
         }
-      } catch {
-        // no-op; user can still type if not locked
-      }
+      } catch { /* ignore */ }
     })();
     return () => { alive = false; };
-  }, [titleParam, requestId]);
+  }, [titleParam, requestId, quoteId]);
 
-  const next = () => {
-    if (step === 1) {
-      if (!titleLocked && !projectTitle.trim()) {
-        Alert.alert("Missing project", "Please enter the project name.");
-        return;
-      }
-      if (issueDate && !isValidDMY(issueDate)) {
-        Alert.alert("Invalid issue date", "Use DD-MM-YYYY.");
-        return;
-      }
-      if (expiryDate && !isValidDMY(expiryDate)) {
-        Alert.alert("Invalid expiry date", "Use DD-MM-YYYY.");
-        return;
-      }
-    }
-    setStep((s) => Math.min(3, s + 1));
+  // ---- Inline item management ----
+  const addNewItem = () => {
+    setItems(prev => [...prev, { name: "", description: "", qty: 1, unit_price: 0 }]);
   };
-  const back = () => setStep((s) => Math.max(1, s - 1));
 
-  const addItem = (obj) => {
-    if (editIndex != null) {
-      setItems((prev) => {
-        const copy = [...prev];
-        copy[editIndex] = obj;
-        return copy;
-      });
-      setEditIndex(null);
-    } else {
-      setItems((prev) => [...prev, obj]);
-    }
-    setItemModalOpen(false);
+  const updateItem = (index, field, value) => {
+    setItems(prev => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], [field]: value };
+      return copy;
+    });
   };
-  const openEdit = (idx) => { setEditIndex(idx); setItemModalOpen(true); };
-  const removeItem = (idx) => setItems((prev) => prev.filter((_, i) => i !== idx));
 
-  const handleSend = async () => {
+  const removeItem = (index) => {
+    setItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // ---- Navigation ----
+  const goToStep2 = () => {
     if (!titleLocked && !projectTitle.trim()) {
       Alert.alert("Missing project", "Please enter the project name.");
-      setStep(1);
       return;
     }
-    if (expiryDate && !isValidDMY(expiryDate)) {
-      Alert.alert("Invalid expiry date", "Use DD-MM-YYYY.");
-      setStep(1);
+    // Filter out empty items
+    const validItems = items.filter(it => it.name?.trim());
+    setItems(validItems);
+    setStep(2);
+  };
+
+  const goBack = () => {
+    if (step > 1) setStep(step - 1);
+    else router.back();
+  };
+
+  // ---- Submit handlers ----
+  const handleSend = async () => {
+    if (!projectTitle.trim()) {
+      Alert.alert("Missing project", "Please enter the project name.");
       return;
     }
 
     const payload = {
       request_id: requestId || null,
-      full_name: null,
-      email: null,
-      phone_number: null,
-      job_address: null,
-
-      project_title: projectTitle || null,
-      valid_until: dmyToIso(expiryDate),
-      line_items: items,
+      project_title: projectTitle,
+      valid_until: null,
+      line_items: items.filter(it => it.name?.trim()),
       measurements: [],
       comments: comments || null,
+      status: "sent",
+      trade_id: user?.id || null,
       userId: user?.id || null,
-           // IMPORTANT for RLS: provide both, so DB policies see ownership
-      trade_id: user?.id || null,   // new (for policies that check trade_id)
-     userId: user?.id || null,     // keep your existing column
-     // also propagate the request_id if we navigated from a request
-      request_id: requestId || null,
-     };
+      vat_enabled: vatEnabled,
+      vat_rate: vatRate,
+    };
 
     try {
-      await createQuote(payload);
-      setStep(1);
-      setProjectTitle(titleParam || "");
-      setIssueDate(todayDMY());
-      setExpiryDate("");
-      setItems([]);
-      setComments("");
+      if (isEditing && quoteId) {
+        // Update existing draft and send
+        await updateQuote(quoteId, payload);
+      } else {
+        // Create new quote
+        await createQuote(payload);
+      }
       router.replace("/quotes");
     } catch (e) {
       Alert.alert("Save failed", e?.message || "Failed to save quote.");
     }
   };
 
-  const PageTitle = ({ children, caption }) => (
-    <View style={styles.titleWrap}>
-      <ThemedText title style={styles.titleText}>{children}</ThemedText>
-      {!!caption && <ThemedText variant="muted" style={styles.titleCaption}>{caption}</ThemedText>}
-    </View>
-  );
+  const handleSaveAsDraft = async () => {
+    const payload = {
+      request_id: requestId || null,
+      project_title: projectTitle || "Untitled quote",
+      valid_until: null,
+      line_items: items.filter(it => it.name?.trim()),
+      measurements: [],
+      comments: comments || null,
+      status: "draft",
+      trade_id: user?.id || null,
+      userId: user?.id || null,
+      vat_enabled: vatEnabled,
+      vat_rate: vatRate,
+    };
 
-  const SubHeader = ({ onBack, stepIndex }) => {
-    const total = 3;
-    const pct = stepIndex === 1 ? "33%" : stepIndex === 2 ? "66%" : "100%";
-    return (
-      <View style={[styles.subHeader, { borderBottomColor: theme.iconColor }]}>
-        <Pressable onPress={onBack} style={styles.backButton} hitSlop={10}>
-          <Ionicons name="chevron-back" size={22} color={iconColor} />
-          <ThemedText style={styles.backText}>Back</ThemedText>
-        </Pressable>
-
-        <View style={styles.stepRow}>
-          <ThemedText variant="muted" style={styles.stepText}>
-            Step {stepIndex} of {total}
-          </ThemedText>
-        </View>
-
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: pct, backgroundColor: Colors.primary }]} />
-        </View>
-      </View>
-    );
+    try {
+      if (isEditing && quoteId) {
+        await updateQuote(quoteId, payload);
+      } else {
+        await createQuote(payload);
+      }
+      router.replace("/quotes");
+    } catch (e) {
+      Alert.alert("Save failed", e?.message || "Failed to save draft.");
+    }
   };
 
-  const SectionCard = ({ title, subtitle, children, padTop = true }) => (
-    <View style={[styles.card, { backgroundColor: theme.uiBackground, borderColor: theme.iconColor }]}>
-      <View style={[styles.cardHead, padTop && { paddingTop: 10 }]}>
-        <ThemedText style={styles.cardTitle}>{title}</ThemedText>
-        {!!subtitle && <ThemedText variant="muted" style={styles.cardSubtitle}>{subtitle}</ThemedText>}
-      </View>
-      {children}
-    </View>
-  );
-
-  const LockedProjectTitle = ({ title }) => (
-    <View style={styles.lockedRow} accessible accessibilityLabel="Locked project title">
-      <Ionicons name="lock-closed-outline" size={16} color="#666" style={{ marginRight: 6 }} />
-      <ThemedText style={styles.lockedText}>{title || "—"}</ThemedText>
-    </View>
-  );
-
-  const onChangeProject = (txt) => {
-    setProjectTitle(txt);
-    requestAnimationFrame(() => projectInputRef.current?.focus());
-  };
+  // Header title - "Quote for {ClientName}" or just "Quote for" with field
+  const headerTitle = clientName ? `Quote for ${clientName.split(" ")[0]}` : "Quote for";
+  const totalSteps = 2;
 
   return (
-    <ThemedView style={styles.container} safe={true}>
+    <ThemedView style={styles.container}>
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <View style={styles.headerRow}>
+          <Pressable onPress={goBack} hitSlop={10} style={styles.headerBackBtn}>
+            <Ionicons name="chevron-back" size={24} color={iconColor} />
+          </Pressable>
+          <ThemedText style={styles.headerTitle}>{headerTitle}</ThemedText>
+          <View style={{ width: 24 }} />
+        </View>
+
+        {/* Segmented progress bar like registration */}
+        <View style={styles.progressContainer}>
+          {[...Array(totalSteps)].map((_, index) => (
+            <View key={index} style={styles.progressSegmentWrapper}>
+              <View
+                style={[
+                  styles.progressSegment,
+                  index + 1 <= step && styles.progressSegmentActive,
+                ]}
+              />
+            </View>
+          ))}
+        </View>
+      </View>
+
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 40 }}
-          keyboardShouldPersistTaps="always"
-          contentInsetAdjustmentBehavior="automatic"
-          showsVerticalScrollIndicator
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {/* STEP 1 — Project basics */}
+          {/* STEP 1: Line Items */}
           {step === 1 && (
             <>
-              <Spacer />
-              <PageTitle caption="Project name can be supplied by the client’s request.">
-                Add a New Quote
-              </PageTitle>
-              <Spacer size={8} />
-
-              <SectionCard title="Project" subtitle={titleLocked ? "Provided by client" : undefined}>
-                {titleLocked ? (
-                  <LockedProjectTitle title={projectTitle || "Project"} />
-                ) : (
-                  <TextInput
-                    ref={projectInputRef}
-                    style={[styles.input, { backgroundColor: "#fff", color: "#111" }]}
-                    placeholder="Project name (e.g., Bathroom refit)"
-                    placeholderTextColor="#9aa0a6"
-                    value={projectTitle}
-                    onChangeText={onChangeProject}
-                    blurOnSubmit={false}
-                    returnKeyType="done"
-                    autoCapitalize="sentences"
-                    autoCorrect
-                  />
-                )}
-
-                <View style={styles.row}>
-                  <View style={{ flex: 1 }}>
-                    <ThemedText style={styles.inputLabel}>Issue date</ThemedText>
-                    <ThemedTextInput
-                      style={styles.input}
-                      placeholder="DD-MM-YYYY"
-                      value={issueDate}
-                      onChangeText={setIssueDate}
-                      autoCapitalize="none"
-                    />
-                  </View>
-                  <View style={{ width: 12 }} />
-                  <View style={{ flex: 1 }}>
-                    <ThemedText style={styles.inputLabel}>Expiry date</ThemedText>
-                    <ThemedTextInput
-                      style={styles.input}
-                      placeholder="DD-MM-YYYY"
-                      value={expiryDate}
-                      onChangeText={setExpiryDate}
-                      autoCapitalize="none"
-                    />
-                  </View>
+              {/* Project info chip - shows: ClientName's Category - Service in Postcode */}
+              {(projectCategory || projectService || projectTitle || projectPostcode) && (
+                <View style={styles.projectChip}>
+                  <ThemedText style={styles.projectChipText}>
+                    {clientName ? `${clientName.split(" ")[0]}'s ` : ""}
+                    {projectCategory && projectService
+                      ? `${projectCategory} - ${projectService}`
+                      : projectTitle || projectCategory || ""}
+                    {projectPostcode ? ` in ${projectPostcode}` : ""}
+                  </ThemedText>
                 </View>
-              </SectionCard>
+              )}
 
-              <View style={styles.ctaWrap}>
-                <ThemedButton onPress={next} style={styles.ctaBtn}>
-                  <View style={styles.ctaRow}>
-                    <Text style={styles.ctaText} numberOfLines={1}>Continue</Text>
-                  </View>
-                </ThemedButton>
+              <View style={styles.sectionHeader}>
+                <ThemedText style={styles.sectionTitle}>Line items</ThemedText>
+                <ThemedText style={styles.sectionSubtitle}>What's included in your quote?</ThemedText>
               </View>
-            </>
-          )}
 
-          {/* STEP 2 — Items */}
-          {step === 2 && (
-            <>
-              <SubHeader onBack={back} stepIndex={2} />
-              <PageTitle caption="Describe the work and pricing lines.">Project details</PageTitle>
-
-              <SectionCard title="Line items" subtitle="Add services, quantities, and unit prices." padTop={false}>
-                <View style={styles.inlineBtnWrap}>
-                  <ThemedButton
-                    onPress={() => { setEditIndex(null); setItemModalOpen(true); }}
-                    style={styles.inlineBtn}
-                  >
-                    <View style={styles.inlineBtnRow}>
-                      <Ionicons name="add" size={18} color="#fff" style={{ marginRight: 6 }} />
-                      <Text style={styles.ctaText}>Add Item</Text>
+              {/* Inline item cards */}
+              {items.map((item, index) => {
+                const lineTotal = Number(item.qty || 0) * Number(item.unit_price || 0);
+                return (
+                  <View key={index} style={styles.itemCard}>
+                    {/* Item number badge */}
+                    <View style={styles.itemNumberBadge}>
+                      <ThemedText style={styles.itemNumberText}>{index + 1}</ThemedText>
                     </View>
-                  </ThemedButton>
-                </View>
 
-                <View style={{ marginTop: 4 }}>
-                  {items.map((it, i) => {
-                    const line = (Number(it.qty || 0) * Number(it.unit_price || 0)).toFixed(2);
-                    return (
-                      <View key={i} style={[styles.listCard, { borderColor: theme.iconColor }]}>
-                        <Pressable onPress={() => openEdit(i)} style={{ flex: 1, paddingRight: 8 }}>
-                          <ThemedText style={styles.itemTitle}>{it.name || "Untitled item"}</ThemedText>
-                          {!!it.description && <ThemedText style={styles.itemBody}>{it.description}</ThemedText>}
-                          <ThemedText style={styles.itemMeta}>
-                            {`Qty: ${it.qty ?? 0}  •  Price: ${it.unit_price ?? 0}`}
-                          </ThemedText>
-                        </Pressable>
-                        <View style={{ alignItems: "flex-end" }}>
-                          <ThemedText style={styles.itemLineTotal}>{line}</ThemedText>
-                          <Pressable onPress={() => removeItem(i)} hitSlop={8} style={{ marginTop: 6 }}>
-                            <Ionicons name="trash-outline" size={18} color={scheme === "dark" ? "#ff7a7a" : "#b00020"} />
-                          </Pressable>
+                    {/* Item name row with remove button */}
+                    <View style={styles.itemNameRow}>
+                      <TextInput
+                        style={styles.itemNameInput}
+                        placeholder="Item name (e.g., Labour, Materials)"
+                        placeholderTextColor="#9CA3AF"
+                        value={item.name}
+                        onChangeText={(t) => updateItem(index, "name", t)}
+                        autoCapitalize="sentences"
+                        returnKeyType="done"
+                        blurOnSubmit={true}
+                      />
+                      <Pressable onPress={() => removeItem(index)} hitSlop={10} style={styles.removeBtn}>
+                        <Ionicons name="close" size={20} color="#9CA3AF" />
+                      </Pressable>
+                    </View>
+
+                    {/* Description */}
+                    <TextInput
+                      style={styles.itemDescInput}
+                      placeholder="Description (optional)"
+                      placeholderTextColor="#9CA3AF"
+                      value={item.description}
+                      onChangeText={(t) => updateItem(index, "description", t)}
+                      multiline
+                      blurOnSubmit={true}
+                      returnKeyType="done"
+                      autoCapitalize="sentences"
+                    />
+
+                    {/* Price row */}
+                    <View style={styles.itemPriceRow}>
+                      <View style={styles.qtyPriceFields}>
+                        <TextInput
+                          style={styles.qtyInput}
+                          placeholder="1"
+                          placeholderTextColor="#9CA3AF"
+                          value={String(item.qty || "")}
+                          onChangeText={(t) => updateItem(index, "qty", Number(t) || 0)}
+                          keyboardType="number-pad"
+                          returnKeyType="done"
+                          blurOnSubmit={true}
+                          inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
+                        />
+                        <ThemedText style={styles.timesSymbol}>×</ThemedText>
+                        <View style={styles.priceInputWrap}>
+                          <ThemedText style={styles.poundSign}>£</ThemedText>
+                          <TextInput
+                            style={styles.priceInput}
+                            placeholder="0.00"
+                            placeholderTextColor="#9CA3AF"
+                            value={String(item.unit_price || "")}
+                            onChangeText={(t) => updateItem(index, "unit_price", Number(t) || 0)}
+                            keyboardType="decimal-pad"
+                            returnKeyType="done"
+                            blurOnSubmit={true}
+                            inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
+                          />
                         </View>
                       </View>
-                    );
-                  })}
-                </View>
-              </SectionCard>
-
-              <View style={styles.ctaWrap}>
-                <ThemedButton onPress={next} style={styles.ctaBtn}>
-                  <View style={styles.ctaRow}>
-                    <Text style={styles.ctaText} numberOfLines={1}>Continue</Text>
+                      <ThemedText style={styles.lineTotal}>£{formatNumber(lineTotal)}</ThemedText>
+                    </View>
                   </View>
-                </ThemedButton>
-              </View>
+                );
+              })}
+
+              {/* Add item button */}
+              <Pressable onPress={addNewItem} style={styles.addItemBtn}>
+                <Ionicons name="add" size={20} color={PRIMARY} />
+                <Text style={styles.addItemText}>Add item</Text>
+              </Pressable>
+
+              {/* Totals section */}
+              {items.length > 0 && items.some(it => it.name?.trim()) && (
+                <View style={styles.totalsCard}>
+                  <View style={styles.totalRow}>
+                    <ThemedText style={styles.totalLabel}>Subtotal</ThemedText>
+                    <ThemedText style={styles.totalValue}>£{formatNumber(totals.subtotal)}</ThemedText>
+                  </View>
+
+                  {/* VAT toggle */}
+                  <View style={styles.vatRow}>
+                    <View style={styles.vatToggleRow}>
+                      <Switch
+                        value={vatEnabled}
+                        onValueChange={setVatEnabled}
+                        trackColor={{ false: "#E5E7EB", true: PRIMARY }}
+                        thumbColor="#FFFFFF"
+                        style={styles.vatSwitch}
+                      />
+                      <ThemedText style={styles.vatLabel}>Add VAT</ThemedText>
+                    </View>
+                    {vatEnabled && (
+                      <Pressable
+                        style={styles.vatRateBtn}
+                        onPress={() => {
+                          Alert.prompt?.(
+                            "VAT Rate",
+                            "Enter VAT percentage",
+                            (text) => {
+                              const rate = parseFloat(text);
+                              if (!isNaN(rate) && rate >= 0 && rate <= 100) {
+                                setVatRate(rate / 100);
+                              }
+                            },
+                            "plain-text",
+                            String(Math.round(vatRate * 100))
+                          );
+                        }}
+                      >
+                        <ThemedText style={styles.vatRateText}>
+                          {Math.round(vatRate * 100)}%
+                        </ThemedText>
+                        <ThemedText style={styles.vatAmountText}>
+                          £{formatNumber(totals.tax_total)}
+                        </ThemedText>
+                      </Pressable>
+                    )}
+                  </View>
+
+                  <View style={styles.totalDivider} />
+
+                  <View style={styles.totalRow}>
+                    <ThemedText style={styles.grandTotalLabel}>Total</ThemedText>
+                    <ThemedText style={styles.grandTotalValue}>£{formatNumber(totals.grand_total)}</ThemedText>
+                  </View>
+                </View>
+              )}
+
+              <Spacer size={24} />
+
+              <Pressable onPress={goToStep2} style={styles.primaryBtn}>
+                <Text style={styles.primaryBtnText}>Continue</Text>
+              </Pressable>
+
+              <Pressable onPress={handleSaveAsDraft} style={styles.secondaryBtn}>
+                <Text style={styles.secondaryBtnText}>Save draft</Text>
+              </Pressable>
             </>
           )}
 
-          {/* STEP 3 — Review & Send */}
-          {step === 3 && (
+          {/* STEP 2: Review */}
+          {step === 2 && (
             <>
-              <SubHeader onBack={back} stepIndex={3} />
-              <PageTitle caption="Check totals and add any final notes.">Review Quote</PageTitle>
+              <View style={styles.sectionHeader}>
+                <ThemedText style={styles.sectionTitle}>Review your quote</ThemedText>
+                <ThemedText style={styles.sectionSubtitle}>Check everything before sending</ThemedText>
+              </View>
 
-              <SectionCard title="Project summary">
-                <ThemedText style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>Project: </Text>
-                  <Text style={styles.summaryVal}>{projectTitle}</Text>
+              {/* Project card - fixed field, no edit */}
+              <View style={styles.reviewCard}>
+                <ThemedText style={styles.reviewCardTitle}>Project</ThemedText>
+                <ThemedText style={styles.reviewProjectName}>
+                  {clientName ? `${clientName.split(" ")[0]}'s ` : ""}
+                  {projectCategory && projectService
+                    ? `${projectCategory} - ${projectService}`
+                    : projectTitle || "Untitled"}
                 </ThemedText>
-                {!!issueDate && (
-                  <ThemedText style={styles.summaryRow}>
-                    <Text style={styles.summaryKey}>Issue: </Text>
-                    <Text style={styles.summaryVal}>{issueDate}</Text>
-                  </ThemedText>
+                {projectPostcode && (
+                  <ThemedText style={styles.reviewPostcode}>{projectPostcode}</ThemedText>
                 )}
-                {!!expiryDate && (
-                  <ThemedText style={styles.summaryRow}>
-                    <Text style={styles.summaryKey}>Expiry: </Text>
-                    <Text style={styles.summaryVal}>{expiryDate}</Text>
-                  </ThemedText>
+              </View>
+
+              {/* Line items card */}
+              <View style={styles.reviewCard}>
+                <View style={styles.reviewCardHeader}>
+                  <ThemedText style={styles.reviewCardTitle}>Line items</ThemedText>
+                  <Pressable onPress={() => setStep(1)} hitSlop={10}>
+                    <ThemedText style={styles.editLink}>Edit</ThemedText>
+                  </Pressable>
+                </View>
+
+                {items.filter(it => it.name?.trim()).length === 0 ? (
+                  <ThemedText style={styles.emptyText}>No items added</ThemedText>
+                ) : (
+                  items.filter(it => it.name?.trim()).map((item, i) => {
+                    const lineTotal = Number(item.qty || 0) * Number(item.unit_price || 0);
+                    return (
+                      <View key={i} style={styles.reviewItemRow}>
+                        <View style={styles.reviewItemNumberBadge}>
+                          <ThemedText style={styles.reviewItemNumberText}>{i + 1}</ThemedText>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <ThemedText style={styles.reviewItemName}>{item.name}</ThemedText>
+                          <ThemedText style={styles.reviewItemMeta}>
+                            {item.qty} × £{formatNumber(item.unit_price)}
+                          </ThemedText>
+                        </View>
+                        <ThemedText style={styles.reviewItemTotal}>£{formatNumber(lineTotal)}</ThemedText>
+                      </View>
+                    );
+                  })
                 )}
-              </SectionCard>
 
-              <SectionCard title="Service items">
-                {items.length === 0 && <ThemedText>No items added yet.</ThemedText>}
-                {items.map((it, i) => {
-                  const line = (Number(it.qty || 0) * Number(it.unit_price || 0)).toFixed(2);
-                  return (
-                    <View
-                      key={i}
-                      style={{
-                        paddingVertical: 10,
-                        borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
-                        borderTopColor: theme.iconColor,
-                      }}
-                    >
-                      <ThemedText style={styles.itemTitle}>{it.name || "Untitled item"}</ThemedText>
-                      {!!it.description && <ThemedText style={styles.itemBody}>{it.description}</ThemedText>}
-                      <ThemedText style={styles.itemMeta}>
-                        {`Qty: ${it.qty ?? 0}  •  Price: ${it.unit_price ?? 0}  •  Total: ${line}`}
-                      </ThemedText>
-                    </View>
-                  );
-                })}
-              </SectionCard>
+                <View style={styles.reviewDivider} />
 
-              <SectionCard title="Totals">
-                <View style={styles.rowBetween}>
-                  <ThemedText>Subtotal</ThemedText>
-                  <ThemedText>{totals.subtotal.toFixed(2)}</ThemedText>
+                <View style={styles.totalRow}>
+                  <ThemedText style={styles.totalLabel}>Subtotal</ThemedText>
+                  <ThemedText style={styles.totalValue}>£{formatNumber(totals.subtotal)}</ThemedText>
                 </View>
-                <View style={styles.rowBetween}>
-                  <ThemedText>Tax (20% VAT)</ThemedText>
-                  <ThemedText>{totals.tax_total.toFixed(2)}</ThemedText>
+                {vatEnabled && (
+                  <View style={styles.totalRow}>
+                    <ThemedText style={styles.totalLabel}>VAT ({Math.round(vatRate * 100)}%)</ThemedText>
+                    <ThemedText style={styles.totalValue}>£{formatNumber(totals.tax_total)}</ThemedText>
+                  </View>
+                )}
+                <View style={styles.totalDivider} />
+                <View style={styles.totalRow}>
+                  <ThemedText style={styles.grandTotalLabel}>Total</ThemedText>
+                  <ThemedText style={styles.grandTotalValue}>£{formatNumber(totals.grand_total)}</ThemedText>
                 </View>
-                <View style={[styles.rowBetween, { marginTop: 4 }]}>
-                  <ThemedText style={{ fontWeight: "700" }}>Grand total</ThemedText>
-                  <ThemedText style={{ fontWeight: "700" }}>{totals.grand_total.toFixed(2)}</ThemedText>
-                </View>
-              </SectionCard>
+              </View>
 
-              <SectionCard title="Comments (optional)">
-                <ThemedTextInput
-                  style={styles.multiline}
-                  placeholder="Any notes for the client…"
+              {/* Note to client */}
+              <View style={styles.reviewCard}>
+                <ThemedText style={styles.reviewCardTitle}>Note to client</ThemedText>
+                <TextInput
+                  style={styles.commentInput}
+                  placeholder="Add a message..."
+                  placeholderTextColor="#9CA3AF"
                   value={comments}
                   onChangeText={setComments}
                   multiline
+                  numberOfLines={3}
+                  blurOnSubmit={true}
+                  returnKeyType="done"
+                  autoCapitalize="sentences"
                 />
-              </SectionCard>
-
-              <View style={[styles.ctaWrap, { marginTop: 12 }]}>
-                <ThemedButton onPress={handleSend} style={styles.ctaBtnPrimary}>
-                  <View style={styles.ctaRow}>
-                    <Text style={styles.ctaText}>Send</Text>
-                  </View>
-                </ThemedButton>
               </View>
+
+              <Spacer size={24} />
+
+              <Pressable onPress={handleSend} style={styles.primaryBtn}>
+                <Text style={styles.primaryBtnText}>Send quote</Text>
+              </Pressable>
+
+              <Pressable onPress={handleSaveAsDraft} style={styles.secondaryBtn}>
+                <Text style={styles.secondaryBtnText}>Save draft</Text>
+              </Pressable>
             </>
           )}
 
-          <AddItemModal
-            visible={itemModalOpen}
-            onClose={() => { setItemModalOpen(false); setEditIndex(null); }}
-            onSave={addItem}
-            initial={editIndex != null ? items[editIndex] : undefined}
-          />
+          <Spacer size={40} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* iOS keyboard accessory with Done button for numeric inputs */}
+      {Platform.OS === "ios" && (
+        <InputAccessoryView nativeID={INPUT_ACCESSORY_ID}>
+          <View style={styles.keyboardAccessory}>
+            <View style={{ flex: 1 }} />
+            <Pressable
+              onPress={() => Keyboard.dismiss()}
+              style={styles.keyboardDoneBtn}
+              hitSlop={8}
+            >
+              <Text style={styles.keyboardDoneText}>Done</Text>
+            </Pressable>
+          </View>
+        </InputAccessoryView>
+      )}
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "stretch" },
-  titleWrap: { paddingHorizontal: 24, paddingTop: 6, paddingBottom: 4, alignItems: "center", justifyContent: "center" },
-  titleText: { fontWeight: "800", fontSize: 18, textAlign: "center" },
-  titleCaption: { textAlign: "center", marginTop: 4, fontSize: 13 },
-  subHeader: { paddingTop: 8, paddingBottom: 10, paddingHorizontal: 20, borderBottomWidth: StyleSheet.hairlineWidth },
-  backButton: { flexDirection: "row", alignItems: "center" },
-  backText: { fontSize: 16, marginLeft: 4 },
-  stepRow: { marginTop: 8, flexDirection: "row", justifyContent: "flex-end" },
-  stepText: { fontSize: 12, opacity: 0.8 },
-  progressTrack: { height: 3, marginTop: 6, borderRadius: 2, backgroundColor: "rgba(0,0,0,0.08)", overflow: "hidden" },
-  progressFill: { height: 3, borderRadius: 2 },
-  card: { marginHorizontal: 20, marginTop: 12, borderRadius: 12, borderWidth: 1, padding: 14 },
-  cardHead: { marginBottom: 8 },
-  cardTitle: { fontSize: 16, fontWeight: "700" },
-  cardSubtitle: { marginTop: 2, fontSize: 13 },
-  inputLabel: { marginHorizontal: 4, marginTop: 8, fontSize: 12, fontWeight: "700", opacity: 0.8 },
-  input: { padding: 14, borderRadius: 10, alignSelf: "stretch", marginTop: 8 },
-  multiline: { padding: 14, borderRadius: 10, minHeight: 90, alignSelf: "stretch", marginTop: 8, textAlignVertical: "top" },
-  lockedRow: {
-    marginTop: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+  container: {
+    flex: 1,
+    backgroundColor: "#F9FAFB",
+  },
+
+  // Header
+  header: {
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    backgroundColor: "#F9FAFB",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerBackBtn: {
+    padding: 4,
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  progressContainer: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 16,
+  },
+  progressSegmentWrapper: {
+    flex: 1,
+    height: 4,
+    backgroundColor: "#E5E7EB",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  progressSegment: {
+    height: "100%",
+    backgroundColor: "#E5E7EB",
+    borderRadius: 2,
+  },
+  progressSegmentActive: {
+    backgroundColor: PRIMARY,
+  },
+
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+
+  // Project chip
+  projectChip: {
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 20,
+  },
+  projectChipText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+  },
+
+  // Section headers
+  sectionHeader: {
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 15,
+    color: "#6B7280",
+  },
+
+  // Item cards - inline editing
+  itemCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    position: "relative",
+  },
+  itemNumberBadge: {
+    position: "absolute",
+    top: -8,
+    left: 12,
+    backgroundColor: PRIMARY,
     borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(0,0,0,0.15)",
-    backgroundColor: "#f8fafc",
+    width: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  itemNumberText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  itemNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+    marginBottom: 8,
+  },
+  itemNameInput: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+  },
+  removeBtn: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  itemDescInput: {
+    fontSize: 14,
+    color: "#6B7280",
+    paddingVertical: 6,
+    paddingHorizontal: 0,
+    minHeight: 32,
+  },
+  itemPriceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  qtyPriceFields: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  qtyInput: {
+    minWidth: 56,
+    fontSize: 15,
+    color: "#111827",
+    textAlign: "center",
+    backgroundColor: "#F9FAFB",
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  timesSymbol: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    marginHorizontal: 8,
+  },
+  priceInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
+    borderRadius: 6,
+    paddingLeft: 8,
+  },
+  poundSign: {
+    fontSize: 15,
+    color: "#6B7280",
+  },
+  priceInput: {
+    width: 70,
+    fontSize: 15,
+    color: "#111827",
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  lineTotal: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+    marginLeft: 12,
+  },
+  removeBtn: {
+    padding: 4,
+    marginLeft: 8,
+  },
+
+  // Add item button
+  addItemBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  addItemText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: PRIMARY,
+    marginLeft: 8,
+  },
+
+  // Totals
+  totalsCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  totalLabel: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  totalValue: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  vatRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+    paddingVertical: 4,
+  },
+  vatToggleRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-  lockedText: { fontSize: 16, fontWeight: "700" },
-  listCard: { borderWidth: 1, borderRadius: 10, padding: 14, marginBottom: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  itemTitle: { fontWeight: "700", fontSize: 16, marginBottom: 4 },
-  itemBody: { marginBottom: 4 },
-  itemMeta: { opacity: 0.8 },
-  itemLineTotal: { fontWeight: "700", marginLeft: 12 },
-  rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginVertical: 3 },
-  inlineBtnWrap: { marginTop: 8, marginBottom: 6, alignItems: "flex-start" },
-  inlineBtn: { borderRadius: 24, paddingVertical: 10, paddingHorizontal: 14 },
-  inlineBtnRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
-  ctaWrap: { marginHorizontal: 20, marginTop: 18, alignItems: "center" },
-  ctaBtn: { alignSelf: "stretch", borderRadius: 28, paddingVertical: 14 },
-  ctaBtnPrimary: { alignSelf: "stretch", borderRadius: 28, paddingVertical: 14, backgroundColor: Colors.primary },
-  ctaRow: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "center" },
-  ctaText: { color: "#fff", fontWeight: "700", fontSize: 16, textAlign: "center" },
-  summaryRow: { marginBottom: 6 },
-  summaryKey: { fontWeight: "700" },
-  summaryVal: { fontWeight: "500" },
-  row: { flexDirection: "row", alignItems: "flex-start", marginTop: 8 },
+  vatSwitch: {
+    transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }],
+    marginRight: 8,
+  },
+  vatLabel: {
+    fontSize: 14,
+    color: "#374151",
+  },
+  vatRateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  vatRateText: {
+    fontSize: 14,
+    color: PRIMARY,
+    fontWeight: "600",
+  },
+  vatAmountText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  totalDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: 8,
+  },
+  grandTotalLabel: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  grandTotalValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  // Review cards
+  reviewCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  reviewCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  reviewCardTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  editLink: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  reviewProjectName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  reviewPostcode: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    fontStyle: "italic",
+  },
+  reviewItemRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  reviewItemNumberBadge: {
+    backgroundColor: PRIMARY,
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    marginTop: 2,
+  },
+  reviewItemNumberText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  reviewItemName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 2,
+  },
+  reviewItemMeta: {
+    fontSize: 13,
+    color: "#9CA3AF",
+  },
+  reviewItemTotal: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+    marginLeft: 12,
+  },
+  reviewDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: 12,
+  },
+  commentInput: {
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: "#111827",
+    marginTop: 12,
+    minHeight: 80,
+    textAlignVertical: "top",
+  },
+
+  // Buttons
+  primaryBtn: {
+    backgroundColor: PRIMARY,
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  primaryBtnText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  secondaryBtn: {
+    backgroundColor: "transparent",
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
+  },
+  secondaryBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#374151",
+  },
+
+  // Keyboard accessory (iOS)
+  keyboardAccessory: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F2F2F7",
+    borderTopWidth: 1,
+    borderTopColor: "#D1D5DB",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  keyboardDoneBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  keyboardDoneText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#007AFF",
+  },
 });
-
-
-
-
-

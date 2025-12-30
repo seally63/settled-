@@ -19,6 +19,20 @@ import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
 
+// Helper to get privacy-aware client display name
+// Before quote accepted: "Sarah L." (first name + last initial)
+// After quote accepted: "Sarah Thompson" (full name)
+function getClientDisplayName(fullName, contactUnlocked) {
+  if (!fullName) return null;
+  if (contactUnlocked) return fullName;
+
+  // Privacy mode: first name + last initial
+  const parts = String(fullName).trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1].charAt(0)}.`;
+}
+
 // Format number with thousand separators (commas)
 function formatNumber(num) {
   if (num == null || isNaN(num)) return "0.00";
@@ -196,6 +210,7 @@ export default function TradesmanProjects() {
       // Fetch client names using rpc_list_conversations (which has proper RLS permissions)
       // This RPC returns other_party_name for each request_id
       let clientNameByRequestId = {};
+      let clientContactByRequestId = {};
       const { data: convData } = await supabase.rpc("rpc_list_conversations", { p_limit: 100 });
       if (convData) {
         convData.forEach((conv) => {
@@ -203,6 +218,21 @@ export default function TradesmanProjects() {
             clientNameByRequestId[conv.request_id] = conv.other_party_name;
           }
         });
+      }
+
+      // Fetch client contact visibility info for each request using new RPC
+      // This returns privacy-aware contact info based on quote acceptance status
+      for (const reqId of reqIds) {
+        try {
+          const { data: contactData } = await supabase.rpc("rpc_get_client_contact_for_request", {
+            p_request_id: reqId,
+          });
+          if (contactData) {
+            clientContactByRequestId[reqId] = contactData;
+          }
+        } catch {
+          // Silently fail - will fallback to conversation data
+        }
       }
 
       // Fetch appointments for these quotes
@@ -230,6 +260,11 @@ export default function TradesmanProjects() {
           const requestAge = daysSince(t.created_at);
           const isUrgent = requestAge >= 2 && t.state !== "accepted" && t.state !== "declined";
 
+          // Get client contact info (privacy-aware)
+          const contactInfo = clientContactByRequestId[t.request_id] || {};
+          const clientFullName = contactInfo.name || clientNameByRequestId[t.request_id] || null;
+          const contactUnlocked = contactInfo.contact_unlocked || false;
+
           return {
             request_id: t.request_id,
             invited_at: t.created_at,
@@ -243,8 +278,11 @@ export default function TradesmanProjects() {
             isUrgent,
             // Calculate response deadline (e.g., 3 days to respond)
             responseDeadline: 3 - requestAge,
-            // Client name from conversations RPC
-            clientName: clientNameByRequestId[t.request_id] || null,
+            // Client contact info (privacy-aware)
+            clientFullName,
+            clientName: getClientDisplayName(clientFullName, contactUnlocked),
+            clientPostcode: contactInfo.postcode || r?.postcode || null,
+            contactUnlocked,
           };
         });
 
@@ -270,6 +308,12 @@ export default function TradesmanProjects() {
         const quoteAppointments = appointmentsByQuote[q.id] || [];
         const nextAppointment = quoteAppointments.find((a) => new Date(a.scheduled_at) > new Date());
 
+        // Get client contact info (privacy-aware)
+        const contactInfo = clientContactByRequestId[q.request_id] || {};
+        const clientFullName = contactInfo.name || clientNameByRequestId[q.request_id] || null;
+        // Contact is unlocked when quote is accepted
+        const contactUnlocked = contactInfo.contact_unlocked || (q.status || "").toLowerCase() === "accepted";
+
         return {
           id: q.id,
           request_id: q.request_id,
@@ -284,7 +328,11 @@ export default function TradesmanProjects() {
           currency: q.currency,
           grand_total: q.grand_total,
           tax_total: q.tax_total,
-          clientName: clientNameByRequestId[q.request_id] || null,
+          // Client contact info (privacy-aware)
+          clientFullName,
+          clientName: getClientDisplayName(clientFullName, contactUnlocked),
+          clientPostcode: contactInfo.postcode || r?.postcode || null,
+          contactUnlocked,
           // Expiration info
           daysToExpiry,
           isExpiringSoon,
@@ -525,7 +573,7 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
       chipLabel = "Scheduled";
       chipTone = "active";
       chipIcon = "calendar";
-    } else if (status === "sent" || status === "created" || status === "draft" || status === "awaiting") {
+    } else if (status === "sent" || status === "created" || status === "awaiting") {
       // Quote sent, waiting for client response
       if (daysOld >= 7) {
         chipLabel = "No Response";
@@ -535,6 +583,10 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
         chipTone = "waiting";
         chipIcon = "send";
       }
+    } else if (status === "draft") {
+      chipLabel = "Draft";
+      chipTone = "action";
+      chipIcon = "create-outline";
     } else if (status === "declined") {
       chipLabel = "Declined";
       chipTone = "negative";
@@ -551,11 +603,16 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
     }
   }
 
-  // Format title: "Category, Service in Postcode"
+  // Format title: just the service/category without location
   const formattedTitle = formatTitle(project.title);
-  const titleWithLocation = project.postcode
-    ? `${formattedTitle} in ${project.postcode}`
-    : formattedTitle;
+
+  // Build subtitle: "ClientName • Postcode" (privacy-aware)
+  const clientDisplayName = project.clientName || null;
+  const displayPostcode = project.clientPostcode || project.postcode || null;
+  let subtitleParts = [];
+  if (clientDisplayName) subtitleParts.push(clientDisplayName);
+  if (displayPostcode) subtitleParts.push(displayPostcode);
+  const subtitleText = subtitleParts.join(" • ");
 
   return (
     <Pressable style={styles.projectCard} onPress={onPress}>
@@ -563,13 +620,13 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
       <View style={styles.cardHeader}>
         <View style={{ flex: 1 }}>
           <ThemedText style={styles.cardTitle} numberOfLines={2}>
-            {titleWithLocation}
+            {formattedTitle}
           </ThemedText>
-          {project.clientName && (
+          {subtitleText ? (
             <ThemedText style={styles.cardSubtitle}>
-              {project.clientName}
+              {subtitleText}
             </ThemedText>
-          )}
+          ) : null}
         </View>
         <StatusChip label={chipLabel} tone={chipTone} icon={chipIcon} />
       </View>
@@ -587,11 +644,6 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
             />
           )}
         </View>
-
-        {/* Budget */}
-        {project.budget_band && (
-          <InfoRow icon="cash-outline" text={`Budget: ${project.budget_band}`} />
-        )}
 
         {/* Quote total for sent quotes */}
         {!isInbox && project.grand_total != null && (
@@ -655,12 +707,6 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
               month: "short",
               day: "numeric",
             })}
-            {project.valid_until && (
-              <> • Valid until {new Date(project.valid_until).toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-              })}</>
-            )}
           </ThemedText>
         )}
 
@@ -685,7 +731,34 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
               onAction?.();
             }}
           >
+            <Ionicons name="create-outline" size={16} color="#FFF" />
             <ThemedText style={styles.primaryActionText}>Create Quote</ThemedText>
+            <Ionicons name="arrow-forward" size={16} color="#FFF" />
+          </Pressable>
+        </>
+      )}
+
+      {/* Edit Quote button for draft quotes */}
+      {!isInbox && displayStatus === "pending" && project.status === "draft" && (
+        <>
+          <Spacer height={12} />
+          <Pressable
+            style={styles.primaryActionBtn}
+            onPress={(e) => {
+              e.stopPropagation();
+              if (router && project.id) {
+                router.push({
+                  pathname: "/quotes/create",
+                  params: {
+                    quoteId: project.id,
+                    requestId: project.request_id || "",
+                  },
+                });
+              }
+            }}
+          >
+            <Ionicons name="create-outline" size={16} color="#FFF" />
+            <ThemedText style={styles.primaryActionText}>Edit Quote</ThemedText>
             <Ionicons name="arrow-forward" size={16} color="#FFF" />
           </Pressable>
         </>
@@ -802,6 +875,15 @@ function ActiveProjectsSection({ needsAction, activeQuotes, router }) {
                 onPress={() => {
                   if (project.type === "inbox") {
                     router.push(`/quotes/request/${project.request_id}`);
+                  } else if (project.status === "draft") {
+                    // Drafts go to edit screen
+                    router.push({
+                      pathname: "/quotes/create",
+                      params: {
+                        quoteId: project.id,
+                        requestId: project.request_id || "",
+                      },
+                    });
                   } else {
                     router.push(`/quotes/${project.id}`);
                   }
@@ -838,7 +920,21 @@ function CompletedProjects({ data, router }) {
           key={project.id}
           project={project}
           router={router}
-          onPress={() => router.push(`/quotes/${project.id}`)}
+          onPress={() => {
+            // Draft quotes go to edit screen, others go to overview
+            if (project.status === "draft") {
+              router.push({
+                pathname: "/quotes/create",
+                params: {
+                  quoteId: project.id,
+                  requestId: project.requestId || "",
+                  title: project.title || "",
+                },
+              });
+            } else {
+              router.push(`/quotes/${project.id}`);
+            }
+          }}
         />
       ))}
     </View>
