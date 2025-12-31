@@ -972,38 +972,72 @@ export default function ClientMyQuoteDetail() {
                   </ThemedText>
                 </View>
                 <View style={styles.card}>
-                  <ThemedText variant="muted" style={{ marginBottom: 10 }}>
-                    Review the quote and choose whether you’d like to go ahead
-                    or not. The trade will be notified of your choice.
+                  <ThemedText style={styles.decisionTitle}>
+                    Your decision
                   </ThemedText>
-                  <View style={styles.actionsRow}>
-                    <Pressable
-                      disabled={!canDecline || busy}
-                      onPress={() => confirmAndDecide("declined")}
-                      style={[
-                        styles.iconDecisionBtn,
-                        {
-                          backgroundColor: canDecline ? WARNING : "#CBD5E1",
+                  <ThemedText variant="muted" style={styles.decisionSubtitle}>
+                    Happy with this quote?
+                  </ThemedText>
+
+                  {/* Accept button - green fill */}
+                  <Pressable
+                    disabled={!canAccept || busy}
+                    onPress={() => confirmAndDecide("accepted")}
+                    style={[
+                      styles.decisionBtn,
+                      styles.decisionBtnAccept,
+                      (!canAccept || busy) && styles.decisionBtnDisabled,
+                    ]}
+                    accessibilityLabel="Accept quote"
+                  >
+                    <ThemedText style={styles.decisionBtnAcceptText}>
+                      Accept quote
+                    </ThemedText>
+                  </Pressable>
+
+                  {/* Decline button - gray outline */}
+                  <Pressable
+                    disabled={!canDecline || busy}
+                    onPress={() => confirmAndDecide("declined")}
+                    style={[
+                      styles.decisionBtn,
+                      styles.decisionBtnDecline,
+                      (!canDecline || busy) && styles.decisionBtnDisabled,
+                    ]}
+                    accessibilityLabel="Decline quote"
+                  >
+                    <ThemedText style={styles.decisionBtnDeclineText}>
+                      Decline
+                    </ThemedText>
+                  </Pressable>
+
+                  {/* Message trade button - purple fill (CTA) */}
+                  <Pressable
+                    onPress={() => {
+                      if (!quote?.request_id) {
+                        Alert.alert(
+                          "Message unavailable",
+                          "This quote is not linked to a request yet."
+                        );
+                        return;
+                      }
+                      router.push({
+                        pathname: "/(dashboard)/messages/[id]",
+                        params: {
+                          id: String(quote.request_id),
+                          name: tradeName || "",
+                          quoteId: String(quote.id || id),
+                          returnTo: `/myquotes/${id}`,
                         },
-                      ]}
-                      accessibilityLabel="Decline quote"
-                    >
-                      <Ionicons name="close" size={22} color="#FFFFFF" />
-                    </Pressable>
-                    <Pressable
-                      disabled={!canAccept || busy}
-                      onPress={() => confirmAndDecide("accepted")}
-                      style={[
-                        styles.iconDecisionBtn,
-                        {
-                          backgroundColor: canAccept ? PRIMARY : "#CBD5E1",
-                        },
-                      ]}
-                      accessibilityLabel="Accept quote"
-                    >
-                      <Ionicons name="checkmark" size={22} color="#FFFFFF" />
-                    </Pressable>
-                  </View>
+                      });
+                    }}
+                    style={[styles.decisionBtn, styles.decisionBtnMessage]}
+                    accessibilityLabel={`Message ${tradeName}`}
+                  >
+                    <ThemedText style={styles.decisionBtnMessageText}>
+                      {`Message ${tradeName}`}
+                    </ThemedText>
+                  </Pressable>
                 </View>
               </>
             ) : null}
@@ -1075,37 +1109,6 @@ export default function ClientMyQuoteDetail() {
                 )}
               </>
             )}
-
-{/* Start conversation button → messages thread for this request */}
-<View style={styles.conversationBlock}>
-  <ThemedButton
-    onPress={() => {
-      if (!quote?.request_id) {
-        Alert.alert(
-          "Conversation unavailable",
-          "This quote is not linked to a request yet."
-        );
-        return;
-      }
-
-      router.push({
-        pathname: "/(dashboard)/messages/[id]",
-        params: {
-          id: String(quote.request_id),
-          name: tradeName || "",
-          // this is what messages/[id].jsx uses to load the hero card
-          quoteId: String(quote.id || id),
-          returnTo: `/myquotes/${id}`, // Return to this quote detail page
-        },
-      });
-    }}
-    style={styles.conversationBtn}
-  >
-    <ThemedText style={styles.conversationText}>
-      {`Message ${tradeName}`}
-    </ThemedText>
-  </ThemedButton>
-</View>
 
           </ScrollView>
 
@@ -1440,6 +1443,54 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  // New decision section styles
+  decisionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  decisionSubtitle: {
+    fontSize: 15,
+    marginBottom: 20,
+  },
+  decisionBtn: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  decisionBtnAccept: {
+    backgroundColor: "#16A34A",
+  },
+  decisionBtnAcceptText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  decisionBtnDecline: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: "#9CA3AF",
+  },
+  decisionBtnDeclineText: {
+    color: "#6B7280",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  decisionBtnMessage: {
+    backgroundColor: PRIMARY,
+  },
+  decisionBtnMessageText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  decisionBtnDisabled: {
+    opacity: 0.5,
   },
 
   nextSteps: {
