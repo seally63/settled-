@@ -19,7 +19,10 @@
       "Bash(node -e \"require(''''./app/(dashboard)/quotes/request/[id].jsx'''')\")",
       "Bash(wc:*)",
       "Bash(git stash:*)",
-      "Bash(node -e \"require(''''./app/(dashboard)/client/clienthome.jsx'''')\")"
+      "Bash(node -e \"require(''''./app/(dashboard)/client/clienthome.jsx'''')\")",
+      "Bash(grep:*)",
+      "Bash(npm install:*)",
+      "Bash(git rev-parse:*)"
     ],
     "deny": [],
     "ask": []

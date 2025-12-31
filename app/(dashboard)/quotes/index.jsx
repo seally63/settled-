@@ -566,13 +566,24 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
     const status = (project.status || displayStatus || "").toLowerCase();
     const daysOld = daysSince(project.issued_at);
 
-    if (status === "accepted" || status === "in_progress") {
-      chipLabel = "Quote Accepted";
-      chipTone = "active";
-    } else if (status === "scheduled") {
-      chipLabel = "Scheduled";
-      chipTone = "active";
-      chipIcon = "calendar";
+    if (status === "accepted" || status === "in_progress" || status === "scheduled") {
+      // Check appointment status for accepted quotes
+      const apptStatus = project.nextAppointment?.status?.toLowerCase();
+      if (apptStatus === "proposed") {
+        // Waiting for client to confirm appointment
+        chipLabel = "Visit Pending";
+        chipTone = "action";
+        chipIcon = "hourglass";
+      } else if (apptStatus === "confirmed") {
+        // Appointment confirmed
+        chipLabel = "Scheduled";
+        chipTone = "active";
+        chipIcon = "calendar";
+      } else {
+        // No appointment yet
+        chipLabel = "Quote Accepted";
+        chipTone = "active";
+      }
     } else if (status === "sent" || status === "created" || status === "awaiting") {
       // Quote sent, waiting for client response
       if (daysOld >= 7) {
@@ -658,14 +669,30 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
         {/* Appointment info for accepted quotes */}
         {project.nextAppointment && (
           <View style={styles.appointmentInfo}>
-            <Ionicons name="calendar" size={14} color={TINT} />
-            <ThemedText style={[styles.infoText, { color: TINT, fontWeight: "600" }]}>
-              {project.nextAppointment.title || "Appointment"}: {" "}
+            <Ionicons
+              name="calendar"
+              size={14}
+              color={project.nextAppointment.status === "confirmed" ? TINT : "#6B7280"}
+            />
+            <ThemedText style={[
+              styles.infoText,
+              {
+                color: project.nextAppointment.status === "confirmed" ? TINT : "#6B7280",
+                fontWeight: "600"
+              }
+            ]}>
+              {project.nextAppointment.status === "proposed" ? "Proposed: " : ""}
               {new Date(project.nextAppointment.scheduled_at).toLocaleDateString(undefined, {
                 weekday: "short",
-                month: "short",
                 day: "numeric",
+                month: "short",
               })}
+              {project.nextAppointment.status === "confirmed" && (
+                `, ${new Date(project.nextAppointment.scheduled_at).toLocaleTimeString(undefined, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}`
+              )}
             </ThemedText>
           </View>
         )}

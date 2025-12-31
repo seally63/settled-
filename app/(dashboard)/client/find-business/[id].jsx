@@ -1014,14 +1014,20 @@ export default function BusinessDetail() {
 
         <View style={styles.reviewCard}>
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>BUSINESS</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="business-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>BUSINESS</ThemedText>
+            </View>
             <ThemedText style={styles.reviewValue}>{trade?.business_name || trade?.full_name}</ThemedText>
           </View>
 
           <View style={styles.reviewDivider} />
 
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>SERVICE</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="construct-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>SERVICE</ThemedText>
+            </View>
             <ThemedText style={styles.reviewValue}>{selectedCategory?.name} → {selectedServiceType?.name}</ThemedText>
             <Pressable onPress={() => goToStepForEdit(1)} style={styles.editButton}>
               <ThemedText style={styles.editButtonText}>Edit</ThemedText>
@@ -1031,7 +1037,10 @@ export default function BusinessDetail() {
           <View style={styles.reviewDivider} />
 
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>DETAILS</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="document-text-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>DETAILS</ThemedText>
+            </View>
             <ThemedText style={styles.reviewValue} numberOfLines={3}>{description?.trim() || "No description provided"}</ThemedText>
             <Pressable onPress={() => goToStepForEdit(3)} style={styles.editButton}>
               <ThemedText style={styles.editButtonText}>Edit</ThemedText>
@@ -1041,7 +1050,10 @@ export default function BusinessDetail() {
           <View style={styles.reviewDivider} />
 
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>PROPERTY</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="home-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>PROPERTY</ThemedText>
+            </View>
             <ThemedText style={styles.reviewValue}>{selectedPropertyType?.name || "Not specified"}</ThemedText>
             <Pressable onPress={() => goToStepForEdit(3)} style={styles.editButton}>
               <ThemedText style={styles.editButtonText}>Edit</ThemedText>
@@ -1051,7 +1063,10 @@ export default function BusinessDetail() {
           <View style={styles.reviewDivider} />
 
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>POSTCODE</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="location-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>POSTCODE</ThemedText>
+            </View>
             <ThemedText style={styles.reviewValue}>{postcode?.trim() || "Not specified"}</ThemedText>
             <Pressable onPress={() => goToStepForEdit(3)} style={styles.editButton}>
               <ThemedText style={styles.editButtonText}>Edit</ThemedText>
@@ -1061,7 +1076,10 @@ export default function BusinessDetail() {
           <View style={styles.reviewDivider} />
 
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>BUDGET</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="cash-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>BUDGET</ThemedText>
+            </View>
             <ThemedText style={styles.reviewValue}>{selectedBudget?.label || "Not specified"}</ThemedText>
             <Pressable onPress={() => goToStepForEdit(4)} style={styles.editButton}>
               <ThemedText style={styles.editButtonText}>Edit</ThemedText>
@@ -1071,8 +1089,11 @@ export default function BusinessDetail() {
           <View style={styles.reviewDivider} />
 
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>TIMING</ThemedText>
-            <ThemedText style={styles.reviewValue}>{selectedTiming?.name}</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="time-outline" size={16} color={selectedTiming?.is_emergency ? "#EF4444" : "#6B7280"} />
+              <ThemedText style={[styles.reviewLabel, selectedTiming?.is_emergency && { color: "#EF4444" }]}>TIMING</ThemedText>
+            </View>
+            <ThemedText style={[styles.reviewValue, selectedTiming?.is_emergency && { color: "#EF4444" }]}>{selectedTiming?.name}</ThemedText>
             <Pressable onPress={() => goToStepForEdit(5)} style={styles.editButton}>
               <ThemedText style={styles.editButtonText}>Edit</ThemedText>
             </Pressable>
@@ -1081,7 +1102,10 @@ export default function BusinessDetail() {
           <View style={styles.reviewDivider} />
 
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>PHOTOS</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="images-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>PHOTOS</ThemedText>
+            </View>
             <View style={styles.reviewPhotos}>
               {photos.length > 0 ? photos.map((p, i) => (
                 <Image key={i} source={{ uri: p.uri }} style={styles.reviewPhotoThumb} />
@@ -1228,6 +1252,7 @@ const styles = StyleSheet.create({
   reviewCard: { marginHorizontal: 20, backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "rgba(0,0,0,0.08)", overflow: "hidden" },
   reviewSection: { padding: 16, position: "relative" },
   reviewLabel: { fontSize: 11, fontWeight: "600", color: "#999", letterSpacing: 0.5, marginBottom: 6 },
+  reviewLabelRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
   reviewValue: { fontSize: 15, lineHeight: 21, paddingRight: 40 },
   reviewDivider: { height: 1, backgroundColor: "rgba(0,0,0,0.06)" },
   editButton: { position: "absolute", right: 16, top: 16 },

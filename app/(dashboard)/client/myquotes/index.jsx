@@ -185,6 +185,9 @@ function StatusBadge({ type }) {
     WORK_IN_PROGRESS: { icon: "construct", color: "#10B981", bg: "#D1FAE5", text: "Work in Progress" },
     ACTIVE: { icon: "construct", color: "#10B981", bg: "#D1FAE5", text: "Active" },
 
+    // ACTION NEEDED for appointments (Orange)
+    CONFIRM_VISIT: { icon: "calendar-outline", color: "#F59E0B", bg: "#FEF3C7", text: "Confirm Visit" },
+
     // COMPLETED (Gray)
     COMPLETED: { icon: "checkmark-done", color: "#6B7280", bg: "#F3F4F6", text: "Completed" },
 
@@ -228,10 +231,17 @@ function FilterBtn({ active, label, count, onPress }) {
 
 // Project card component - NEW DESIGN
 // Hierarchy: WHO (primary) -> STATUS (secondary) -> WHAT (tertiary)
-function ProjectCard({ item, onPress, statusType }) {
+function ProjectCard({ item, onPress, statusType, onMessage, onRespond }) {
+  const router = useRouter();
   const hasTrades = item.trades && item.trades.length > 0;
   const singleTrade = hasTrades && item.trades.length === 1;
   const multipleTrades = hasTrades && item.trades.length > 1;
+
+  // Determine if we need to show action buttons for active jobs
+  const isActiveJob = item.type === "active";
+  const needsConfirmation = item.appointmentStatus === "proposed";
+  const isConfirmed = item.appointmentStatus === "confirmed";
+  const waitingForAppointment = isActiveJob && !item.appointmentStatus;
 
   return (
     <Pressable style={styles.projectCard} onPress={onPress}>
@@ -253,7 +263,7 @@ function ProjectCard({ item, onPress, statusType }) {
         {/* Primary info */}
         <View style={styles.cardPrimaryInfo}>
           {/* Primary: Trade name(s) or Job title */}
-          <ThemedText style={styles.cardPrimaryText} numberOfLines={1}>
+          <ThemedText style={styles.cardPrimaryText} numberOfLines={2}>
             {singleTrade
               ? item.trades[0].name
               : multipleTrades
@@ -262,7 +272,7 @@ function ProjectCard({ item, onPress, statusType }) {
           </ThemedText>
 
           {/* Secondary: Status description */}
-          <ThemedText style={styles.cardSecondaryText} numberOfLines={1}>
+          <ThemedText style={styles.cardSecondaryText} numberOfLines={2}>
             {item.statusDescription}
           </ThemedText>
         </View>
@@ -298,11 +308,25 @@ function ProjectCard({ item, onPress, statusType }) {
         </View>
       )}
 
+      {/* Row 3b: Helper text for waiting for appointment */}
+      {item.helperText && (
+        <ThemedText style={styles.helperText}>{item.helperText}</ThemedText>
+      )}
+
       {/* Row 4: Appointment info */}
       {item.appointmentInfo && (
         <View style={styles.appointmentRow}>
-          <Ionicons name="calendar" size={16} color={TINT} />
-          <ThemedText style={styles.appointmentText}>{item.appointmentInfo}</ThemedText>
+          <Ionicons
+            name="calendar"
+            size={16}
+            color={needsConfirmation ? "#F59E0B" : TINT}
+          />
+          <ThemedText style={[
+            styles.appointmentText,
+            needsConfirmation && { color: "#92400E" }
+          ]}>
+            {item.appointmentInfo}
+          </ThemedText>
         </View>
       )}
 
@@ -311,6 +335,55 @@ function ProjectCard({ item, onPress, statusType }) {
         <View style={styles.warningRow}>
           <Ionicons name="alert-circle" size={16} color="#F59E0B" />
           <ThemedText style={styles.warningText}>{item.warningText}</ThemedText>
+        </View>
+      )}
+
+      {/* Action buttons for active jobs */}
+      {isActiveJob && (
+        <View style={styles.cardActions}>
+          <Pressable
+            style={[styles.actionBtn, styles.actionBtnSecondary]}
+            onPress={(e) => {
+              e.stopPropagation();
+              if (item.requestId) {
+                router.push({
+                  pathname: "/(dashboard)/messages/[id]",
+                  params: {
+                    id: String(item.requestId),
+                    name: singleTrade ? item.trades[0].name : "",
+                    quoteId: item.quoteId ? String(item.quoteId) : "",
+                    returnTo: "/myquotes",
+                  },
+                });
+              }
+            }}
+          >
+            <ThemedText style={styles.actionBtnTextSecondary}>Message</ThemedText>
+          </Pressable>
+          <Pressable
+            style={[styles.actionBtn, styles.actionBtnPrimary]}
+            onPress={(e) => {
+              e.stopPropagation();
+              if (needsConfirmation && item.appointmentId) {
+                // Navigate to appointment response screen
+                router.push({
+                  pathname: "/myquotes/appointment-response",
+                  params: {
+                    appointmentId: String(item.appointmentId),
+                    quoteId: item.quoteId ? String(item.quoteId) : "",
+                    requestId: String(item.requestId),
+                  },
+                });
+              } else {
+                // Navigate to quote details
+                onPress?.();
+              }
+            }}
+          >
+            <ThemedText style={styles.actionBtnTextPrimary}>
+              {needsConfirmation ? "Respond" : "View Details"}
+            </ThemedText>
+          </Pressable>
         </View>
       )}
     </Pressable>
@@ -737,14 +810,47 @@ export default function ClientProjects() {
 
       const nextAppointment = relatedAppointments[0];
       const scheduledDate = nextAppointment?.scheduled_at ? new Date(nextAppointment.scheduled_at) : null;
-      const isScheduled = !!scheduledDate;
+      const appointmentStatus = nextAppointment?.status?.toLowerCase();
 
       let statusType = "QUOTE_ACCEPTED";
       let statusDescription = "Quote accepted";
-      if (isScheduled) {
+      let appointmentInfo = null;
+      let helperText = null;
+
+      if (appointmentStatus === "proposed") {
+        // Trade proposed an appointment - client needs to confirm
+        statusType = "CONFIRM_VISIT";
+        statusDescription = "Appointment requested";
+        appointmentInfo = scheduledDate
+          ? `Survey proposed: ${scheduledDate.toLocaleDateString(undefined, {
+              day: "numeric",
+              month: "short",
+            })}, ${scheduledDate.toLocaleTimeString(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}`
+          : null;
+      } else if (appointmentStatus === "confirmed") {
+        // Appointment confirmed by client
         statusType = "SCHEDULED";
-        statusDescription = "Work scheduled";
+        statusDescription = "Visit confirmed";
+        appointmentInfo = scheduledDate
+          ? `${scheduledDate.toLocaleDateString(undefined, {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+            })}, ${scheduledDate.toLocaleTimeString(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}`
+          : null;
+      } else {
+        // No appointment yet - waiting for trade to schedule
+        helperText = "Waiting for appointment";
       }
+
+      // Calculate price from trades
+      const totalPrice = group.trades.reduce((sum, t) => sum + (t.amount || 0), 0);
 
       activeJobs.push({
         id: `active-${group.requestId}`,
@@ -756,17 +862,12 @@ export default function ClientProjects() {
         trades: group.trades,
         statusDescription,
         statusType,
-        priceInfo: null,
-        appointmentInfo: scheduledDate
-          ? `${nextAppointment.title || "Appointment"}: ${scheduledDate.toLocaleDateString(undefined, {
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-            })} at ${scheduledDate.toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}`
-          : null,
+        priceInfo: totalPrice > 0 ? `GBP ${formatNumber(totalPrice)}` : null,
+        priceLabel: "Quote total",
+        helperText,
+        appointmentInfo,
+        appointmentStatus,
+        appointmentId: nextAppointment?.id,
         quoteId: group.quoteId, // For single-trade navigation
       });
     });
@@ -1201,16 +1302,26 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
     marginTop: 4,
   },
+  helperText: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 8,
+  },
   cardActions: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
+    marginTop: 14,
   },
   actionBtn: {
-    minWidth: 100,
-    backgroundColor: TINT,
-    borderRadius: 999,
-    paddingVertical: 10,
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
     paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionBtnPrimary: {
+    backgroundColor: TINT,
   },
   actionBtnSecondary: {
     backgroundColor: "#FFFFFF",
@@ -1223,8 +1334,15 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
   },
+  actionBtnTextPrimary: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
   actionBtnTextSecondary: {
     color: "#374151",
+    fontSize: 14,
+    fontWeight: "600",
   },
   emptyState: {
     alignItems: "center",
