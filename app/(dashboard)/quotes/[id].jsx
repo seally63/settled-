@@ -107,7 +107,7 @@ function parseDetails(details) {
 
 const CELL = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
-const PRIMARY = "#684477";
+const PRIMARY = "#6849a7";
 
 export default function QuoteDetails() {
   const params = useLocalSearchParams();
@@ -123,6 +123,7 @@ export default function QuoteDetails() {
     ? params.avatar[0]
     : params.avatar;
   const fromAppointments = params.fromAppointments === 'true';
+  const shouldOpenSchedule = params.openSchedule === 'true';
 
   const scheme = useColorScheme();
   const iconColor = scheme === "dark" ? "#fff" : "#000";
@@ -386,6 +387,16 @@ export default function QuoteDetails() {
       mounted = false;
     };
   }, [params.id, fetchQuoteById, userRole]);
+
+  // Auto-open scheduling page if navigated with openSchedule=true
+  useEffect(() => {
+    if (shouldOpenSchedule && !loading && quote && !appointment) {
+      const quoteStatus = String(quote?.status || "").toLowerCase();
+      if (quoteStatus === "accepted" && userRole === "trades") {
+        openSchedulePage();
+      }
+    }
+  }, [shouldOpenSchedule, loading, quote, appointment, userRole]);
 
   const items = useMemo(
     () => (Array.isArray(quote?.line_items) ? quote.line_items : []),
@@ -1015,8 +1026,12 @@ export default function QuoteDetails() {
         </View>
       </View>
 
-      {/* Hero summary card */}
-      <View style={styles.heroCard}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContents}
+        showsVerticalScrollIndicator
+      >
+        {/* Hero summary card */}
+        <View style={styles.heroCard}>
         <View style={styles.heroTopRow}>
           <View style={{ flex: 1 }}>
             {/* For trades: show client name prominently, then job title, then location */}
@@ -1164,10 +1179,6 @@ export default function QuoteDetails() {
         </View>
       )}
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContents}
-        showsVerticalScrollIndicator
-      >
         {/* Quote request - styled like client version */}
         {request && (
           <>
@@ -1571,11 +1582,14 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "ios" ? 60 : 20,
   },
 
-  // Profile-style header (matching client version)
+  // Profile-style header (sticky)
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
     backgroundColor: "#F9FAFB",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E7EB",
+    zIndex: 10,
   },
   headerRow: {
     flexDirection: "row",
@@ -1593,7 +1607,6 @@ const styles = StyleSheet.create({
   scrollContents: { paddingBottom: 40, paddingHorizontal: 20, paddingTop: 8 },
 
   heroCard: {
-    marginHorizontal: 16,
     marginBottom: 8,
     padding: 16,
     borderRadius: 20,
@@ -1681,7 +1694,6 @@ const styles = StyleSheet.create({
 
   // hero-linked appointment callout
   heroNoteCard: {
-    marginHorizontal: 16,
     marginBottom: 10,
     padding: 12,
     borderRadius: 16,
@@ -2089,7 +2101,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 18,
     paddingVertical: 10,
-    backgroundColor: "#684477",
+    backgroundColor: PRIMARY,
     marginTop: 6,
   },
   scheduleBtnText: {
@@ -2105,7 +2117,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingTop: 4,
-    paddingBottom: 10,
+    paddingBottom: 20,
   },
   scheduleHeaderTitle: {
     fontSize: 18,
@@ -2229,7 +2241,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#684477",
+    backgroundColor: PRIMARY,
   },
   apptPrimaryBtnBigText: {
     fontSize: 15,
@@ -2264,7 +2276,7 @@ const styles = StyleSheet.create({
   pickerHeaderText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#684477",
+    color: PRIMARY,
   },
   pickerHeaderTitle: {
     fontSize: 14,

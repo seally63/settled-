@@ -764,7 +764,7 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
         </>
       )}
 
-      {/* Action buttons for sent/active quotes (Message + View Details) */}
+      {/* Action buttons for sent/active quotes (Message + View Details/Schedule) */}
       {showActionButtons && (
         <>
           <Spacer height={12} />
@@ -792,10 +792,23 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
               style={[styles.actionBtn, styles.actionBtnPrimary]}
               onPress={(e) => {
                 e.stopPropagation();
-                onPress?.();
+                // For accepted quotes (in_progress/scheduled), go directly to schedule page
+                if ((displayStatus === "in_progress" || displayStatus === "scheduled") && project.id && router) {
+                  router.push({
+                    pathname: "/quotes/[id]",
+                    params: {
+                      id: String(project.id),
+                      openSchedule: "true",
+                    },
+                  });
+                } else {
+                  onPress?.();
+                }
               }}
             >
-              <ThemedText style={styles.actionBtnTextPrimary}>View Details</ThemedText>
+              <ThemedText style={styles.actionBtnTextPrimary}>
+                {displayStatus === "in_progress" || displayStatus === "scheduled" ? "Schedule" : "View Details"}
+              </ThemedText>
             </Pressable>
           </View>
         </>
