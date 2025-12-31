@@ -1133,11 +1133,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#F9FAFB",
   },
 
-  // Profile-style header
+  // Profile-style header (sticky)
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
     backgroundColor: "#F9FAFB",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E7EB",
+    zIndex: 10,
   },
   headerRow: {
     flexDirection: "row",
