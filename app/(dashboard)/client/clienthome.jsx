@@ -1092,7 +1092,10 @@ export default function ClientHome() {
         <View style={styles.reviewCard}>
           {/* Service */}
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>SERVICE</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="construct-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>SERVICE</ThemedText>
+            </View>
             <ThemedText style={styles.reviewValue}>
               {selectedCategory?.name} → {selectedServiceType?.name}
             </ThemedText>
@@ -1105,7 +1108,10 @@ export default function ClientHome() {
 
           {/* Details */}
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>DETAILS</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="document-text-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>DETAILS</ThemedText>
+            </View>
             <ThemedText style={styles.reviewValue} numberOfLines={3}>
               {description?.trim() || "No description provided"}
             </ThemedText>
@@ -1118,7 +1124,10 @@ export default function ClientHome() {
 
           {/* Property */}
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>PROPERTY</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="home-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>PROPERTY</ThemedText>
+            </View>
             <ThemedText style={styles.reviewValue}>
               {selectedPropertyType?.name || "Not specified"}
             </ThemedText>
@@ -1131,7 +1140,10 @@ export default function ClientHome() {
 
           {/* Postcode */}
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>POSTCODE</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="location-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>POSTCODE</ThemedText>
+            </View>
             <ThemedText style={styles.reviewValue}>
               {postcode?.trim() || "Not specified"}
             </ThemedText>
@@ -1144,7 +1156,10 @@ export default function ClientHome() {
 
           {/* Budget */}
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>BUDGET</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="cash-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>BUDGET</ThemedText>
+            </View>
             <ThemedText style={styles.reviewValue}>
               {selectedBudget?.label || "Not specified"}
             </ThemedText>
@@ -1157,8 +1172,13 @@ export default function ClientHome() {
 
           {/* Timing */}
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>TIMING</ThemedText>
-            <ThemedText style={styles.reviewValue}>{selectedTiming?.name}</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="time-outline" size={16} color={selectedTiming?.is_emergency ? "#EF4444" : "#6B7280"} />
+              <ThemedText style={[styles.reviewLabel, selectedTiming?.is_emergency && { color: "#EF4444" }]}>TIMING</ThemedText>
+            </View>
+            <ThemedText style={[styles.reviewValue, selectedTiming?.is_emergency && { color: "#EF4444" }]}>
+              {selectedTiming?.name}
+            </ThemedText>
             <Pressable onPress={() => goToStepForEdit(5)} style={styles.editButton}>
               <ThemedText style={styles.editButtonText}>Edit</ThemedText>
             </Pressable>
@@ -1168,7 +1188,10 @@ export default function ClientHome() {
 
           {/* Photos */}
           <View style={styles.reviewSection}>
-            <ThemedText style={styles.reviewLabel}>PHOTOS</ThemedText>
+            <View style={styles.reviewLabelRow}>
+              <Ionicons name="images-outline" size={16} color="#6B7280" />
+              <ThemedText style={styles.reviewLabel}>PHOTOS</ThemedText>
+            </View>
             <View style={styles.reviewPhotos}>
               {photos.length > 0 ? (
                 photos.map((p, i) => (
@@ -1559,12 +1582,17 @@ const styles = StyleSheet.create({
     padding: 16,
     position: "relative",
   },
+  reviewLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 6,
+  },
   reviewLabel: {
     fontSize: 11,
     fontWeight: "600",
     color: "#999",
     letterSpacing: 0.5,
-    marginBottom: 6,
   },
   reviewValue: {
     fontSize: 15,

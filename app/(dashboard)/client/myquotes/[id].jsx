@@ -476,9 +476,29 @@ export default function ClientMyQuoteDetail() {
   const AppointmentCard = ({ appointment, isExpanded, isNext }) => {
     const status = getAppointmentStatus(appointment);
     const scheduledDate = appointment.scheduled_at ? new Date(appointment.scheduled_at) : null;
+    const isProposed = appointment.status === "proposed";
+    const isConfirmed = appointment.status === "confirmed";
 
     const handlePress = () => {
       toggleAppointment(appointment.id);
+    };
+
+    // Handle confirm appointment
+    const handleConfirm = async () => {
+      try {
+        const { error } = await supabase
+          .from("appointments")
+          .update({ status: "confirmed" })
+          .eq("id", appointment.id);
+
+        if (error) throw error;
+        Alert.alert("Confirmed", "The appointment has been confirmed.");
+        // Refresh appointments
+        fetchQuote();
+      } catch (err) {
+        console.error("Error confirming appointment:", err);
+        Alert.alert("Error", "Could not confirm appointment.");
+      }
     };
 
     return (
@@ -487,6 +507,7 @@ export default function ClientMyQuoteDetail() {
         style={[
           styles.appointmentCard,
           isNext && styles.appointmentCardNext,
+          isProposed && styles.appointmentCardProposed,
         ]}
       >
         {/* Header - always visible */}
@@ -524,6 +545,37 @@ export default function ClientMyQuoteDetail() {
           />
         </View>
 
+        {/* Proposed appointment - show confirm/suggest buttons immediately */}
+        {isProposed && (
+          <View style={styles.appointmentProposedActions}>
+            <Pressable
+              style={styles.appointmentConfirmBtn}
+              onPress={handleConfirm}
+            >
+              <ThemedText style={styles.appointmentConfirmBtnText}>
+                Confirm
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              style={styles.appointmentSuggestBtn}
+              onPress={() => {
+                router.push({
+                  pathname: "/myquotes/appointment-response",
+                  params: {
+                    appointmentId: String(appointment.id),
+                    quoteId: String(quote?.id || id),
+                    requestId: String(quote?.request_id || ""),
+                  },
+                });
+              }}
+            >
+              <ThemedText style={styles.appointmentSuggestBtnText}>
+                Suggest time
+              </ThemedText>
+            </Pressable>
+          </View>
+        )}
+
         {/* Expandable content */}
         {isExpanded && (
           <View style={styles.appointmentCardContent}>
@@ -557,8 +609,8 @@ export default function ClientMyQuoteDetail() {
               </View>
             )}
 
-            {/* Action buttons */}
-            {isNext && status !== "completed" && status !== "cancelled" && (
+            {/* Action buttons for confirmed appointments */}
+            {isNext && isConfirmed && (
               <View style={styles.appointmentActions}>
                 <Pressable
                   style={styles.appointmentActionBtn}
@@ -572,21 +624,6 @@ export default function ClientMyQuoteDetail() {
                     Add to Calendar
                   </ThemedText>
                 </Pressable>
-
-                {appointment.location && (
-                  <Pressable
-                    style={styles.appointmentActionBtn}
-                    onPress={() => {
-                      // TODO: Open directions
-                      Alert.alert("Get Directions", "This feature will be implemented soon.");
-                    }}
-                  >
-                    <Ionicons name="navigate-outline" size={18} color={PRIMARY} />
-                    <ThemedText style={styles.appointmentActionText}>
-                      Directions
-                    </ThemedText>
-                  </Pressable>
-                )}
 
                 <Pressable
                   style={styles.appointmentActionBtn}
@@ -606,7 +643,7 @@ export default function ClientMyQuoteDetail() {
                         id: String(quote.request_id),
                         name: tradeName || "",
                         quoteId: String(quote.id || id),
-                        returnTo: `/myquotes/${id}`, // Return to this quote detail page
+                        returnTo: `/myquotes/${id}`,
                       },
                     });
                   }}
@@ -1051,14 +1088,9 @@ export default function ClientMyQuoteDetail() {
                   </ThemedText>
                 </View>
 
-                {/* NEXT Appointment(s) - Expanded by default */}
+                {/* Upcoming Appointments - no "NEXT" label */}
                 {categorizedAppointments.next.length > 0 && (
                   <>
-                    <View style={styles.appointmentSectionLabel}>
-                      <ThemedText style={styles.appointmentSectionLabelText}>
-                        NEXT
-                      </ThemedText>
-                    </View>
                     {categorizedAppointments.next.map((appt) => (
                       <AppointmentCard
                         key={appt.id}
@@ -1070,14 +1102,9 @@ export default function ClientMyQuoteDetail() {
                   </>
                 )}
 
-                {/* UPCOMING Appointments - Collapsed by default */}
+                {/* More upcoming */}
                 {categorizedAppointments.upcoming.length > 0 && (
                   <>
-                    <View style={styles.appointmentSectionLabel}>
-                      <ThemedText style={styles.appointmentSectionLabelText}>
-                        UPCOMING
-                      </ThemedText>
-                    </View>
                     {categorizedAppointments.upcoming.map((appt) => (
                       <AppointmentCard
                         key={appt.id}
@@ -1089,7 +1116,7 @@ export default function ClientMyQuoteDetail() {
                   </>
                 )}
 
-                {/* COMPLETED Appointments - Minimized */}
+                {/* Completed - only show if there are some */}
                 {categorizedAppointments.completed.length > 0 && (
                   <>
                     <View style={styles.appointmentSectionLabel}>
@@ -1593,6 +1620,43 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 8,
     elevation: 3,
+  },
+  appointmentCardProposed: {
+    borderColor: "#F59E0B",
+    borderWidth: 2,
+    backgroundColor: "#FFFBEB",
+  },
+  appointmentProposedActions: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  appointmentConfirmBtn: {
+    flex: 1,
+    backgroundColor: "#16A34A",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  appointmentConfirmBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  appointmentSuggestBtn: {
+    flex: 1,
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: "#9CA3AF",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  appointmentSuggestBtnText: {
+    color: "#6B7280",
+    fontSize: 14,
+    fontWeight: "600",
   },
   appointmentCardHeader: {
     flexDirection: "row",
