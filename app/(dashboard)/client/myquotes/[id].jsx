@@ -342,10 +342,11 @@ export default function ClientMyQuoteDetail() {
     if (apptStatus === "cancelled") return "cancelled";
     if (apptStatus === "rescheduled") return "rescheduled";
 
-    // Check if it's next (upcoming and not started)
+    // Check if it's upcoming (in the future)
     if (scheduledDate > now) {
-      if (apptStatus === "confirmed") return "next";
+      if (apptStatus === "confirmed") return "confirmed";
       if (apptStatus === "scheduled") return "scheduled";
+      if (apptStatus === "proposed") return "pending";
       return "pending";
     }
 
@@ -494,7 +495,7 @@ export default function ClientMyQuoteDetail() {
         if (error) throw error;
         Alert.alert("Confirmed", "The appointment has been confirmed.");
         // Refresh appointments
-        fetchQuote();
+        load();
       } catch (err) {
         console.error("Error confirming appointment:", err);
         Alert.alert("Error", "Could not confirm appointment.");
@@ -856,9 +857,7 @@ export default function ClientMyQuoteDetail() {
                       {attachments.map((url, i) => (
                         <Pressable
                           key={`${url}-${i}`}
-                          onPress={() =>
-                            setViewer({ open: true, index: i })
-                          }
+                          onPress={() => setViewer({ open: true, index: i })}
                           style={styles.thumbCell}
                           hitSlop={6}
                         >
@@ -1138,18 +1137,20 @@ export default function ClientMyQuoteDetail() {
             )}
 
           </ScrollView>
-
-          {/* Image viewer with zoom, swipe and drag-to-dismiss */}
-          <ImageViewing
-            images={imageViewerData}
-            imageIndex={viewer.index}
-            visible={viewer.open}
-            onRequestClose={closeViewer}
-            swipeToCloseEnabled={true}
-            doubleTapToZoomEnabled={true}
-          />
         </>
       )}
+
+      {/* Image viewer with zoom, swipe and drag-to-dismiss - must be outside conditional */}
+      <ImageViewing
+        images={imageViewerData}
+        imageIndex={viewer.index}
+        visible={viewer.open}
+        onRequestClose={closeViewer}
+        swipeToCloseEnabled
+        doubleTapToZoomEnabled
+        presentationStyle="overFullScreen"
+        animationType="fade"
+      />
     </ThemedView>
   );
 }

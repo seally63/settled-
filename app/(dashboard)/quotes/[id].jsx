@@ -780,7 +780,7 @@ export default function QuoteDetails() {
     );
   }
 
-  const appointmentName = appointment?.notes || "Appointment";
+  const appointmentName = appointment?.title || appointment?.notes || "Appointment";
   const locationText =
     parsedDetails.address ||
     (request?.postcode
@@ -1559,8 +1559,10 @@ export default function QuoteDetails() {
         imageIndex={viewer.index}
         visible={viewer.open}
         onRequestClose={closeViewer}
-        swipeToCloseEnabled={true}
-        doubleTapToZoomEnabled={true}
+        swipeToCloseEnabled
+        doubleTapToZoomEnabled
+        presentationStyle="overFullScreen"
+        animationType="fade"
       />
     </ThemedView>
   );

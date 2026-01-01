@@ -20,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useColorScheme } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
+import ImageViewing from "react-native-image-viewing";
 
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
@@ -124,15 +125,28 @@ const BUDGET_OPTIONS = [
   { id: "not_sure", label: "I'm not sure yet", value: "Not specified" },
 ];
 
+// Minimal image processing - just copy to cache to get a file:// URI
+// This avoids the heavy base64 encoding that causes freezes
 async function makeThumbnails(uris) {
   const out = [];
   for (const uri of uris) {
-    const { uri: thumb, base64 } = await ImageManipulator.manipulateAsync(
-      uri,
-      [{ resize: { width: 1200 } }],
-      { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-    );
-    out.push({ uri: thumb, base64 });
+    try {
+      // Do minimal resize to get a file:// URI that FileSystem can read
+      const { uri: processedUri } = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 1200 } }],
+        {
+          compress: 0.8,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: false, // Don't generate base64 - this is what causes the freeze
+        }
+      );
+      out.push({ uri: processedUri });
+    } catch (e) {
+      console.warn("makeThumbnails error:", e);
+      // Fallback to original URI
+      out.push({ uri });
+    }
   }
   return out;
 }
@@ -340,43 +354,32 @@ export default function BusinessDetail() {
         allowsMultipleSelection: true,
         selectionLimit: remaining,
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 1,
+        quality: 0.8,
       });
       if (result.canceled) return;
 
       const newUris = (result.assets || []).slice(0, remaining).map((a) => a.uri);
       if (!newUris.length) return;
 
-      beginPreparing(newUris.length);
-      await paintFrames(2);
+      // Show processing overlay while making thumbnails
+      setPrepVisible(true);
+      setPrepPhase("preparing");
+      setPrepTotal(newUris.length);
+      setPrepDone(0);
+      setPrepStartedAt(Date.now());
 
-      // Process thumbnails with proper yielding to prevent UI freeze
-      const thumbs = [];
-      for (let i = 0; i < newUris.length; i++) {
-        // Yield to UI thread before each image
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        await paintFrames(1);
-
-        const [thumb] = await makeThumbnails([newUris[i]]);
-        thumbs.push(thumb);
-        setPrepDone(i + 1);
-
-        // Extra yield after processing
-        await new Promise((resolve) => setTimeout(resolve, 10));
+      try {
+        const thumbs = await makeThumbnails(newUris);
+        setPhotos((prev) => [...prev, ...thumbs].slice(0, 5));
+      } finally {
+        // Keep overlay briefly visible for smooth UX
+        const elapsed = Date.now() - Date.now();
+        const remain = Math.max(0, 300 - elapsed);
+        setTimeout(() => setPrepVisible(false), remain);
       }
-
-      setPrepPhase("rendering");
-      setPrepUris(new Set(thumbs.map((t) => t.uri)));
-      await paintFrames(2);
-
-      setPhotos((prev) => [...prev, ...thumbs].slice(0, 5));
-
-      // Close prep overlay after a brief delay
-      await sleep(300);
-      setPrepVisible(false);
     } catch (e) {
-      console.warn("pickFromLibrary error:", e);
       setPrepVisible(false);
+      console.warn("pickFromLibrary error:", e);
     }
   }
 
@@ -561,57 +564,45 @@ export default function BusinessDetail() {
     );
   };
 
-  const ImageViewer = () => {
-    if (!viewer.open || photos.length === 0) return null;
-    const currentPhoto = photos[viewer.index];
+  // ===== Full-screen image viewer with zoom and swipe-to-dismiss =====
+  const closeViewer = () => setViewer({ open: false, index: 0 });
 
-    return (
-      <Modal visible={viewer.open} transparent animationType="fade" onRequestClose={() => setViewer({ open: false, index: 0 })} statusBarTranslucent>
-        <View style={styles.viewerBackdrop}>
-          <Pressable style={styles.viewerClose} hitSlop={8} onPress={() => setViewer({ open: false, index: 0 })}>
-            <Ionicons name="close" size={22} color="#fff" />
-          </Pressable>
+  const imageViewerImages = photos.map((p) => ({ uri: p.uri }));
 
-          {viewer.index > 0 && (
-            <Pressable style={[styles.viewerNav, { left: 12 }]} hitSlop={10} onPress={() => setViewer((v) => ({ ...v, index: v.index - 1 }))}>
-              <Ionicons name="chevron-back" size={28} color="#fff" />
-            </Pressable>
-          )}
-
-          {currentPhoto && <Image source={{ uri: currentPhoto.uri }} style={styles.viewerImg} resizeMode="contain" />}
-
-          {viewer.index < photos.length - 1 && (
-            <Pressable style={[styles.viewerNav, { right: 12 }]} hitSlop={10} onPress={() => setViewer((v) => ({ ...v, index: v.index + 1 }))}>
-              <Ionicons name="chevron-forward" size={28} color="#fff" />
-            </Pressable>
-          )}
-
-          <View style={styles.viewerDots}>
-            {photos.map((_, i) => (
-              <View key={i} style={[styles.viewerDot, i === viewer.index && styles.viewerDotActive]} />
-            ))}
-          </View>
-
-          <Pressable
-            style={styles.viewerDelete}
-            hitSlop={10}
-            onPress={() => {
-              const idx = viewer.index;
-              removePhoto(idx);
-              const remaining = photos.length - 1;
-              if (remaining <= 0) {
-                setViewer({ open: false, index: 0 });
-              } else {
-                setViewer({ open: true, index: Math.min(idx, remaining - 1) });
-              }
-            }}
-          >
-            <Ionicons name="trash-outline" size={18} color="#fff" />
-          </Pressable>
-        </View>
-      </Modal>
-    );
-  };
+  const ImageViewerFooter = ({ imageIndex }) => (
+    <View style={styles.viewerFooter}>
+      {/* Navigation dots */}
+      <View style={styles.viewerDots}>
+        {photos.map((_, i) => (
+          <View
+            key={i}
+            style={[
+              styles.viewerDot,
+              i === imageIndex && styles.viewerDotActive,
+            ]}
+          />
+        ))}
+      </View>
+      {/* Delete button */}
+      <Pressable
+        style={styles.viewerDeleteBtn}
+        hitSlop={10}
+        onPress={() => {
+          const idx = imageIndex;
+          removePhoto(idx);
+          const remaining = photos.length - 1;
+          if (remaining <= 0) {
+            setViewer({ open: false, index: 0 });
+          } else {
+            setViewer({ open: true, index: Math.min(idx, remaining - 1) });
+          }
+        }}
+      >
+        <Ionicons name="trash-outline" size={20} color="#fff" />
+        <ThemedText style={styles.viewerDeleteText}>Delete</ThemedText>
+      </Pressable>
+    </View>
+  );
 
   // Handle back navigation
   function handleBack(defaultStep) {
@@ -999,7 +990,18 @@ export default function BusinessDetail() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-      <ImageViewer />
+      <ImageViewing
+        images={imageViewerImages}
+        imageIndex={viewer.index}
+        visible={viewer.open && photos.length > 0}
+        onRequestClose={closeViewer}
+        swipeToCloseEnabled
+        doubleTapToZoomEnabled
+        presentationStyle="overFullScreen"
+        animationType="fade"
+        FooterComponent={({ imageIndex }) => <ImageViewerFooter imageIndex={imageIndex} />}
+        onImageIndexChange={(index) => setViewer((v) => ({ ...v, index }))}
+      />
     </ThemedView>
   );
 
@@ -1303,8 +1305,11 @@ const styles = StyleSheet.create({
   viewerImg: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT * 0.7 },
   viewerClose: { position: "absolute", top: 50, right: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", zIndex: 10 },
   viewerNav: { position: "absolute", top: "50%", marginTop: -18, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", zIndex: 10 },
-  viewerDots: { position: "absolute", bottom: 100, flexDirection: "row", gap: 8 },
+  viewerDots: { flexDirection: "row", gap: 8, marginBottom: 12 },
   viewerDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.4)" },
   viewerDotActive: { backgroundColor: "#fff" },
   viewerDelete: { position: "absolute", bottom: 40, width: 50, height: 50, borderRadius: 25, backgroundColor: "rgba(255,0,0,0.4)", alignItems: "center", justifyContent: "center" },
+  viewerFooter: { alignItems: "center", paddingBottom: 40 },
+  viewerDeleteBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,0,0,0.6)", paddingVertical: 10, paddingHorizontal: 18, borderRadius: 20 },
+  viewerDeleteText: { color: "#fff", fontWeight: "600", fontSize: 14 },
 });
