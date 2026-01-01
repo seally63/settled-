@@ -7,10 +7,9 @@ import {
   Pressable,
   Alert,
   Image,
-  Modal,
-  FlatList,
   Dimensions,
 } from "react-native";
+import ImageViewing from "react-native-image-viewing";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -455,57 +454,17 @@ export default function ClientRequestDetails() {
         </ScrollView>
       )}
 
-      {/* Image preview modal */}
-      {viewer.open && hasAttachments && (
-        <Modal
-          visible={viewer.open}
-          animationType="fade"
-          onRequestClose={closeViewer}
-          onDismiss={closeViewer}
-        >
-          <View style={styles.modalBackdrop}>
-            <FlatList
-              data={attachments}
-              keyExtractor={(url, idx) => `${url}-${idx}`}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              style={styles.carousel}
-              initialScrollIndex={viewer.index}
-              getItemLayout={(data, index) => ({
-                length: SCREEN_WIDTH,
-                offset: SCREEN_WIDTH * index,
-                index,
-              })}
-              onMomentumScrollEnd={(e) => {
-                const newIndex = Math.round(
-                  e.nativeEvent.contentOffset.x / SCREEN_WIDTH
-                );
-                if (!Number.isNaN(newIndex)) {
-                  setViewer((v) => ({ ...v, index: newIndex }));
-                }
-              }}
-              renderItem={({ item: url }) => (
-                <View style={styles.zoomScroll}>
-                  <Image
-                    source={{ uri: url }}
-                    style={styles.modalImage}
-                    resizeMode="contain"
-                  />
-                </View>
-              )}
-            />
-
-            <Pressable
-              style={styles.modalClose}
-              onPress={closeViewer}
-              hitSlop={8}
-            >
-              <Ionicons name="close" size={24} color="#fff" />
-            </Pressable>
-          </View>
-        </Modal>
-      )}
+      {/* Image viewer with zoom, swipe and drag-to-dismiss */}
+      <ImageViewing
+        images={attachments.map((url) => ({ uri: url }))}
+        imageIndex={viewer.index}
+        visible={viewer.open}
+        onRequestClose={closeViewer}
+        swipeToCloseEnabled
+        doubleTapToZoomEnabled
+        presentationStyle="overFullScreen"
+        animationType="fade"
+      />
     </ThemedView>
   );
 }
@@ -661,27 +620,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#6B7280",
     marginTop: 2,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "#000",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalClose: { position: "absolute", top: 48, right: 24, padding: 8 },
-  carousel: {
-    flex: 1,
-    width: "100%",
-  },
-  zoomScroll: {
-    flex: 1,
-    width: SCREEN_WIDTH,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalImage: {
-    width: "90%",
-    height: "70%",
-    resizeMode: "contain",
   },
 });
