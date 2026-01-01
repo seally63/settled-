@@ -364,7 +364,55 @@ export default function TradesmanProjects() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (user?.id) load();
+    if (!user?.id) return;
+
+    // Initial fetch
+    load();
+
+    // Realtime subscriptions for quotes table
+    const quotesChannel = supabase
+      .channel("trades-quotes-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tradify_native_app_db" },
+        (payload) => {
+          console.log("[TRADES REALTIME] Quote change:", payload);
+          load();
+        }
+      )
+      .subscribe();
+
+    // Realtime subscriptions for appointments table
+    const appointmentsChannel = supabase
+      .channel("trades-appointments-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "appointments" },
+        (payload) => {
+          console.log("[TRADES REALTIME] Appointment change:", payload);
+          load();
+        }
+      )
+      .subscribe();
+
+    // Realtime subscriptions for request_targets table (for inbox updates)
+    const targetsChannel = supabase
+      .channel("trades-targets-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "request_targets" },
+        (payload) => {
+          console.log("[TRADES REALTIME] Target change:", payload);
+          load();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(quotesChannel);
+      supabase.removeChannel(appointmentsChannel);
+      supabase.removeChannel(targetsChannel);
+    };
   }, [user?.id, load]);
 
   const onRefresh = async () => {

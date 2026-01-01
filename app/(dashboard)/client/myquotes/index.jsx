@@ -510,7 +510,10 @@ export default function ClientProjects() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "tradify_native_app_db" },
-        fetchAllData
+        (payload) => {
+          console.log("[CLIENT REALTIME] Quote change:", payload);
+          fetchAllData();
+        }
       )
       .subscribe();
 
@@ -519,13 +522,30 @@ export default function ClientProjects() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "quote_requests" },
-        fetchAllData
+        (payload) => {
+          console.log("[CLIENT REALTIME] Request change:", payload);
+          fetchAllData();
+        }
+      )
+      .subscribe();
+
+    // Realtime subscription for appointments (for chip label updates)
+    const chAppts = supabase
+      .channel("client-appointments-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "appointments" },
+        (payload) => {
+          console.log("[CLIENT REALTIME] Appointment change:", payload);
+          fetchAllData();
+        }
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(chQuotes);
       supabase.removeChannel(chReq);
+      supabase.removeChannel(chAppts);
     };
   }, [user?.id, fetchAllData]);
 
