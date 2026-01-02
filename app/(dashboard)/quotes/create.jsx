@@ -2,9 +2,9 @@
 // Clean 2-step quote creation with inline item editing
 import {
   StyleSheet, Text, View, ScrollView, Pressable, useColorScheme, Platform,
-  KeyboardAvoidingView, Alert, TextInput, Switch, InputAccessoryView, Keyboard,
+  KeyboardAvoidingView, Alert, TextInput, Switch, Keyboard, InputAccessoryView,
 } from "react-native";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -84,14 +84,14 @@ async function getClientDisplayName(requestId) {
   }
 }
 
-// Unique ID for InputAccessoryView on iOS
-const INPUT_ACCESSORY_ID = "quote-create-keyboard-accessory";
-
 /* ----------------------- Main Screen ----------------------- */
 export default function Create() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
   const iconColor = scheme === "dark" ? "#fff" : "#000";
+
+  // Unique ID for InputAccessoryView - only for numeric inputs
+  const NUMERIC_ACCESSORY_ID = "numeric-keyboard-done";
 
   const params = useLocalSearchParams();
   const titleParamRaw = asString(params?.title);
@@ -138,7 +138,7 @@ export default function Create() {
         if (!alive || !quote) return;
 
         setIsEditing(true);
-        setProjectTitle(quote.project_title || "");
+        // Don't set projectTitle from saved quote - we'll derive it from request data
         setComments(quote.comments || "");
         setTitleLocked(true);
 
@@ -151,21 +151,67 @@ export default function Create() {
         if (quote.vat_enabled !== undefined) setVatEnabled(quote.vat_enabled);
         if (quote.vat_rate !== undefined) setVatRate(quote.vat_rate);
 
-        // Fetch client name from request if available
-        if (quote.request_id) {
-          const name = await getClientDisplayName(quote.request_id);
+        // Fetch client name and request data
+        const reqId = quote.request_id || requestId;
+        if (reqId) {
+          // Get client name
+          const name = await getClientDisplayName(reqId);
           if (alive && name) setClientName(name);
+
+          // Fetch request data for category/service/postcode
+          const { data, error } = await supabase
+            .from("quote_requests")
+            .select(`
+              id, postcode, suggested_title,
+              service_categories(id, name),
+              service_types(id, name)
+            `)
+            .eq("id", reqId)
+            .maybeSingle();
+
+          if (!error && data && alive) {
+            const info = deriveProjectInfo(data);
+
+            console.log("[DEBUG Create Quote - Edit Mode] Raw data from DB:", JSON.stringify({
+              suggested_title: data?.suggested_title,
+              postcode: data?.postcode,
+              service_categories_name: data?.service_categories?.name,
+              service_types_name: data?.service_types?.name,
+            }));
+
+            // Get category and service from joined tables
+            let category = info.category;
+            let service = info.service;
+
+            // Fallback to parsing suggested_title
+            if (!category || !service) {
+              if (data?.suggested_title) {
+                const parts = data.suggested_title.split(" - ").map(s => s.trim());
+                if (parts.length >= 2) {
+                  if (!category) category = parts[0];
+                  if (!service) service = parts.slice(1).join(" - ");
+                }
+              }
+            }
+
+            console.log("[DEBUG Create Quote - Edit Mode] Final - category:", category, "service:", service, "postcode:", info.postcode);
+
+            if (category) setProjectCategory(category);
+            if (service) setProjectService(service);
+            if (info.postcode) setProjectPostcode(info.postcode);
+          }
         }
       } catch { /* ignore */ }
     })();
 
     return () => { alive = false; };
-  }, [quoteId]);
+  }, [quoteId, requestId]);
 
   // Load project info from request (for new quotes)
   useEffect(() => {
     if (quoteId) return; // Skip if editing existing draft
     let alive = true;
+
     (async () => {
       // Always try to fetch client name if we have a requestId
       if (requestId) {
@@ -175,9 +221,35 @@ export default function Create() {
         } catch { /* ignore */ }
       }
 
-      // If we already have a title param, use it and skip fetching request details
-      if (titleParam) {
-        setProjectTitle(titleParam);
+      // If we already have a title param, DON'T use it for category/service parsing
+      // Instead, always fetch the request details from DB to get accurate category/service
+      // The titleParam is only used as a display fallback
+      if (titleParam && !requestId) {
+        // Only use titleParam if we have no requestId to fetch from
+        // First strip " in POSTCODE" suffix if present
+        let titleWithoutPostcode = titleParam;
+        const inMatch = titleParam.match(/^(.+?)\s+in\s+([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})$/i);
+        if (inMatch) {
+          titleWithoutPostcode = inMatch[1].trim();
+          setProjectPostcode(inMatch[2].toUpperCase());
+        }
+
+        // Try to parse "Service, Category" format (comma-separated)
+        const commaParts = titleWithoutPostcode.split(",").map(s => s.trim());
+        if (commaParts.length >= 2) {
+          // Format: "Service, Category"
+          setProjectService(commaParts[0]);
+          setProjectCategory(commaParts[1]);
+        } else {
+          // Try "Category - Service" format (dash-separated)
+          const dashParts = titleWithoutPostcode.split(" - ").map(s => s.trim());
+          if (dashParts.length >= 2) {
+            setProjectCategory(dashParts[0]);
+            setProjectService(dashParts[1]);
+          }
+        }
+
+        setProjectTitle(titleWithoutPostcode);
         setTitleLocked(true);
         return;
       }
@@ -188,7 +260,7 @@ export default function Create() {
         const { data, error } = await supabase
           .from("quote_requests")
           .select(`
-            id, postcode,
+            id, postcode, suggested_title,
             service_categories(id, name),
             service_types(id, name)
           `)
@@ -198,23 +270,44 @@ export default function Create() {
         if (!alive) return;
 
         const info = deriveProjectInfo(data);
-        if (info.category) {
-          setProjectCategory(info.category);
+
+        console.log("[DEBUG Create Quote] Raw data from DB:", JSON.stringify({
+          suggested_title: data?.suggested_title,
+          postcode: data?.postcode,
+          service_categories_name: data?.service_categories?.name,
+          service_types_name: data?.service_types?.name,
+        }));
+        console.log("[DEBUG Create Quote] deriveProjectInfo result:", JSON.stringify(info));
+
+        // Get category and service from the joined tables (most reliable source)
+        // These come from the foreign key relationships to service_categories and service_types tables
+        let category = info.category; // From service_categories.name
+        let service = info.service;   // From service_types.name
+
+        console.log("[DEBUG Create Quote] Using joined table data - category:", category, "service:", service);
+
+        // Fallback: if joined tables are empty, try parsing suggested_title
+        if (!category || !service) {
+          if (data?.suggested_title) {
+            // Format: "Category - Service" -> split by " - "
+            const parts = data.suggested_title.split(" - ").map(s => s.trim());
+            console.log("[DEBUG Create Quote] Parsing suggested_title:", data.suggested_title, "parts:", parts);
+            if (parts.length >= 2) {
+              if (!category) category = parts[0];
+              if (!service) service = parts.slice(1).join(" - ");
+            }
+          }
         }
-        if (info.service) {
-          setProjectService(info.service);
-        }
-        if (info.postcode) {
-          setProjectPostcode(info.postcode);
-        }
-        // Build project title from category - service
-        if (info.category && info.service) {
-          setProjectTitle(`${info.category} - ${info.service}`);
-          setTitleLocked(true);
-        } else if (info.category) {
-          setProjectTitle(info.category);
-          setTitleLocked(true);
-        }
+
+        console.log("[DEBUG Create Quote] Final - category:", category, "service:", service, "postcode:", info.postcode);
+
+        // Set state
+        if (category) setProjectCategory(category);
+        if (service) setProjectService(service);
+        if (info.postcode) setProjectPostcode(info.postcode);
+
+        // Don't set projectTitle separately - the chip will build it from category/service/postcode
+        setTitleLocked(true);
       } catch { /* ignore */ }
     })();
     return () => { alive = false; };
@@ -254,16 +347,46 @@ export default function Create() {
     else router.back();
   };
 
+  // Build the correct project title for saving
+  // Format: "ClientName's Category: Service in Postcode"
+  const buildProjectTitle = () => {
+    let title = "";
+
+    // Add client name prefix
+    if (clientName) {
+      title += `${clientName.split(" ")[0]}'s `;
+    }
+
+    // Add category: service
+    if (projectCategory && projectService) {
+      title += `${projectCategory}: ${projectService}`;
+    } else if (projectCategory) {
+      title += projectCategory;
+    } else if (projectService) {
+      title += projectService;
+    } else if (projectTitle) {
+      title += projectTitle;
+    }
+
+    // Add postcode
+    if (projectPostcode) {
+      title += ` in ${projectPostcode}`;
+    }
+
+    return title || projectTitle || "Untitled quote";
+  };
+
   // ---- Submit handlers ----
   const handleSend = async () => {
-    if (!projectTitle.trim()) {
+    const derivedTitle = buildProjectTitle();
+    if (!derivedTitle.trim() || derivedTitle === "Untitled quote") {
       Alert.alert("Missing project", "Please enter the project name.");
       return;
     }
 
     const payload = {
       request_id: requestId || null,
-      project_title: projectTitle,
+      project_title: derivedTitle,
       valid_until: null,
       line_items: items.filter(it => it.name?.trim()),
       measurements: [],
@@ -290,9 +413,11 @@ export default function Create() {
   };
 
   const handleSaveAsDraft = async () => {
+    const derivedTitle = buildProjectTitle();
+
     const payload = {
       request_id: requestId || null,
-      project_title: projectTitle || "Untitled quote",
+      project_title: derivedTitle,
       valid_until: null,
       line_items: items.filter(it => it.name?.trim()),
       measurements: [],
@@ -357,14 +482,18 @@ export default function Create() {
           {/* STEP 1: Line Items */}
           {step === 1 && (
             <>
-              {/* Project info chip - shows: ClientName's Category - Service in Postcode */}
+              {/* Project info chip - shows: ClientName's Category: Service in Postcode */}
               {(projectCategory || projectService || projectTitle || projectPostcode) && (
                 <View style={styles.projectChip}>
                   <ThemedText style={styles.projectChipText}>
                     {clientName ? `${clientName.split(" ")[0]}'s ` : ""}
                     {projectCategory && projectService
-                      ? `${projectCategory} - ${projectService}`
-                      : projectTitle || projectCategory || ""}
+                      ? `${projectCategory}: ${projectService}`
+                      : projectCategory
+                      ? projectCategory
+                      : projectService
+                      ? projectService
+                      : projectTitle || ""}
                     {projectPostcode ? ` in ${projectPostcode}` : ""}
                   </ThemedText>
                 </View>
@@ -425,9 +554,7 @@ export default function Create() {
                           value={String(item.qty || "")}
                           onChangeText={(t) => updateItem(index, "qty", Number(t) || 0)}
                           keyboardType="number-pad"
-                          returnKeyType="done"
-                          blurOnSubmit={true}
-                          inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
+                          inputAccessoryViewID={Platform.OS === "ios" ? NUMERIC_ACCESSORY_ID : undefined}
                         />
                         <ThemedText style={styles.timesSymbol}>×</ThemedText>
                         <View style={styles.priceInputWrap}>
@@ -439,9 +566,7 @@ export default function Create() {
                             value={String(item.unit_price || "")}
                             onChangeText={(t) => updateItem(index, "unit_price", Number(t) || 0)}
                             keyboardType="decimal-pad"
-                            returnKeyType="done"
-                            blurOnSubmit={true}
-                            inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
+                            inputAccessoryViewID={Platform.OS === "ios" ? NUMERIC_ACCESSORY_ID : undefined}
                           />
                         </View>
                       </View>
@@ -631,10 +756,10 @@ export default function Create() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* iOS keyboard accessory with Done button for numeric inputs */}
+      {/* iOS keyboard toolbar with Done button - only for numeric inputs */}
       {Platform.OS === "ios" && (
-        <InputAccessoryView nativeID={INPUT_ACCESSORY_ID}>
-          <View style={styles.keyboardAccessory}>
+        <InputAccessoryView nativeID={NUMERIC_ACCESSORY_ID}>
+          <View style={styles.keyboardToolbar}>
             <View style={{ flex: 1 }} />
             <Pressable
               onPress={() => Keyboard.dismiss()}
@@ -841,11 +966,13 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
-  // Add item button
+  // Add item button - self-sized, not full width
   addItemBtn: {
     flexDirection: "row",
     alignItems: "center",
+    alignSelf: "flex-start",
     paddingVertical: 12,
+    paddingHorizontal: 4,
     marginBottom: 16,
   },
   addItemText: {
@@ -1052,22 +1179,22 @@ const styles = StyleSheet.create({
     color: "#374151",
   },
 
-  // Keyboard accessory (iOS)
-  keyboardAccessory: {
+  // Keyboard toolbar - attached to keyboard for numeric inputs
+  keyboardToolbar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F2F2F7",
-    borderTopWidth: 1,
-    borderTopColor: "#D1D5DB",
+    backgroundColor: "#D1D5DB",
     paddingHorizontal: 12,
     paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#B5B5B5",
   },
   keyboardDoneBtn: {
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   keyboardDoneText: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "600",
     color: "#007AFF",
   },

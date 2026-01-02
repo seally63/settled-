@@ -11,6 +11,7 @@ import {
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../../../../lib/supabase";
@@ -237,11 +238,15 @@ function ProjectCard({ item, onPress, statusType, onMessage, onRespond }) {
   const singleTrade = hasTrades && item.trades.length === 1;
   const multipleTrades = hasTrades && item.trades.length > 1;
 
-  // Determine if we need to show action buttons for active jobs
+  // Determine if we need to show action buttons for active jobs OR requests/preparing_quotes with appointments
   const isActiveJob = item.type === "active";
+  const isRequestOrPreparing = item.type === "request" || item.type === "preparing_quotes";
+  const hasAppointment = !!item.appointmentStatus;
   const needsConfirmation = item.appointmentStatus === "proposed";
   const isConfirmed = item.appointmentStatus === "confirmed";
   const waitingForAppointment = isActiveJob && !item.appointmentStatus;
+  // Show buttons for: active jobs, OR requests/preparing_quotes that have appointments
+  const showActionButtons = isActiveJob || (isRequestOrPreparing && hasAppointment);
 
   return (
     <Pressable style={styles.projectCard} onPress={onPress}>
@@ -263,7 +268,7 @@ function ProjectCard({ item, onPress, statusType, onMessage, onRespond }) {
         {/* Primary info */}
         <View style={styles.cardPrimaryInfo}>
           {/* Primary: Trade name(s) or Job title */}
-          <ThemedText style={styles.cardPrimaryText} numberOfLines={2}>
+          <ThemedText style={styles.cardPrimaryText}>
             {singleTrade
               ? item.trades[0].name
               : multipleTrades
@@ -272,7 +277,7 @@ function ProjectCard({ item, onPress, statusType, onMessage, onRespond }) {
           </ThemedText>
 
           {/* Secondary: Status description */}
-          <ThemedText style={styles.cardSecondaryText} numberOfLines={2}>
+          <ThemedText style={styles.cardSecondaryText}>
             {item.statusDescription}
           </ThemedText>
         </View>
@@ -338,8 +343,15 @@ function ProjectCard({ item, onPress, statusType, onMessage, onRespond }) {
         </View>
       )}
 
-      {/* Action buttons for active jobs */}
-      {isActiveJob && (
+      {/* Additional appointments hint */}
+      {item.additionalAppointmentsCount > 0 && (
+        <ThemedText style={styles.additionalAppointmentsHint}>
+          +{item.additionalAppointmentsCount} more visit{item.additionalAppointmentsCount !== 1 ? 's' : ''} scheduled
+        </ThemedText>
+      )}
+
+      {/* Action buttons for active jobs and requests with appointments */}
+      {showActionButtons && (
         <View style={styles.cardActions}>
           <Pressable
             style={[styles.actionBtn, styles.actionBtnSecondary]}
@@ -364,8 +376,10 @@ function ProjectCard({ item, onPress, statusType, onMessage, onRespond }) {
             style={[styles.actionBtn, styles.actionBtnPrimary]}
             onPress={(e) => {
               e.stopPropagation();
-              if (needsConfirmation && item.appointmentId) {
-                // Navigate to appointment response screen
+              // For requests/preparing_quotes with appointments, always go to Your Request page
+              // For active jobs with proposed appointments, go to appointment response
+              if (isActiveJob && needsConfirmation && item.appointmentId) {
+                // Active jobs: Navigate to appointment response screen
                 router.push({
                   pathname: "/myquotes/appointment-response",
                   params: {
@@ -374,14 +388,17 @@ function ProjectCard({ item, onPress, statusType, onMessage, onRespond }) {
                     requestId: String(item.requestId),
                   },
                 });
+              } else if (isRequestOrPreparing && item.requestId) {
+                // Requests/preparing: Always go to Your Request page
+                router.push(`/myquotes/request/${item.requestId}`);
               } else {
-                // Navigate to quote details
+                // Navigate to request or quote details
                 onPress?.();
               }
             }}
           >
             <ThemedText style={styles.actionBtnTextPrimary}>
-              {needsConfirmation ? "Respond" : "View Details"}
+              {isActiveJob && needsConfirmation ? "Respond" : "View Details"}
             </ThemedText>
           </Pressable>
         </View>
@@ -432,6 +449,8 @@ export default function ClientProjects() {
 
   const [filter, setFilter] = useState("all"); // all | active | completed
   const [refreshing, setRefreshing] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true); // Track initial load to prevent chip flicker
+  const [isFocusLoading, setIsFocusLoading] = useState(false); // Track focus-triggered loading to prevent chip flicker
 
   // Data from existing RPCs
   const [requests, setRequests] = useState([]);
@@ -484,13 +503,55 @@ export default function ClientProjects() {
       });
       setDecidedQuotes(decidedData || []);
 
-      // Appointments (upcoming only)
+      // Appointments (upcoming only) - for quotes
       const { data: apptData } = await supabase.rpc("rpc_client_list_appointments", {
         p_only_upcoming: true,
       });
       setAppointments(apptData || []);
+
+      // Also fetch appointments by request_id for survey appointments
+      // This is for appointments scheduled before quotes exist
+      // Need to include requests from BOTH reqData (no quotes) AND resData (trades responded/preparing)
+      // Use RPC to bypass RLS - direct table query may not work
+      const reqIdsFromRequests = (reqData || []).map((r) => r.id);
+      const reqIdsFromResponses = (resData || []).map((r) => r.request_id).filter(Boolean);
+      const allReqIds = [...new Set([...reqIdsFromRequests, ...reqIdsFromResponses])]; // Unique IDs
+
+      if (allReqIds.length > 0) {
+        // Fetch ALL appointments for each request (not just the latest)
+        // This allows us to properly sort and show the earliest upcoming appointment
+        const directPromises = allReqIds.map(async (reqId) => {
+          const { data, error } = await supabase
+            .from("appointments")
+            .select("*")
+            .eq("request_id", reqId)
+            .order("scheduled_at", { ascending: true }); // Get all, sorted by earliest first
+          return { data: data || [], error, reqId };
+        });
+        const directResults = await Promise.all(directPromises);
+
+        // Flatten all appointments from all requests into a single array
+        let requestApptData = directResults
+          .flatMap((r) =>
+            (r.data || []).map((appt) => ({
+              ...appt,
+              request_id: appt.request_id || r.reqId,
+            }))
+          );
+
+        // Merge with existing appointments (avoid duplicates)
+        if (requestApptData.length > 0) {
+          const existingIds = new Set((apptData || []).map((a) => a.id));
+          const newAppts = requestApptData.filter((a) => a && a.id && !existingIds.has(a.id));
+          const mergedAppts = [...(apptData || []), ...newAppts];
+          setAppointments(mergedAppts);
+        }
+      }
     } catch (err) {
       Alert.alert("Error", err.message);
+    } finally {
+      // Mark initial loading as complete to prevent chip flicker
+      setInitialLoading(false);
     }
   }, [user?.id]);
 
@@ -499,6 +560,22 @@ export default function ClientProjects() {
     await fetchAllData();
     setRefreshing(false);
   };
+
+  // Refresh data when screen gains focus (e.g., returning from appointment response)
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) {
+        // Set focus loading to hide stale data while fetching
+        // Only if not initial load (which has its own loading state)
+        if (!initialLoading) {
+          setIsFocusLoading(true);
+        }
+        fetchAllData().finally(() => {
+          setIsFocusLoading(false);
+        });
+      }
+    }, [user?.id, fetchAllData, initialLoading])
+  );
 
   useEffect(() => {
     if (!user?.id) return;
@@ -703,7 +780,52 @@ export default function ClientProjects() {
         }
       } else if (respGroup.preparingTrades.length > 0) {
         // Create new card for trades preparing quotes
+        // Check for appointments for this request (survey visits)
+        const requestAppointments = appointments.filter((a) => a.request_id === respGroup.requestId);
+
+        const now = new Date();
+        const upcomingAppointments = requestAppointments
+          .filter((a) => new Date(a.scheduled_at) > now)
+          .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+        const nextAppointment = upcomingAppointments[0];
+        const appointmentStatus = nextAppointment?.status?.toLowerCase();
+        const scheduledDate = nextAppointment?.scheduled_at ? new Date(nextAppointment.scheduled_at) : null;
+        const additionalAppointmentsCount = upcomingAppointments.length > 1 ? upcomingAppointments.length - 1 : 0;
+
         const preparing = respGroup.preparingTrades.length;
+        let statusType = "QUOTE_PENDING";
+        let statusDescription = preparing === 1 ? "Preparing quote" : `${preparing} preparing quotes`;
+        let appointmentInfo = null;
+
+        if (appointmentStatus === "proposed") {
+          // Trade proposed a survey appointment - client needs to confirm
+          statusType = "CONFIRM_VISIT";
+          statusDescription = "Survey appointment requested";
+          appointmentInfo = scheduledDate
+            ? `Survey proposed: ${scheduledDate.toLocaleDateString(undefined, {
+                day: "numeric",
+                month: "short",
+              })}, ${scheduledDate.toLocaleTimeString(undefined, {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}`
+            : null;
+        } else if (appointmentStatus === "confirmed") {
+          // Survey appointment confirmed by client
+          statusType = "SCHEDULED";
+          statusDescription = "Survey visit confirmed";
+          appointmentInfo = scheduledDate
+            ? `${scheduledDate.toLocaleDateString(undefined, {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+              })}, ${scheduledDate.toLocaleTimeString(undefined, {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}`
+            : null;
+        }
+
         waitingForQuotes.push({
           id: `preparing-${respGroup.requestId}`,
           type: "preparing_quotes",
@@ -712,9 +834,14 @@ export default function ClientProjects() {
           location: respGroup.location,
           tertiaryText: respGroup.tertiaryText,
           trades: respGroup.preparingTrades,
-          statusDescription: preparing === 1 ? "Preparing quote" : `${preparing} preparing quotes`,
-          statusType: "QUOTE_PENDING",
+          statusDescription,
+          statusType,
           priceInfo: null,
+          // Appointment info
+          appointmentInfo,
+          appointmentStatus,
+          appointmentId: nextAppointment?.id,
+          additionalAppointmentsCount,
         });
       }
 
@@ -737,7 +864,52 @@ export default function ClientProjects() {
     });
 
     // Process open requests (no responses yet)
+    // Also check for appointments by request_id (survey appointments before quote)
     requests.forEach((req) => {
+      // Find appointments for this request (survey visits before quote exists)
+      const requestAppointments = appointments.filter((a) => a.request_id === req.id);
+      const now = new Date();
+      const upcomingAppointments = requestAppointments
+        .filter((a) => new Date(a.scheduled_at) > now)
+        .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+      const nextAppointment = upcomingAppointments[0];
+      const appointmentStatus = nextAppointment?.status?.toLowerCase();
+      const scheduledDate = nextAppointment?.scheduled_at ? new Date(nextAppointment.scheduled_at) : null;
+      const additionalAppointmentsCount = upcomingAppointments.length > 1 ? upcomingAppointments.length - 1 : 0;
+
+      let statusType = "REQUEST_SENT";
+      let statusDescription = "Waiting for trades to respond";
+      let appointmentInfo = null;
+
+      if (appointmentStatus === "proposed") {
+        // Trade proposed a survey appointment - client needs to confirm
+        statusType = "CONFIRM_VISIT";
+        statusDescription = "Survey appointment requested";
+        appointmentInfo = scheduledDate
+          ? `Survey proposed: ${scheduledDate.toLocaleDateString(undefined, {
+              day: "numeric",
+              month: "short",
+            })}, ${scheduledDate.toLocaleTimeString(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}`
+          : null;
+      } else if (appointmentStatus === "confirmed") {
+        // Survey appointment confirmed by client
+        statusType = "SCHEDULED";
+        statusDescription = "Survey visit confirmed";
+        appointmentInfo = scheduledDate
+          ? `${scheduledDate.toLocaleDateString(undefined, {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+            })}, ${scheduledDate.toLocaleTimeString(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}`
+          : null;
+      }
+
       waitingForQuotes.push({
         id: `request-${req.id}`,
         type: "request",
@@ -746,9 +918,14 @@ export default function ClientProjects() {
         location: req.postcode || null,
         tertiaryText: buildTertiaryText(req.suggested_title, req.postcode),
         trades: [], // No trades yet
-        statusDescription: "Waiting for trades to respond",
-        statusType: "REQUEST_SENT",
+        statusDescription,
+        statusType,
         priceInfo: null,
+        // Appointment info for requests with survey visits
+        appointmentInfo,
+        appointmentStatus,
+        appointmentId: nextAppointment?.id,
+        additionalAppointmentsCount,
       });
     });
 
@@ -864,9 +1041,6 @@ export default function ClientProjects() {
               minute: "2-digit",
             })}`
           : null;
-      } else {
-        // No appointment yet - waiting for trade to schedule
-        helperText = "Waiting for appointment";
       }
 
       // Calculate price from trades
@@ -921,6 +1095,9 @@ export default function ClientProjects() {
     return false;
   };
 
+  // Combined loading state - hide content during initial load OR focus refresh
+  const isLoading = initialLoading || isFocusLoading;
+
   return (
     <ThemedView style={styles.container}>
       {/* Header - Profile-style */}
@@ -956,8 +1133,14 @@ export default function ClientProjects() {
         }
         contentContainerStyle={styles.scrollContent}
       >
+        {/* Show loading indicator during initial load or focus refresh to prevent chip flicker */}
+        {isLoading && (
+          <View style={styles.loadingContainer}>
+            <ThemedText style={styles.loadingText}>Loading...</ThemedText>
+          </View>
+        )}
         {/* Needs Attention Section */}
-        {shouldShowSection("needsAttention") && projects.needsAttention.length > 0 && (
+        {!isLoading && shouldShowSection("needsAttention") && projects.needsAttention.length > 0 && (
           <>
             <SectionHeader
               title="Needs attention"
@@ -989,7 +1172,7 @@ export default function ClientProjects() {
         )}
 
         {/* Waiting for Quotes Section */}
-        {shouldShowSection("waiting") && projects.waitingForQuotes.length > 0 && (
+        {!isLoading && shouldShowSection("waiting") && projects.waitingForQuotes.length > 0 && (
           <>
             <SectionHeader
               title="Waiting for quotes"
@@ -1018,7 +1201,7 @@ export default function ClientProjects() {
         )}
 
         {/* Active Jobs Section */}
-        {shouldShowSection("active") && projects.activeJobs.length > 0 && (
+        {!isLoading && shouldShowSection("active") && projects.activeJobs.length > 0 && (
           <>
             <SectionHeader
               title="Active jobs"
@@ -1047,7 +1230,7 @@ export default function ClientProjects() {
         )}
 
         {/* Completed Section */}
-        {shouldShowSection("completed") && projects.completedProjects.length > 0 && (
+        {!isLoading && shouldShowSection("completed") && projects.completedProjects.length > 0 && (
           <>
             <SectionHeader
               title="Completed"
@@ -1072,7 +1255,7 @@ export default function ClientProjects() {
         )}
 
         {/* Empty states */}
-        {filter === "all" && counts.all === 0 && (
+        {!isLoading && filter === "all" && counts.all === 0 && (
           <EmptyState
             icon="briefcase-outline"
             title="No projects yet"
@@ -1082,7 +1265,7 @@ export default function ClientProjects() {
           />
         )}
 
-        {filter === "active" && counts.active === 0 && (
+        {!isLoading && filter === "active" && counts.active === 0 && (
           <EmptyState
             icon="checkmark-circle-outline"
             title="No active projects"
@@ -1092,7 +1275,7 @@ export default function ClientProjects() {
           />
         )}
 
-        {filter === "completed" && counts.completed === 0 && (
+        {!isLoading && filter === "completed" && counts.completed === 0 && (
           <EmptyState
             icon="archive-outline"
             title="No completed projects yet"
@@ -1249,6 +1432,17 @@ const styles = StyleSheet.create({
     color: TINT,
     fontWeight: "600",
   },
+  additionalAppointmentsHint: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 6,
+    marginLeft: 24, // Align with appointment text
+  },
+  helperText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    marginTop: 8,
+  },
   warningRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1396,5 +1590,16 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingVertical: 12,
     paddingHorizontal: 20,
+  },
+  // Loading state styles
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: "#6B7280",
   },
 });
