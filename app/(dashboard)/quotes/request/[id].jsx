@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -124,11 +125,14 @@ export default function RequestDetails() {
 
   const [req, setReq] = useState(null); // quote_requests row
   const [tgt, setTgt] = useState(null); // request_targets row for this trade (optional)
-  const [hasQuote, setHasQuote] = useState(false);
+  const [quotes, setQuotes] = useState([]); // Quotes for this request (up to 3)
   const [clientName, setClientName] = useState(null); // Client name from requester profile
 
   const [attachments, setAttachments] = useState([]); // string[] of final URLs
   const [attachmentsCount, setAttachmentsCount] = useState(0);
+
+  // Appointments for this request (survey visits before quote)
+  const [appointments, setAppointments] = useState([]);
 
   // Full-screen viewer state: open + current index
   const [viewer, setViewer] = useState({ open: false, index: 0 });
@@ -187,12 +191,12 @@ export default function RequestDetails() {
     try {
       const myId = user.id;
 
-      const [{ data: r, error: rErr }, { data: t }, { data: q }] =
+      const [{ data: r, error: rErr }, { data: t }, { data: q, error: qErr }] =
         await Promise.all([
           supabase
             .from("quote_requests")
             .select(`
-              id, details, created_at, status, claimed_by, claimed_at, budget_band, postcode, requester_id,
+              id, details, created_at, status, claimed_by, claimed_at, budget_band, postcode, requester_id, suggested_title,
               service_categories(id, name, icon),
               service_types(id, name, icon),
               property_types(id, name),
@@ -208,16 +212,18 @@ export default function RequestDetails() {
             .maybeSingle(),
           supabase
             .from("tradify_native_app_db")
-            .select("id")
+            .select("id, project_title, grand_total, status, created_at, line_items, valid_until, request_id")
             .eq("trade_id", myId)
             .eq("request_id", id)
-            .limit(1),
+            .order("created_at", { ascending: false })
+            .limit(3),
         ]);
 
       if (rErr) throw rErr;
       setReq(r || null);
       setTgt(t || null);
-      setHasQuote(!!(q && q.length));
+      // Store all quotes (up to 3)
+      setQuotes(q && q.length ? q : []);
 
       // Fetch client name from requester profile
       if (r?.requester_id) {
@@ -230,6 +236,99 @@ export default function RequestDetails() {
       }
 
       await loadAttachments(id);
+
+      // Fetch ALL appointments for this request (survey visits before quote)
+      // Try multiple methods to find appointments
+      try {
+        let appointmentsToUse = [];
+
+        // Method 1: Try rpc_trade_list_appointments
+        try {
+          const { data: allAppts, error: apptErr } = await supabase.rpc(
+            "rpc_trade_list_appointments",
+            { p_only_upcoming: false }
+          );
+
+          if (!apptErr && allAppts && allAppts.length > 0) {
+            const filtered = (Array.isArray(allAppts) ? allAppts : [])
+              .filter((a) => a.request_id === id);
+
+            if (filtered.length > 0) {
+              appointmentsToUse = filtered.map((a) => ({
+                id: a.appointment_id,
+                scheduled_at: a.scheduled_at,
+                status: a.status,
+                // Prioritize the appointment's own title (e.g., "Initial survey") over project title
+                title: a.title || a.project_title || "Survey visit",
+                location: a.postcode || a.location,
+                notes: a.notes,
+              }));
+            }
+          }
+        } catch (e) {
+          // Method 1 failed, continue to fallback
+        }
+
+        // Method 2: If Method 1 didn't find any, query appointments directly for this request
+        if (appointmentsToUse.length === 0) {
+          try {
+            const { data: directAppts, error: directErr } = await supabase
+              .from("appointments")
+              .select("*")
+              .eq("request_id", id);
+
+            if (!directErr && directAppts && directAppts.length > 0) {
+              appointmentsToUse = directAppts.map((a) => ({
+                id: a.id,
+                scheduled_at: a.scheduled_at,
+                status: a.status,
+                title: a.title || "Survey visit",
+                location: a.location,
+                notes: a.notes,
+              }));
+            }
+          } catch (e) {
+            // Method 2 failed, continue to fallback
+          }
+        }
+
+        // Method 3: If still nothing, try via rpc_get_latest_request_appointment
+        if (appointmentsToUse.length === 0) {
+          try {
+            const { data: latestAppt, error: latestErr } = await supabase.rpc(
+              "rpc_get_latest_request_appointment",
+              { p_request_id: id }
+            );
+
+            if (!latestErr && latestAppt) {
+              // Handle nested arrays like [[{...}]]
+              let appt = latestAppt;
+              while (Array.isArray(appt)) {
+                if (appt.length === 0) break;
+                appt = appt[0];
+              }
+
+              if (appt && appt.id) {
+                appointmentsToUse = [{
+                  id: appt.id,
+                  scheduled_at: appt.scheduled_at,
+                  status: appt.status,
+                  title: appt.title || "Survey visit",
+                  location: appt.location,
+                  notes: appt.notes,
+                }];
+              }
+            }
+          } catch (e) {
+            // Method 3 failed
+          }
+        }
+
+        setAppointments(appointmentsToUse);
+      } catch (apptErr) {
+        console.warn("appointments/load error:", apptErr?.message || apptErr);
+        setAppointments([]);
+      }
     } catch (e) {
       setErr(e?.message || String(e));
       setAttachments([]);
@@ -243,7 +342,26 @@ export default function RequestDetails() {
     load();
   }, [load]);
 
-  const status = (req?.status || "open").toLowerCase(); // open | claimed | declined
+  // Refresh data when screen gains focus (e.g., returning from schedule page)
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id && id) {
+        load();
+      }
+    }, [user?.id, id, load])
+  );
+
+  // Status for trade view: use request_targets.state mapped to UI labels
+  // Database states: "client_accepted" (client sent direct request), "accepted" (trade accepted),
+  // "trade_accepted" (trade accepted), "declined" (trade declined)
+  // Also check quote_requests.status for "claimed" which means trade has accepted
+  const tgtState = (tgt?.state || "").toLowerCase();
+  const reqStatus = (req?.status || "").toLowerCase();
+
+  // Trade has accepted if: tgt.state contains "accepted" OR req.status is "claimed"
+  const isAccepted = tgtState.includes("accepted") || reqStatus === "claimed";
+  const isDeclined = tgtState === "declined";
+  const status = isAccepted ? "claimed" : isDeclined ? "declined" : "open";
 
   function statusTone(s) {
     if (s === "claimed") return "active";
@@ -261,13 +379,32 @@ export default function RequestDetails() {
         onPress: async () => {
           try {
             const updated = await acceptRequest(id);
+
+            // Also update request_targets.state directly to ensure persistence
+            // The RPC may only update quote_requests, not request_targets
+            if (user?.id) {
+              const { error: tgtErr } = await supabase
+                .from("request_targets")
+                .update({ state: "accepted" })
+                .eq("request_id", id)
+                .eq("trade_id", user.id);
+              if (tgtErr) {
+                console.error("request_targets update error:", tgtErr);
+              }
+            }
+
+            // Update req with any returned data
             setReq((prev) => ({
               ...(prev || {}),
               ...updated,
-              status: "claimed",
+            }));
+            // Update tgt.state to "accepted" so status becomes "claimed"
+            setTgt((prev) => ({
+              ...(prev || {}),
+              state: "accepted",
             }));
           } catch (e) {
-            Alert.alert("Failed", e?.message || "Unable to accept this request.");
+            Alert.alert("Accept Failed", e?.message || "Unable to accept this request.");
           }
         },
       },
@@ -284,12 +421,30 @@ export default function RequestDetails() {
         onPress: async () => {
           try {
             const updated = await declineRequest(id);
+
+            // Also update request_targets.state directly to ensure persistence
+            if (user?.id) {
+              const { error: tgtErr } = await supabase
+                .from("request_targets")
+                .update({ state: "declined" })
+                .eq("request_id", id)
+                .eq("trade_id", user.id);
+              if (tgtErr) {
+                console.error("request_targets update error:", tgtErr);
+              }
+            }
+
+            // Update req with any returned data
             setReq((prev) => ({
               ...(prev || {}),
               ...updated,
-              status: "declined",
             }));
-            setHasQuote(false);
+            // Update tgt.state to "declined" so status becomes "declined"
+            setTgt((prev) => ({
+              ...(prev || {}),
+              state: "declined",
+            }));
+            setQuote(null);
           } catch (e) {
             Alert.alert("Failed", e?.message || "Unable to decline this request.");
           }
@@ -300,38 +455,73 @@ export default function RequestDetails() {
 
   const canAccept = status === "open";
   const canDecline = status === "open";
-  const canCreateQuote = status === "claimed" && !hasQuote;
+  const hasQuotes = quotes.length > 0;
+  // Can create new quote if claimed and has less than 3 quotes
+  const canCreateQuote = status === "claimed" && quotes.length < 3;
 
-  // Build titles - prioritize suggested_title for professional display
+  // Build titles - prioritize joined table data (service_categories, service_types) for accurate display
   // Skip any title that starts with "Direct request to:" as that's metadata, not a title
   const rawTitle = parsed.title || "";
   const cleanedParsedTitle = rawTitle.toLowerCase().startsWith("direct request to")
     ? null
     : rawTitle;
 
-  const baseTitle =
-    req?.suggested_title ||
-    (parsed.main && parsed.refit && `${parsed.main} – ${parsed.refit}`) ||
-    parsed.main ||
-    cleanedParsedTitle ||
-    (parsed.category && parsed.service ? `${parsed.category} - ${parsed.service}` : null) ||
-    "Project";
-
+  // Get category and service from joined tables (most reliable)
+  const categoryName = req?.service_categories?.name || parsed.category;
+  const serviceName = req?.service_types?.name || parsed.service || parsed.main;
   const out = (req?.postcode || "").toString().trim().toUpperCase();
+
+  // Build the professional title format: "Category: Service in Postcode"
+  // (When displayed with client name prefix, it becomes "ClientName's Category: Service in Postcode")
+  let baseTitle;
+  if (categoryName && serviceName) {
+    baseTitle = `${categoryName}: ${serviceName}`;
+  } else if (categoryName) {
+    baseTitle = categoryName;
+  } else if (serviceName) {
+    baseTitle = serviceName;
+  } else if (req?.suggested_title) {
+    // Fallback: parse suggested_title (format: "Category - Service")
+    const parts = req.suggested_title.split(" - ").map(s => s.trim());
+    if (parts.length >= 2) {
+      baseTitle = `${parts[0]}: ${parts.slice(1).join(" - ")}`;
+    } else {
+      baseTitle = req.suggested_title;
+    }
+  } else {
+    baseTitle = (parsed.main && parsed.refit && `${parsed.main} – ${parsed.refit}`) ||
+      parsed.main ||
+      cleanedParsedTitle ||
+      "Project";
+  }
+
   const derivedTitleForCreate = out ? `${baseTitle} in ${out}` : baseTitle;
+
+  // Build display title with client name for quote cards
+  const displayTitleWithClient = clientName
+    ? `${clientName.split(" ")[0]}'s ${derivedTitleForCreate}`
+    : derivedTitleForCreate;
+
+  // Debug logs for title building
+  console.log("[DEBUG Client Request] Title building:", JSON.stringify({
+    categoryName,
+    serviceName,
+    postcode: out,
+    baseTitle,
+    derivedTitleForCreate,
+    displayTitleWithClient,
+    clientName,
+    suggested_title: req?.suggested_title,
+  }));
 
   const hasAttachments = attachments.length > 0;
 
   return (
     <ThemedView style={styles.container}>
-      {/* Header - Shows client name with close button */}
+      {/* Header - Shows "Client Request" with close button */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <ThemedText style={styles.headerTitle}>
-              {clientName || "Client Request"}
-            </ThemedText>
-          </View>
+          <ThemedText style={styles.headerTitle}>Client Request</ThemedText>
           <Pressable
             onPress={() =>
               router.canGoBack?.() ? router.back() : router.replace("/quotes")
@@ -366,6 +556,7 @@ export default function RequestDetails() {
           contentInsetAdjustmentBehavior="always"
           keyboardShouldPersistTaps="handled"
         >
+          {/* Status chips */}
           <View style={styles.chipsRow}>
             <Chip tone="waiting" icon="information-circle">
               {(tgt?.invited_by || "").toLowerCase() === "client"
@@ -385,13 +576,273 @@ export default function RequestDetails() {
             )}
           </View>
 
-          {/* Service Details Card */}
-          <View style={styles.card}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="construct-outline" size={18} color="#6B7280" />
-              <ThemedText style={styles.sectionTitle}>Service Details</ThemedText>
-            </View>
+          {/* Actions - shown when request is open */}
+          {status === "open" && (
+            <View style={styles.actionButtonsContainer}>
+              <Pressable
+                onPress={onDecline}
+                style={styles.declineButton}
+              >
+                <ThemedText style={styles.declineButtonText}>Decline</ThemedText>
+              </Pressable>
 
+              <Pressable
+                onPress={onAccept}
+                style={styles.acceptButton}
+              >
+                <ThemedText style={styles.acceptButtonText}>Accept request</ThemedText>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Declined banner */}
+          {status === "declined" && (
+            <View style={[styles.statusBanner, styles.statusBannerDeclined]}>
+              <View style={[styles.statusBannerIcon, styles.statusBannerIconDeclined]}>
+                <Ionicons name="close-circle" size={24} color="#EF4444" />
+              </View>
+              <View style={styles.statusBannerContent}>
+                <ThemedText style={styles.statusBannerTitle}>Request declined</ThemedText>
+                <ThemedText style={styles.statusBannerSubtitle}>
+                  You have declined this request
+                </ThemedText>
+              </View>
+            </View>
+          )}
+
+          {/* Appointments Section - shown when request is claimed */}
+          {status === "claimed" && (
+            <>
+              <View style={styles.sectionHeaderRow}>
+                <ThemedText style={styles.sectionHeaderTitle}>Appointments</ThemedText>
+                <Pressable
+                  onPress={() => {
+                    router.push({
+                      pathname: "/quotes/schedule",
+                      params: {
+                        requestId: String(id || ""),
+                        title: encodeURIComponent(derivedTitleForCreate),
+                        clientName: encodeURIComponent(clientName || ""),
+                        postcode: encodeURIComponent(req?.postcode || ""),
+                      },
+                    });
+                  }}
+                  style={styles.sectionHeaderBtn}
+                  hitSlop={6}
+                >
+                  <Ionicons name="add" size={16} color={Colors.primary} />
+                  <ThemedText style={styles.sectionHeaderBtnText}>Add</ThemedText>
+                </Pressable>
+              </View>
+
+              <View style={[styles.card, { marginTop: 8 }]}>
+                {appointments.length === 0 ? (
+                  <ThemedText style={styles.emptyStateText}>No appointments scheduled</ThemedText>
+                ) : (
+                  appointments.map((appt, idx) => {
+                    const scheduledDate = new Date(appt.scheduled_at);
+                    const isProposed = appt.status === "proposed";
+                    const isConfirmed = appt.status === "confirmed";
+                    const isDeclined = appt.status === "declined";
+
+                    return (
+                      <View key={appt.id}>
+                        <View style={styles.appointmentListItem}>
+                          <View style={styles.appointmentListIconWrap}>
+                            <Ionicons
+                              name="calendar"
+                              size={18}
+                              color={isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#6B7280"}
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <ThemedText style={styles.appointmentListTitle}>
+                              {appt.title || "Survey visit"}
+                            </ThemedText>
+                            <ThemedText style={styles.appointmentListDateTime}>
+                              {scheduledDate.toLocaleDateString(undefined, {
+                                weekday: "short",
+                                day: "numeric",
+                                month: "short",
+                              })}, {scheduledDate.toLocaleTimeString(undefined, {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </ThemedText>
+                            {appt.location && (
+                              <ThemedText style={styles.appointmentListLocation}>
+                                {appt.location}
+                              </ThemedText>
+                            )}
+                          </View>
+                          <View style={[
+                            styles.appointmentListBadge,
+                            { backgroundColor: isConfirmed ? "#D1FAE5" : isProposed ? "#FEF3C7" : "#FEE2E2" }
+                          ]}>
+                            <Ionicons
+                              name={isConfirmed ? "checkmark-circle" : isProposed ? "hourglass" : "close-circle"}
+                              size={14}
+                              color={isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#EF4444"}
+                            />
+                            <ThemedText style={[
+                              styles.appointmentListBadgeText,
+                              { color: isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#EF4444" }
+                            ]}>
+                              {isConfirmed ? "Confirmed" : isProposed ? "Awaiting confirmation" : isDeclined ? "Declined" : appt.status}
+                            </ThemedText>
+                          </View>
+                        </View>
+                        {idx < appointments.length - 1 && <View style={styles.appointmentListDivider} />}
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+            </>
+          )}
+
+          {/* Quote Section - shown when request is claimed */}
+          {status === "claimed" && (
+            <>
+              <View style={styles.sectionHeaderRow}>
+                <ThemedText style={styles.sectionHeaderTitle}>Quotes</ThemedText>
+                {canCreateQuote && (
+                  <Pressable
+                    onPress={() => {
+                      router.push({
+                        pathname: "/quotes/create",
+                        params: {
+                          requestId: String(id || ""),
+                          title: encodeURIComponent(derivedTitleForCreate),
+                          lockTitle: "1",
+                        },
+                      });
+                    }}
+                    style={styles.sectionHeaderBtn}
+                    hitSlop={6}
+                  >
+                    <Ionicons name="add" size={16} color={Colors.primary} />
+                    <ThemedText style={styles.sectionHeaderBtnText}>
+                      {hasQuotes ? "New" : "Create"}
+                    </ThemedText>
+                  </Pressable>
+                )}
+              </View>
+
+              <View style={[styles.card, { marginTop: 8 }]}>
+                {!hasQuotes ? (
+                  <ThemedText style={styles.emptyStateText}>No quote yet</ThemedText>
+                ) : (
+                  <View style={{ gap: 16 }}>
+                    {quotes.map((quote, quoteIdx) => (
+                      <View key={quote.id}>
+                        {/* Divider between quotes */}
+                        {quoteIdx > 0 && <View style={styles.quoteDivider} />}
+
+                        {quote.status === "draft" ? (
+                          /* Draft quote - show detailed preview card */
+                          <View>
+                            {/* Header with status */}
+                            <View style={styles.draftQuoteHeader}>
+                              <View style={styles.draftQuoteHeaderLeft}>
+                                <View style={styles.draftQuoteBadge}>
+                                  <Ionicons name="create-outline" size={12} color="#F59E0B" />
+                                  <ThemedText style={styles.draftQuoteBadgeText}>Draft</ThemedText>
+                                </View>
+                                <ThemedText style={styles.draftQuoteTitle}>
+                                  {displayTitleWithClient}
+                                </ThemedText>
+                              </View>
+                            </View>
+
+                            {/* Line items preview */}
+                            {quote.line_items && Array.isArray(quote.line_items) && quote.line_items.length > 0 && (
+                              <View style={styles.draftQuoteItems}>
+                                {quote.line_items.slice(0, 3).map((item, idx) => (
+                                  <View key={idx} style={styles.draftQuoteItemRow}>
+                                    <ThemedText style={styles.draftQuoteItemName} numberOfLines={1}>
+                                      {item.description || item.name || `Item ${idx + 1}`}
+                                    </ThemedText>
+                                    <ThemedText style={styles.draftQuoteItemPrice}>
+                                      £{Number(item.total || item.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </ThemedText>
+                                  </View>
+                                ))}
+                                {quote.line_items.length > 3 && (
+                                  <ThemedText style={styles.draftQuoteMoreItems}>
+                                    +{quote.line_items.length - 3} more item{quote.line_items.length - 3 !== 1 ? 's' : ''}
+                                  </ThemedText>
+                                )}
+                              </View>
+                            )}
+
+                            {/* Total */}
+                            <View style={styles.draftQuoteTotalRow}>
+                              <ThemedText style={styles.draftQuoteTotalLabel}>Total</ThemedText>
+                              <ThemedText style={styles.draftQuoteTotalValue}>
+                                £{Number(quote.grand_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </ThemedText>
+                            </View>
+
+                            {/* Edit button */}
+                            <View style={styles.quoteDraftActions}>
+                              <Pressable
+                                onPress={() => {
+                                  router.push({
+                                    pathname: "/quotes/create",
+                                    params: {
+                                      quoteId: quote.id,
+                                      requestId: String(id || ""),
+                                    },
+                                  });
+                                }}
+                                style={styles.quoteDraftEditBtn}
+                              >
+                                <Ionicons name="create-outline" size={16} color="#FFF" />
+                                <ThemedText style={styles.quoteDraftEditText}>Edit Quote</ThemedText>
+                              </Pressable>
+                            </View>
+                          </View>
+                        ) : (
+                          /* Sent/accepted quotes - show simple row */
+                          <Pressable
+                            onPress={() => router.push(`/quotes/${quote.id}`)}
+                            style={styles.quoteSummaryRow}
+                          >
+                            <View style={styles.quoteSummaryIcon}>
+                              <Ionicons name="document-text" size={20} color={Colors.primary} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <ThemedText style={styles.quoteSummaryTitle}>
+                                {displayTitleWithClient}
+                              </ThemedText>
+                              <ThemedText style={styles.quoteSummaryStatus}>
+                                {quote.status === "sent" ? "Sent to client" :
+                                 quote.status === "accepted" ? "Accepted" :
+                                 quote.status === "declined" ? "Declined" : quote.status}
+                              </ThemedText>
+                            </View>
+                            {quote.grand_total != null && (
+                              <ThemedText style={styles.quoteSummaryTotal}>
+                                £{Number(quote.grand_total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </ThemedText>
+                            )}
+                            <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+                          </Pressable>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </>
+          )}
+
+          {/* Service Details Card */}
+          <View style={styles.sectionHeaderRow}>
+            <ThemedText style={styles.sectionHeaderTitle}>Service Details</ThemedText>
+          </View>
+          <View style={[styles.card, { marginTop: 8 }]}>
             {/* Category - from joined table or parsed */}
             <View style={styles.kvRow}>
               <ThemedText style={styles.kvKey}>Category</ThemedText>
@@ -424,7 +875,7 @@ export default function RequestDetails() {
               </ThemedText>
             </View>
 
-            {/* Location if available */}
+            {/* Location - postcode */}
             {!!req?.postcode && (
               <View style={styles.kvRow}>
                 <ThemedText style={styles.kvKey}>Location</ThemedText>
@@ -478,17 +929,15 @@ export default function RequestDetails() {
           </View>
 
           {/* Photos Card - horizontally scrollable */}
-          <View style={styles.card}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="images-outline" size={18} color="#6B7280" />
-              <ThemedText style={styles.sectionTitle}>Photos</ThemedText>
-              {attachmentsCount > 0 && (
-                <View style={styles.photoCountBadge}>
-                  <ThemedText style={styles.photoCountText}>{attachmentsCount}</ThemedText>
-                </View>
-              )}
-            </View>
-
+          <View style={styles.sectionHeaderRow}>
+            <ThemedText style={styles.sectionHeaderTitle}>Photos</ThemedText>
+            {attachmentsCount > 0 && (
+              <View style={styles.photoCountBadge}>
+                <ThemedText style={styles.photoCountText}>{attachmentsCount}</ThemedText>
+              </View>
+            )}
+          </View>
+          <View style={[styles.card, { marginTop: 8 }]}>
             {hasAttachments ? (
               <ScrollView
                 horizontal
@@ -513,96 +962,9 @@ export default function RequestDetails() {
                 ))}
               </ScrollView>
             ) : (
-              <View style={styles.noPhotosContainer}>
-                <Ionicons name="camera-outline" size={32} color="#D1D5DB" />
-                <ThemedText style={styles.noPhotosText}>No photos attached</ThemedText>
-              </View>
+              <ThemedText style={styles.emptyStateText}>No photos attached</ThemedText>
             )}
           </View>
-
-          {/* Request Info Card */}
-          <View style={styles.card}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="time-outline" size={18} color="#6B7280" />
-              <ThemedText style={styles.sectionTitle}>Request Info</ThemedText>
-            </View>
-            <View style={styles.kvRow}>
-              <ThemedText style={styles.kvKey}>Submitted</ThemedText>
-              <ThemedText style={styles.kvVal}>
-                {new Date(req.created_at).toLocaleDateString("en-GB", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </ThemedText>
-            </View>
-            {!!req?.budget_band && (
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Budget</ThemedText>
-                <ThemedText style={styles.kvVal}>{req.budget_band}</ThemedText>
-              </View>
-            )}
-          </View>
-
-          {/* Actions - Airbnb/Notion style */}
-          {status === "open" && (
-            <View style={styles.actionButtonsContainer}>
-              <Pressable
-                onPress={onDecline}
-                style={styles.declineButton}
-              >
-                <ThemedText style={styles.declineButtonText}>Decline</ThemedText>
-              </Pressable>
-
-              <Pressable
-                onPress={onAccept}
-                style={styles.acceptButton}
-              >
-                <ThemedText style={styles.acceptButtonText}>Accept request</ThemedText>
-              </Pressable>
-            </View>
-          )}
-
-
-          {status === "declined" && (
-            <View style={[styles.statusBanner, styles.statusBannerDeclined]}>
-              <View style={[styles.statusBannerIcon, styles.statusBannerIconDeclined]}>
-                <Ionicons name="close-circle" size={24} color="#EF4444" />
-              </View>
-              <View style={styles.statusBannerContent}>
-                <ThemedText style={styles.statusBannerTitle}>Request declined</ThemedText>
-                <ThemedText style={styles.statusBannerSubtitle}>
-                  You have declined this request
-                </ThemedText>
-              </View>
-            </View>
-          )}
-
-          {canCreateQuote && (
-            <View style={styles.createQuoteContainer}>
-              <Pressable
-                onPress={() => {
-                  router.push({
-                    pathname: "/quotes/create",
-                    params: {
-                      requestId: String(id || ""),
-                      title: encodeURIComponent(derivedTitleForCreate),
-                      lockTitle: "1",
-                    },
-                  });
-                }}
-                style={styles.createQuoteButton}
-                hitSlop={8}
-              >
-                <Ionicons name="document-text-outline" size={20} color="#fff" />
-                <ThemedText style={styles.createQuoteButtonText}>
-                  Create quote
-                </ThemedText>
-              </Pressable>
-            </View>
-          )}
         </ScrollView>
       )}
 
@@ -691,7 +1053,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: "#F9FAFB",
     paddingHorizontal: 20,
-    paddingBottom: 6,
+    paddingBottom: 12,
   },
   headerRow: {
     flexDirection: "row",
@@ -703,11 +1065,18 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#111827",
   },
-  headerSubtitle: {
-    fontSize: 15,
-    fontWeight: "500",
+  headerInfo: {
+    marginTop: 8,
+  },
+  headerInfoText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  headerInfoSubtext: {
+    fontSize: 14,
     color: "#6B7280",
-    marginTop: 4,
+    marginTop: 2,
   },
   closeButton: {
     padding: 4,
@@ -895,24 +1264,221 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // Create quote button
-  createQuoteContainer: {
-    marginTop: 16,
+  // Section header row (Appointments, Quote, Service Details, Photos)
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 24,
     marginHorizontal: 16,
   },
-  createQuoteButton: {
+  sectionHeaderTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  sectionHeaderBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+  },
+  sectionHeaderBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Colors.primary,
+  },
+
+  // Empty state text
+  emptyStateText: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    textAlign: "center",
+    paddingVertical: 16,
+  },
+
+  // Quote summary row
+  quoteSummaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 4,
+  },
+  quoteSummaryIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quoteSummaryTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  quoteSummaryStatus: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  quoteSummaryTotal: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+    marginRight: 4,
+  },
+  quoteDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginBottom: 16,
+  },
+
+  // Draft quote preview card
+  draftQuoteHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  draftQuoteHeaderLeft: {
+    flex: 1,
+    gap: 6,
+  },
+  draftQuoteBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignSelf: "flex-start",
+  },
+  draftQuoteBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#F59E0B",
+  },
+  draftQuoteTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  draftQuoteItems: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+    marginBottom: 12,
+  },
+  draftQuoteItemRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  draftQuoteItemName: {
+    flex: 1,
+    fontSize: 14,
+    color: "#374151",
+    marginRight: 12,
+  },
+  draftQuoteItemPrice: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  draftQuoteMoreItems: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontStyle: "italic",
+    marginTop: 4,
+  },
+  draftQuoteTotalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+  },
+  draftQuoteTotalLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  draftQuoteTotalValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  // Draft quote actions
+  quoteDraftActions: {
+    marginTop: 12,
+  },
+  quoteDraftEditBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 14,
-    borderRadius: 12,
     backgroundColor: Colors.primary,
+    paddingVertical: 12,
+    borderRadius: 10,
   },
-  createQuoteButtonText: {
-    fontSize: 16,
+  quoteDraftEditText: {
+    fontSize: 15,
     fontWeight: "600",
-    color: "#fff",
+    color: "#FFF",
+  },
+
+  // Appointments list styles
+  appointmentListItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingVertical: 8,
+  },
+  appointmentListIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  appointmentListTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  appointmentListDateTime: {
+    fontSize: 14,
+    color: "#374151",
+  },
+  appointmentListLocation: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  appointmentListBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  appointmentListBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  appointmentListDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: 12,
   },
 
   // modal
