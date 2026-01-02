@@ -12,6 +12,7 @@ import {
 import ImageViewing from "react-native-image-viewing";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -120,6 +121,10 @@ export default function ClientRequestDetails() {
   const [attachments, setAttachments] = useState([]);
   const [attachmentsCount, setAttachmentsCount] = useState(0);
 
+  // Appointments for this request (survey visits)
+  const [appointments, setAppointments] = useState([]);
+  const [apptBusy, setApptBusy] = useState(false);
+
   const [viewer, setViewer] = useState({ open: false, index: 0 });
 
   const closeViewer = useCallback(() => {
@@ -204,6 +209,21 @@ export default function ClientRequestDetails() {
       }
 
       await loadAttachments(id);
+
+      // Fetch appointments for this request (survey visits before quote exists)
+      try {
+        const { data: apptData, error: apptErr } = await supabase
+          .from("appointments")
+          .select("id, request_id, quote_id, scheduled_at, title, status, location")
+          .eq("request_id", id)
+          .order("scheduled_at", { ascending: true });
+
+        if (!apptErr && apptData) {
+          setAppointments(apptData);
+        }
+      } catch (apptErr) {
+        console.warn("appointments/load error:", apptErr?.message || apptErr);
+      }
     } catch (e) {
       setErr(e?.message || String(e));
       setAttachments([]);
@@ -217,8 +237,100 @@ export default function ClientRequestDetails() {
     load();
   }, [load]);
 
+  // Refresh data when screen gains focus (e.g., after confirming/declining appointment)
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id && id) {
+        load();
+      }
+    }, [user?.id, id, load])
+  );
+
   const status = (req?.status || "open").toLowerCase();
   const tradeName = targetTrade?.business_name || targetTrade?.full_name || parsed.directTo;
+
+  // Appointment handlers
+  const handleConfirmAppointment = async (appointmentId) => {
+    if (apptBusy) return;
+
+    Alert.alert(
+      "Accept this appointment?",
+      "This will confirm the appointment with the tradesperson.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Accept",
+          style: "default",
+          onPress: async () => {
+            try {
+              setApptBusy(true);
+
+              const { error } = await supabase.rpc(
+                "rpc_client_respond_appointment",
+                {
+                  p_appointment_id: appointmentId,
+                  p_response: "accepted",
+                }
+              );
+
+              if (error) {
+                Alert.alert("Error", error.message || "Could not confirm appointment");
+                return;
+              }
+
+              // Reload appointments
+              load();
+            } catch (e) {
+              Alert.alert("Error", e?.message || "Something went wrong");
+            } finally {
+              setApptBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeclineAppointment = async (appointmentId) => {
+    if (apptBusy) return;
+
+    Alert.alert(
+      "Decline this appointment?",
+      "This will notify the tradesperson that you declined this appointment.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Decline",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setApptBusy(true);
+
+              const { error } = await supabase.rpc(
+                "rpc_client_respond_appointment",
+                {
+                  p_appointment_id: appointmentId,
+                  p_response: "declined",
+                }
+              );
+
+              if (error) {
+                Alert.alert("Error", error.message || "Could not decline appointment");
+                return;
+              }
+
+              // Reload appointments
+              load();
+            } catch (e) {
+              Alert.alert("Error", e?.message || "Something went wrong");
+            } finally {
+              setApptBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   function statusTone(s) {
     if (s === "claimed") return "active";
@@ -291,6 +403,92 @@ export default function ClientRequestDetails() {
               <Chip tone="negative" icon="warning">Emergency</Chip>
             )}
           </View>
+
+          {/* Appointments Section - shown if any appointments exist */}
+          {appointments.length > 0 && (
+            <>
+              <View style={styles.sectionHeaderRow}>
+                <ThemedText style={styles.sectionHeaderTitle}>Appointments</ThemedText>
+              </View>
+
+              {appointments.map((appt) => {
+                const scheduledDate = new Date(appt.scheduled_at);
+                const isProposed = appt.status === "proposed";
+                const isConfirmed = appt.status === "confirmed";
+                const isDeclined = appt.status === "declined";
+
+                return (
+                  <View key={appt.id} style={styles.appointmentCard}>
+                    {/* Appointment name prominent */}
+                    <ThemedText style={styles.appointmentCardTitle}>
+                      {appt.title || "Survey Visit"}
+                    </ThemedText>
+
+                    {/* Date/time on one line */}
+                    <View style={styles.appointmentCardRow}>
+                      <Ionicons name="calendar-outline" size={16} color="#6B7280" />
+                      <ThemedText style={styles.appointmentCardText}>
+                        {scheduledDate.toLocaleDateString(undefined, {
+                          weekday: "short",
+                          day: "numeric",
+                          month: "short",
+                        })}, {scheduledDate.toLocaleTimeString(undefined, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </ThemedText>
+                    </View>
+
+                    {/* Location on separate line */}
+                    {appt.location && (
+                      <View style={styles.appointmentCardRow}>
+                        <Ionicons name="location-outline" size={16} color="#6B7280" />
+                        <ThemedText style={styles.appointmentCardText}>
+                          {appt.location}
+                        </ThemedText>
+                      </View>
+                    )}
+
+                    {/* Accept/Decline buttons for proposed appointments */}
+                    {isProposed && (
+                      <View style={styles.appointmentCardActions}>
+                        <Pressable
+                          onPress={() => handleDeclineAppointment(appt.id)}
+                          style={styles.appointmentDeclineBtn}
+                          disabled={apptBusy}
+                        >
+                          <ThemedText style={styles.appointmentDeclineBtnText}>Decline</ThemedText>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => handleConfirmAppointment(appt.id)}
+                          style={styles.appointmentAcceptBtn}
+                          disabled={apptBusy}
+                        >
+                          <ThemedText style={styles.appointmentAcceptBtnText}>Accept</ThemedText>
+                        </Pressable>
+                      </View>
+                    )}
+
+                    {/* Confirmed status */}
+                    {isConfirmed && (
+                      <View style={styles.appointmentCardStatus}>
+                        <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                        <ThemedText style={styles.appointmentCardStatusText}>Confirmed</ThemedText>
+                      </View>
+                    )}
+
+                    {/* Declined status */}
+                    {isDeclined && (
+                      <View style={styles.appointmentCardStatus}>
+                        <Ionicons name="close-circle" size={16} color="#EF4444" />
+                        <ThemedText style={[styles.appointmentCardStatusText, { color: "#EF4444" }]}>Declined</ThemedText>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </>
+          )}
 
           {/* Service Details Card */}
           <View style={styles.card}>
@@ -435,7 +633,7 @@ export default function ClientRequestDetails() {
           </View>
 
           {/* Status info banner */}
-          {status === "open" && (
+          {status === "open" && appointments.length === 0 && (
             <View style={styles.statusBanner}>
               <View style={styles.statusBannerIcon}>
                 <Ionicons name="hourglass" size={24} color="#3B82F6" />
@@ -620,5 +818,93 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#6B7280",
     marginTop: 2,
+  },
+  // Section header row
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 24,
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  sectionHeaderTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  // Appointment card styles - new design
+  appointmentCard: {
+    marginTop: 8,
+    marginHorizontal: 16,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  appointmentCardTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 12,
+  },
+  appointmentCardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  appointmentCardText: {
+    fontSize: 15,
+    color: "#374151",
+  },
+  appointmentCardActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+  },
+  appointmentDeclineBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#F3F4F6",
+  },
+  appointmentDeclineBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  appointmentAcceptBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#10B981",
+  },
+  appointmentAcceptBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  appointmentCardStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 12,
+  },
+  appointmentCardStatusText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#10B981",
   },
 });

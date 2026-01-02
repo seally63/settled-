@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -238,19 +239,37 @@ export default function TradesmanProjects() {
       // Fetch appointments for these quotes
       const quoteIds = (quotes || []).map((q) => q.id);
       let appointmentsByQuote = {};
-      if (quoteIds.length) {
-        const { data: apptData } = await supabase
-          .from("appointments")
-          .select("id, quote_id, scheduled_at, title, status, location")
-          .in("quote_id", quoteIds)
-          .order("scheduled_at", { ascending: true });
+      let appointmentsByRequest = {};
 
-        (apptData || []).forEach((a) => {
-          if (!appointmentsByQuote[a.quote_id]) appointmentsByQuote[a.quote_id] = [];
-          appointmentsByQuote[a.quote_id].push(a);
-        });
-        setAppointments(apptData || []);
-      }
+      // Fetch all appointments using RPC (bypasses RLS issues)
+      const { data: apptData } = await supabase.rpc("rpc_trade_list_appointments", {
+        p_only_upcoming: false,
+      });
+
+      (apptData || []).forEach((a) => {
+        // Normalize field names from RPC (appointment_id -> id)
+        const normalized = {
+          id: a.appointment_id || a.id,
+          quote_id: a.quote_id,
+          request_id: a.request_id,
+          scheduled_at: a.scheduled_at,
+          title: a.title || a.project_title,
+          status: a.status,
+          location: a.postcode || a.job_outcode,
+        };
+
+        // Index by quote_id if available
+        if (normalized.quote_id) {
+          if (!appointmentsByQuote[normalized.quote_id]) appointmentsByQuote[normalized.quote_id] = [];
+          appointmentsByQuote[normalized.quote_id].push(normalized);
+        }
+        // Also index by request_id for inbox items
+        if (normalized.request_id) {
+          if (!appointmentsByRequest[normalized.request_id]) appointmentsByRequest[normalized.request_id] = [];
+          appointmentsByRequest[normalized.request_id].push(normalized);
+        }
+      });
+      setAppointments(apptData || []);
 
       // INBOX (no quote created yet)
       const inbox = (targets || [])
@@ -264,6 +283,15 @@ export default function TradesmanProjects() {
           const contactInfo = clientContactByRequestId[t.request_id] || {};
           const clientFullName = contactInfo.name || clientNameByRequestId[t.request_id] || null;
           const contactUnlocked = contactInfo.contact_unlocked || false;
+
+          // Get appointments for this request (survey appointments before quote exists)
+          const requestAppointments = appointmentsByRequest[t.request_id] || [];
+          const now = new Date();
+          const upcomingAppointments = requestAppointments
+            .filter((a) => new Date(a.scheduled_at) > now)
+            .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+          const nextAppointment = upcomingAppointments[0] || null;
+          const additionalAppointmentsCount = upcomingAppointments.length > 1 ? upcomingAppointments.length - 1 : 0;
 
           return {
             request_id: t.request_id,
@@ -283,6 +311,10 @@ export default function TradesmanProjects() {
             clientName: getClientDisplayName(clientFullName, contactUnlocked),
             clientPostcode: contactInfo.postcode || r?.postcode || null,
             contactUnlocked,
+            // Appointment info (for surveys before quote)
+            nextAppointment,
+            hasAppointments: requestAppointments.length > 0,
+            additionalAppointmentsCount,
           };
         });
 
@@ -304,9 +336,16 @@ export default function TradesmanProjects() {
         const daysSinceIssued = issuedAt ? daysSince(issuedAt) : 0;
         const clientNotResponding = q.status === "sent" && daysSinceIssued >= 7;
 
-        // Get appointments for this quote
+        // Get appointments for this quote (or request if no quote-linked appointments)
         const quoteAppointments = appointmentsByQuote[q.id] || [];
-        const nextAppointment = quoteAppointments.find((a) => new Date(a.scheduled_at) > new Date());
+        const requestAppointments = appointmentsByRequest[q.request_id] || [];
+        const allAppointments = quoteAppointments.length > 0 ? quoteAppointments : requestAppointments;
+        const now = new Date();
+        const upcomingAppointments = allAppointments
+          .filter((a) => new Date(a.scheduled_at) > now)
+          .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+        const nextAppointment = upcomingAppointments[0] || null;
+        const additionalAppointmentsCount = upcomingAppointments.length > 1 ? upcomingAppointments.length - 1 : 0;
 
         // Get client contact info (privacy-aware)
         const contactInfo = clientContactByRequestId[q.request_id] || {};
@@ -342,7 +381,8 @@ export default function TradesmanProjects() {
           clientNotResponding,
           // Appointment info
           nextAppointment,
-          hasAppointments: quoteAppointments.length > 0,
+          hasAppointments: allAppointments.length > 0,
+          additionalAppointmentsCount,
         };
       });
 
@@ -362,6 +402,15 @@ export default function TradesmanProjects() {
       setLoading(false);
     }
   }, [user?.id]);
+
+  // Refresh data when screen gains focus (e.g., returning from schedule page)
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) {
+        load();
+      }
+    }, [user?.id, load])
+  );
 
   useEffect(() => {
     if (!user?.id) return;
@@ -585,7 +634,10 @@ function daysSince(date) {
 function ProjectCard({ project, onPress, onAction, onMessage, router }) {
   const isInbox = project.type === "inbox";
   const displayStatus = project.displayStatus || "pending";
-  const showActionButtons = !isInbox && (displayStatus === "in_progress" || displayStatus === "scheduled" || displayStatus === "sent" || displayStatus === "awaiting");
+  const hasAppointment = !!project.nextAppointment;
+  // Show action buttons for: quotes (sent/active/scheduled), OR inbox items with appointments
+  const showActionButtons = (!isInbox && (displayStatus === "in_progress" || displayStatus === "scheduled" || displayStatus === "sent" || displayStatus === "awaiting")) ||
+                           (isInbox && hasAppointment);
 
   // Determine chip label and tone based on context for TRADES view
   let chipLabel = "";
@@ -598,15 +650,29 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
       chipLabel = "Declined";
       chipTone = "negative";
     } else {
-      // New request that needs quote sent
-      const daysOld = daysSince(project.invited_at || project.created_at);
-      if (daysOld === 0) {
-        chipLabel = "New Request";
-        chipTone = "waiting";
-        chipIcon = "sparkles";
-      } else {
-        chipLabel = "Send Quote";
+      // Check for appointments on inbox items (surveys before quote)
+      const apptStatus = project.nextAppointment?.status?.toLowerCase();
+      if (apptStatus === "proposed") {
+        // Appointment proposed, waiting for client confirmation
+        chipLabel = "Visit Pending";
         chipTone = "action";
+        chipIcon = "hourglass";
+      } else if (apptStatus === "confirmed") {
+        // Appointment confirmed by client
+        chipLabel = "Scheduled";
+        chipTone = "active";
+        chipIcon = "calendar";
+      } else {
+        // No appointment yet - show based on request age
+        const daysOld = daysSince(project.invited_at || project.created_at);
+        if (daysOld === 0) {
+          chipLabel = "New Request";
+          chipTone = "waiting";
+          chipIcon = "sparkles";
+        } else {
+          chipLabel = "Send Quote";
+          chipTone = "action";
+        }
       }
     }
   } else {
@@ -714,7 +780,7 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
           </View>
         )}
 
-        {/* Appointment info for accepted quotes */}
+        {/* Appointment info for quotes and inbox items */}
         {project.nextAppointment && (
           <View style={styles.appointmentInfo}>
             <Ionicons
@@ -729,7 +795,7 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
                 fontWeight: "600"
               }
             ]}>
-              {project.nextAppointment.status === "proposed" ? "Proposed: " : ""}
+              {project.nextAppointment.title ? `${project.nextAppointment.title}: ` : (project.nextAppointment.status === "proposed" ? "Proposed: " : "Survey: ")}
               {new Date(project.nextAppointment.scheduled_at).toLocaleDateString(undefined, {
                 weekday: "short",
                 day: "numeric",
@@ -743,6 +809,13 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
               )}
             </ThemedText>
           </View>
+        )}
+
+        {/* Additional appointments hint */}
+        {project.additionalAppointmentsCount > 0 && (
+          <ThemedText style={styles.additionalAppointmentsHint}>
+            +{project.additionalAppointmentsCount} more visit{project.additionalAppointmentsCount !== 1 ? 's' : ''} scheduled
+          </ThemedText>
         )}
 
         {/* Alerts/Warnings */}
@@ -813,33 +886,66 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
         </>
       )}
 
-      {/* Edit Quote button for draft quotes */}
+      {/* Action buttons for draft quotes: Message icon + View Details + Edit Quote */}
       {!isInbox && displayStatus === "pending" && project.status === "draft" && (
         <>
           <Spacer height={12} />
-          <Pressable
-            style={styles.primaryActionBtn}
-            onPress={(e) => {
-              e.stopPropagation();
-              if (router && project.id) {
-                router.push({
-                  pathname: "/quotes/create",
-                  params: {
-                    quoteId: project.id,
-                    requestId: project.request_id || "",
-                  },
-                });
-              }
-            }}
-          >
-            <Ionicons name="create-outline" size={16} color="#FFF" />
-            <ThemedText style={styles.primaryActionText}>Edit Quote</ThemedText>
-            <Ionicons name="arrow-forward" size={16} color="#FFF" />
-          </Pressable>
+          <View style={styles.cardActionsThree}>
+            {/* Message icon button */}
+            <Pressable
+              style={styles.actionBtnIcon}
+              onPress={(e) => {
+                e.stopPropagation();
+                if (project.request_id && router) {
+                  router.push({
+                    pathname: "/(dashboard)/messages/[id]",
+                    params: {
+                      id: String(project.request_id),
+                      name: project.clientName || "",
+                      quoteId: project.id ? String(project.id) : "",
+                      returnTo: "/quotes",
+                    },
+                  });
+                }
+              }}
+            >
+              <Ionicons name="chatbubble-outline" size={18} color="#374151" />
+            </Pressable>
+            {/* View Details button - goes to Client Request page */}
+            <Pressable
+              style={[styles.actionBtn, styles.actionBtnSecondary, { flex: 1 }]}
+              onPress={(e) => {
+                e.stopPropagation();
+                if (router && project.request_id) {
+                  router.push(`/quotes/request/${project.request_id}`);
+                }
+              }}
+            >
+              <ThemedText style={styles.actionBtnTextSecondary}>View Details</ThemedText>
+            </Pressable>
+            {/* Edit Quote button - goes directly to draft editor */}
+            <Pressable
+              style={[styles.actionBtn, styles.actionBtnPrimary, { flex: 1 }]}
+              onPress={(e) => {
+                e.stopPropagation();
+                if (router && project.id) {
+                  router.push({
+                    pathname: "/quotes/create",
+                    params: {
+                      quoteId: project.id,
+                      requestId: project.request_id || "",
+                    },
+                  });
+                }
+              }}
+            >
+              <ThemedText style={styles.actionBtnTextPrimary}>Edit Quote</ThemedText>
+            </Pressable>
+          </View>
         </>
       )}
 
-      {/* Action buttons for sent/active quotes (Message + View Details/Schedule) */}
+      {/* Action buttons for sent/active quotes and inbox items with appointments (Message + View Details) */}
       {showActionButtons && (
         <>
           <Spacer height={12} />
@@ -854,7 +960,7 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
                     params: {
                       id: String(project.request_id),
                       name: project.clientName || "",
-                      quoteId: String(project.id),
+                      quoteId: project.id ? String(project.id) : "",
                       returnTo: "/quotes",
                     },
                   });
@@ -867,23 +973,17 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
               style={[styles.actionBtn, styles.actionBtnPrimary]}
               onPress={(e) => {
                 e.stopPropagation();
-                // For accepted quotes (in_progress/scheduled), go directly to schedule page
-                if ((displayStatus === "in_progress" || displayStatus === "scheduled") && project.id && router) {
-                  router.push({
-                    pathname: "/quotes/[id]",
-                    params: {
-                      id: String(project.id),
-                      openSchedule: "true",
-                    },
-                  });
-                } else {
-                  onPress?.();
+                // Navigate to appropriate details page
+                if (isInbox) {
+                  // Inbox items go to request details
+                  router.push(`/quotes/request/${project.request_id}`);
+                } else if (project.id) {
+                  // Quotes go to quote details
+                  router.push(`/quotes/${project.id}`);
                 }
               }}
             >
-              <ThemedText style={styles.actionBtnTextPrimary}>
-                {displayStatus === "in_progress" || displayStatus === "scheduled" ? "Schedule" : "View Details"}
-              </ThemedText>
+              <ThemedText style={styles.actionBtnTextPrimary}>View Details</ThemedText>
             </Pressable>
           </View>
         </>
@@ -963,15 +1063,9 @@ function ActiveProjectsSection({ needsAction, activeQuotes, router }) {
                 onPress={() => {
                   if (project.type === "inbox") {
                     router.push(`/quotes/request/${project.request_id}`);
-                  } else if (project.status === "draft") {
-                    // Drafts go to edit screen
-                    router.push({
-                      pathname: "/quotes/create",
-                      params: {
-                        quoteId: project.id,
-                        requestId: project.request_id || "",
-                      },
-                    });
+                  } else if (project.status === "draft" && project.request_id) {
+                    // Drafts go to Client Request page where they can see the draft card
+                    router.push(`/quotes/request/${project.request_id}`);
                   } else {
                     router.push(`/quotes/${project.id}`);
                   }
@@ -1009,16 +1103,9 @@ function CompletedProjects({ data, router }) {
           project={project}
           router={router}
           onPress={() => {
-            // Draft quotes go to edit screen, others go to overview
-            if (project.status === "draft") {
-              router.push({
-                pathname: "/quotes/create",
-                params: {
-                  quoteId: project.id,
-                  requestId: project.requestId || "",
-                  title: project.title || "",
-                },
-              });
+            // Draft quotes go to Client Request page, others go to overview
+            if (project.status === "draft" && project.request_id) {
+              router.push(`/quotes/request/${project.request_id}`);
             } else {
               router.push(`/quotes/${project.id}`);
             }
@@ -1287,6 +1374,12 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 4,
   },
+  additionalAppointmentsHint: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 4,
+    marginLeft: 20, // Align with appointment text
+  },
 
   // Meta text
   metaText: {
@@ -1316,6 +1409,22 @@ const styles = StyleSheet.create({
   cardActions: {
     flexDirection: "row",
     gap: 8,
+  },
+  // Card action buttons for 3-button layout (Message icon + View Details + Edit Quote)
+  cardActionsThree: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  actionBtnIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
   },
   actionBtn: {
     flex: 1,
