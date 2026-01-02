@@ -151,8 +151,8 @@ export default function QuoteDetails() {
       : ""
   );
 
-  // Appointment (DB-backed)
-  const [appointment, setAppointment] = useState(null);
+  // Appointments (DB-backed) - now an array for multiple appointments
+  const [appointments, setAppointments] = useState([]);
   const [apptLoading, setApptLoading] = useState(false);
   const [apptBusy, setApptBusy] = useState(false);
 
@@ -302,13 +302,14 @@ export default function QuoteDetails() {
           }
         }
 
-        // 4) Load latest appointment (RPC)
+        // 4) Load ALL appointments for this request
         try {
           setApptLoading(true);
-          const { data: apptData, error: apptErr } =
-            await supabase.rpc("rpc_get_latest_request_appointment", {
-              p_request_id: reqId,
-            });
+          const { data: apptData, error: apptErr } = await supabase
+            .from("appointments")
+            .select("id, request_id, quote_id, scheduled_at, title, status, location")
+            .eq("request_id", reqId)
+            .order("scheduled_at", { ascending: true });
 
           if (!mounted) return;
 
@@ -317,15 +318,14 @@ export default function QuoteDetails() {
               "appointment load error",
               apptErr.message || apptErr
             );
-            setAppointment(null);
+            setAppointments([]);
           } else {
-            const appt = Array.isArray(apptData) ? apptData[0] : apptData;
-            setAppointment(appt || null);
+            setAppointments(apptData || []);
           }
         } catch (e) {
           if (mounted) {
             console.warn("appointment load error", e?.message || e);
-            setAppointment(null);
+            setAppointments([]);
           }
         } finally {
           if (mounted) setApptLoading(false);
@@ -390,13 +390,13 @@ export default function QuoteDetails() {
 
   // Auto-open scheduling page if navigated with openSchedule=true
   useEffect(() => {
-    if (shouldOpenSchedule && !loading && quote && !appointment) {
+    if (shouldOpenSchedule && !loading && quote && appointments.length === 0) {
       const quoteStatus = String(quote?.status || "").toLowerCase();
       if (quoteStatus === "accepted" && userRole === "trades") {
         openSchedulePage();
       }
     }
-  }, [shouldOpenSchedule, loading, quote, appointment, userRole]);
+  }, [shouldOpenSchedule, loading, quote, appointments, userRole]);
 
   const items = useMemo(
     () => (Array.isArray(quote?.line_items) ? quote.line_items : []),
@@ -436,6 +436,19 @@ export default function QuoteDetails() {
     otherAvatar && otherAvatar.trim() ? otherAvatar : null;
 
   const avatarInitials = getInitials(displayName);
+
+  // Get the first (latest) appointment for hero display
+  const appointment = appointments.length > 0 ? appointments[0] : null;
+  const hasExistingAppointment = appointments.length > 0;
+  const appointmentDateLabel =
+    appointment?.scheduled_at &&
+    new Date(appointment.scheduled_at).toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 
   // Scheduling helpers
   const openSchedulePage = () => {
@@ -615,15 +628,15 @@ export default function QuoteDetails() {
         "The appointment has been sent to messages. The client can accept or decline it in the Messages tab."
       );
 
-      // Reload the appointment immediately after creation
-      const { data: apptData, error: apptErr } = await supabase.rpc(
-        "rpc_get_latest_request_appointment",
-        { p_request_id: reqId }
-      );
+      // Reload ALL appointments immediately after creation
+      const { data: apptData, error: apptErr } = await supabase
+        .from("appointments")
+        .select("id, request_id, quote_id, scheduled_at, title, status, location")
+        .eq("request_id", reqId)
+        .order("scheduled_at", { ascending: true });
 
       if (!apptErr && apptData) {
-        const appt = Array.isArray(apptData) ? apptData[0] : apptData;
-        setAppointment(appt || null);
+        setAppointments(apptData || []);
       }
 
       setScheduling(false);
@@ -686,17 +699,17 @@ export default function QuoteDetails() {
                 return;
               }
 
-              // Reload the appointment
+              // Reload ALL appointments
               const reqId = quote?.request_id || quote?.requestId || request?.id || null;
               if (reqId) {
-                const { data: apptData, error: apptErr } = await supabase.rpc(
-                  "rpc_get_latest_request_appointment",
-                  { p_request_id: reqId }
-                );
+                const { data: apptData, error: apptErr } = await supabase
+                  .from("appointments")
+                  .select("id, request_id, quote_id, scheduled_at, title, status, location")
+                  .eq("request_id", reqId)
+                  .order("scheduled_at", { ascending: true });
 
                 if (!apptErr && apptData) {
-                  const appt = Array.isArray(apptData) ? apptData[0] : apptData;
-                  setAppointment(appt || null);
+                  setAppointments(apptData || []);
                 }
               }
             } catch (e) {
@@ -738,17 +751,17 @@ export default function QuoteDetails() {
                 return;
               }
 
-              // Reload the appointment
+              // Reload ALL appointments
               const reqId = quote?.request_id || quote?.requestId || request?.id || null;
               if (reqId) {
-                const { data: apptData, error: apptErr } = await supabase.rpc(
-                  "rpc_get_latest_request_appointment",
-                  { p_request_id: reqId }
-                );
+                const { data: apptData, error: apptErr } = await supabase
+                  .from("appointments")
+                  .select("id, request_id, quote_id, scheduled_at, title, status, location")
+                  .eq("request_id", reqId)
+                  .order("scheduled_at", { ascending: true });
 
                 if (!apptErr && apptData) {
-                  const appt = Array.isArray(apptData) ? apptData[0] : apptData;
-                  setAppointment(appt || null);
+                  setAppointments(apptData || []);
                 }
               }
             } catch (e) {
@@ -810,17 +823,6 @@ export default function QuoteDetails() {
     parsedDetails.title ||
     quote?.project_title ||
     "Job";
-
-  const hasExistingAppointment = !!appointment?.id;
-  const appointmentDateLabel =
-    appointment?.scheduled_at &&
-    new Date(appointment.scheduled_at).toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
 
   // --------------------------------------------------
   // Scheduling PAGE (Airbnb-style)
@@ -1041,7 +1043,7 @@ export default function QuoteDetails() {
                   {displayName}
                 </ThemedText>
                 <ThemedText style={styles.heroJobTitle}>
-                  {quote.project_title || parsedDetails.title || "Quote"}
+                  {request?.suggested_title || quote?.project_title || "Quote"}
                 </ThemedText>
                 {request?.postcode && (
                   <ThemedText style={styles.heroLocation} variant="muted">
@@ -1055,7 +1057,7 @@ export default function QuoteDetails() {
                   {tradeBusiness || "Tradesperson"}
                 </ThemedText>
                 <ThemedText style={styles.heroProject} variant="muted">
-                  {quote.project_title || "Project"}
+                  {request?.suggested_title || quote?.project_title || "Project"}
                 </ThemedText>
               </>
             )}
@@ -1179,6 +1181,107 @@ export default function QuoteDetails() {
         </View>
       )}
 
+      {/* Appointments Section - Full list with + Add button (for client only on accepted quotes) */}
+      {isAccepted && userRole === 'client' && (
+        <>
+          <View style={styles.sectionHeaderRow}>
+            <ThemedText style={styles.sectionHeaderText}>
+              Appointments
+            </ThemedText>
+          </View>
+
+          <View style={styles.card}>
+            {appointments.length === 0 ? (
+              <View style={styles.emptyAppointments}>
+                <Ionicons name="calendar-outline" size={32} color="#D1D5DB" />
+                <ThemedText style={styles.emptyAppointmentsText}>No appointments yet</ThemedText>
+              </View>
+            ) : (
+              appointments.map((appt, idx) => {
+                const scheduledDate = new Date(appt.scheduled_at);
+                const isProposed = appt.status === "proposed";
+                const isConfirmed = appt.status === "confirmed";
+                const isDeclined = appt.status === "declined";
+
+                return (
+                  <View key={appt.id}>
+                    <View style={styles.appointmentListItem}>
+                      <View style={styles.appointmentListIconWrap}>
+                        <Ionicons
+                          name="calendar"
+                          size={18}
+                          color={isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#6B7280"}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <ThemedText style={styles.appointmentListTitle}>
+                          {appt.title || "Survey visit"}
+                        </ThemedText>
+                        <ThemedText style={styles.appointmentListDateTime}>
+                          {scheduledDate.toLocaleDateString(undefined, {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                          })}, {scheduledDate.toLocaleTimeString(undefined, {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </ThemedText>
+                        {appt.location && (
+                          <ThemedText style={styles.appointmentListLocation}>
+                            {appt.location}
+                          </ThemedText>
+                        )}
+                      </View>
+                      <View style={[
+                        styles.appointmentListBadge,
+                        { backgroundColor: isConfirmed ? "#D1FAE5" : isProposed ? "#FEF3C7" : "#FEE2E2" }
+                      ]}>
+                        <Ionicons
+                          name={isConfirmed ? "checkmark-circle" : isProposed ? "hourglass" : "close-circle"}
+                          size={14}
+                          color={isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#EF4444"}
+                        />
+                        <ThemedText style={[
+                          styles.appointmentListBadgeText,
+                          { color: isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#EF4444" }
+                        ]}>
+                          {isConfirmed ? "Confirmed" : isProposed ? "Awaiting confirmation" : isDeclined ? "Declined" : appt.status}
+                        </ThemedText>
+                      </View>
+                    </View>
+
+                    {/* Client: Show Accept/Decline buttons for proposed appointments */}
+                    {isProposed && (
+                      <View style={styles.appointmentListActions}>
+                        <Pressable
+                          onPress={() => handleClientDeclineAppointment(appt.id)}
+                          style={styles.heroDeclineBtn}
+                          hitSlop={6}
+                        >
+                          <Ionicons name="close-circle-outline" size={18} color="#B42318" />
+                          <ThemedText style={styles.heroDeclineBtnText}>Decline</ThemedText>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => handleClientConfirmAppointment(appt.id)}
+                          style={styles.heroConfirmBtn}
+                          hitSlop={6}
+                        >
+                          <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
+                          <ThemedText style={styles.heroConfirmBtnText}>Accept</ThemedText>
+                        </Pressable>
+                      </View>
+                    )}
+
+                    {idx < appointments.length - 1 && <View style={styles.appointmentListDivider} />}
+                  </View>
+                );
+              })
+            )}
+          </View>
+        </>
+      )}
+
         {/* Quote request - styled like client version */}
         {request && (
           <>
@@ -1194,7 +1297,7 @@ export default function QuoteDetails() {
                 {request.suggested_title || parsedDetails.title || "Request"}
               </ThemedText>
 
-              <Spacer size={16} />
+              <Spacer size={12} />
 
               {/* Details Grid with icons */}
               {request.created_at && (
@@ -1790,13 +1893,118 @@ const styles = StyleSheet.create({
 
   // Section headers (Airbnb-style)
   sectionHeaderRow: {
-    marginTop: 8,
-    marginBottom: 12,
+    marginTop: 16,
+    marginBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   sectionHeaderText: {
     fontSize: 20,
     fontWeight: "700",
     color: "#111827",
+  },
+  addAppointmentBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: "#F3F4F6",
+  },
+  addAppointmentBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: PRIMARY,
+  },
+  addAppointmentTextBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+  },
+  addAppointmentTextBtnLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: PRIMARY,
+  },
+
+  // Appointments list styles
+  emptyAppointments: {
+    alignItems: "center",
+    paddingVertical: 24,
+    gap: 8,
+  },
+  emptyAppointmentsText: {
+    fontSize: 14,
+    color: "#9CA3AF",
+  },
+  scheduleVisitBtn: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 999,
+    backgroundColor: PRIMARY,
+  },
+  scheduleVisitBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  appointmentListItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingVertical: 8,
+  },
+  appointmentListIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  appointmentListTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  appointmentListDateTime: {
+    fontSize: 14,
+    color: "#374151",
+  },
+  appointmentListLocation: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  appointmentListBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  appointmentListBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  appointmentListActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 8,
+    marginLeft: 48,
+    marginBottom: 8,
+  },
+  appointmentListDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: 12,
   },
 
   // Card style (matching client version)

@@ -308,11 +308,9 @@ export default function ClientMyQuoteDetail() {
   const items = Array.isArray(quote?.line_items) ? quote.line_items : [];
   const tradeName = trade?.business_name || "Trade business";
 
-  // Hero subtitle: use main + refit from request (no postcode)
+  // Hero subtitle: prioritize suggested_title from request, then project_title
   const heroSubtitle =
-    (parsed?.main && parsed?.refit
-      ? `${parsed.main} - ${parsed.refit}`
-      : parsed?.main || parsed?.refit) ||
+    req?.suggested_title ||
     quote?.project_title ||
     quote?.project_name ||
     "Project details";

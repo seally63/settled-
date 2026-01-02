@@ -1,5 +1,5 @@
 // components/CustomDateTimePicker.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Modal, Pressable, StyleSheet, ScrollView } from 'react-native';
 import ThemedText from './ThemedText';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +11,10 @@ const MONTHS = [
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = ['00', '15', '30', '45'];
+
+// Height of each time item for scroll calculation
+// paddingVertical(12) * 2 = 24 + fontSize(18) line height ~24 + marginVertical(4) * 2 = 8 = ~56
+const TIME_ITEM_HEIGHT = 56;
 
 export default function CustomDateTimePicker({
   visible,
@@ -26,6 +30,10 @@ export default function CustomDateTimePicker({
   const [selectedHour, setSelectedHour] = useState(value?.getHours() || 9);
   const [selectedMinute, setSelectedMinute] = useState('00');
 
+  // Refs for auto-scrolling
+  const hourScrollRef = useRef(null);
+  const minuteScrollRef = useRef(null);
+
   useEffect(() => {
     if (value) {
       setSelectedDate(value);
@@ -36,6 +44,32 @@ export default function CustomDateTimePicker({
       setSelectedMinute(mins < 15 ? '00' : mins < 30 ? '15' : mins < 45 ? '30' : '45');
     }
   }, [value]);
+
+  // Auto-scroll to selected hour when time picker opens
+  useEffect(() => {
+    if (visible && mode === 'time') {
+      // Small delay to ensure ScrollView is mounted
+      setTimeout(() => {
+        // Scroll container height is 200, center the selected item
+        const containerHeight = 200;
+        const centerOffset = (containerHeight - TIME_ITEM_HEIGHT) / 2;
+
+        if (hourScrollRef.current) {
+          // Calculate scroll position to center the selected hour
+          const scrollY = Math.max(0, selectedHour * TIME_ITEM_HEIGHT - centerOffset);
+          hourScrollRef.current.scrollTo({ y: scrollY, animated: false });
+        }
+        if (minuteScrollRef.current) {
+          // Minutes are few but still scroll to center the selection
+          const minuteIndex = MINUTES.indexOf(selectedMinute);
+          if (minuteIndex >= 0) {
+            const scrollY = Math.max(0, minuteIndex * TIME_ITEM_HEIGHT - centerOffset);
+            minuteScrollRef.current.scrollTo({ y: scrollY, animated: false });
+          }
+        }
+      }, 150); // Slightly longer delay for reliable mount
+    }
+  }, [visible, mode, selectedHour, selectedMinute]);
 
   const getDaysInMonth = (month, year) => {
     return new Date(year, month + 1, 0).getDate();
@@ -140,7 +174,11 @@ export default function CustomDateTimePicker({
         {/* Hours */}
         <View style={styles.timeColumn}>
           <ThemedText style={styles.timeLabel}>Hour</ThemedText>
-          <ScrollView style={styles.timeScroll} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            ref={hourScrollRef}
+            style={styles.timeScroll}
+            showsVerticalScrollIndicator={false}
+          >
             {HOURS.map((hour) => (
               <Pressable
                 key={hour}
@@ -169,7 +207,11 @@ export default function CustomDateTimePicker({
         {/* Minutes */}
         <View style={styles.timeColumn}>
           <ThemedText style={styles.timeLabel}>Minute</ThemedText>
-          <ScrollView style={styles.timeScroll} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            ref={minuteScrollRef}
+            style={styles.timeScroll}
+            showsVerticalScrollIndicator={false}
+          >
             {MINUTES.map((minute) => (
               <Pressable
                 key={minute}
