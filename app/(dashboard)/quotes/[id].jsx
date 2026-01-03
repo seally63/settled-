@@ -1096,8 +1096,8 @@ export default function QuoteDetails() {
         </View>
       </View>
 
-      {/* Hero-linked appointment callout (like your green block) */}
-      {isAccepted && (
+      {/* Hero-linked appointment callout (like your green block) - only show for clients */}
+      {isAccepted && userRole === 'client' && (
         <View style={styles.heroNoteCard}>
           <View style={styles.heroNoteRow}>
             <View style={styles.heroNoteIconWrap}>
@@ -1110,41 +1110,19 @@ export default function QuoteDetails() {
             <View style={{ flex: 1 }}>
               <ThemedText style={styles.heroNoteTitle}>
                 {hasExistingAppointment
-                  ? (userRole === 'client'
-                      ? `${tradeBusiness || 'The tradesperson'} proposed an appointment`
-                      : "Appointment scheduled"
-                    )
+                  ? `${tradeBusiness || 'The tradesperson'} proposed an appointment`
                   : "Quote accepted"}
               </ThemedText>
               <ThemedText style={styles.heroNoteText} variant="muted">
                 {hasExistingAppointment
-                  ? (userRole === 'client'
-                      ? `Survey visit on ${appointmentDateLabel}${appointment?.location ? ` at ${appointment.location}` : ''}`
-                      : `${appointmentDateLabel}${appointment?.location ? ` • ${appointment.location}` : ""}${appointment?.status === 'proposed' ? ' • Awaiting client confirmation' : ''}`
-                    )
-                  : (userRole === 'client'
-                      ? `${tradeBusiness || 'The tradesperson'} will contact you to schedule a survey visit.`
-                      : "The client accepted your quote. Schedule a visit to confirm the work in person."
-                    )}
+                  ? `Survey visit on ${appointmentDateLabel}${appointment?.location ? ` at ${appointment.location}` : ''}`
+                  : `${tradeBusiness || 'The tradesperson'} will contact you to schedule a survey visit.`}
               </ThemedText>
             </View>
           </View>
 
-          {/* Trade: Show schedule button if no appointment */}
-          {!hasExistingAppointment && userRole === 'trades' && (
-            <Pressable
-              onPress={openSchedulePage}
-              style={styles.heroNoteBtn}
-              hitSlop={6}
-            >
-              <ThemedText style={styles.heroNoteBtnText}>
-                Schedule appointment
-              </ThemedText>
-            </Pressable>
-          )}
-
           {/* Client: Show Accept/Decline buttons if appointment is proposed */}
-          {hasExistingAppointment && userRole === 'client' && appointment?.status === 'proposed' && (
+          {hasExistingAppointment && appointment?.status === 'proposed' && (
             <View style={styles.heroNoteActions}>
               <Pressable
                 onPress={() => handleClientDeclineAppointment(appointment.id)}
@@ -1170,7 +1148,7 @@ export default function QuoteDetails() {
           )}
 
           {/* Client: Show confirmed status if already confirmed */}
-          {hasExistingAppointment && userRole === 'client' && appointment?.status === 'confirmed' && (
+          {hasExistingAppointment && appointment?.status === 'confirmed' && (
             <View style={styles.heroNoteConfirmed}>
               <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
               <ThemedText style={styles.heroNoteConfirmedText}>
@@ -1297,8 +1275,6 @@ export default function QuoteDetails() {
                 {request.suggested_title || parsedDetails.title || "Request"}
               </ThemedText>
 
-              <Spacer size={12} />
-
               {/* Details Grid with icons */}
               {request.created_at && (
                 <View style={styles.requestDetailRow}>
@@ -1377,7 +1353,7 @@ export default function QuoteDetails() {
                 <>
                   <View style={styles.divider} />
 
-                  <View style={styles.requestDetailRow}>
+                  <View style={[styles.requestDetailRow, { marginBottom: 8 }]}>
                     <Ionicons name="images-outline" size={18} color="#6B7280" />
                     <View style={styles.requestDetailContent}>
                       <ThemedText style={styles.requestDetailLabel}>
@@ -1385,8 +1361,6 @@ export default function QuoteDetails() {
                       </ThemedText>
                     </View>
                   </View>
-
-                  <Spacer size={12} />
                 </>
               )}
 
@@ -2022,6 +1996,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 18,
     color: "#111827",
+    marginBottom: 8,
   },
   requestDetailRow: {
     flexDirection: "row",
