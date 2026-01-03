@@ -648,13 +648,11 @@ export default function RequestDetails() {
                     return (
                       <View key={appt.id}>
                         <View style={styles.appointmentListItem}>
-                          <View style={styles.appointmentListIconWrap}>
-                            <Ionicons
-                              name="calendar"
-                              size={18}
-                              color={isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#6B7280"}
-                            />
-                          </View>
+                          <Ionicons
+                            name="calendar"
+                            size={20}
+                            color="#6B7280"
+                          />
                           <View style={{ flex: 1 }}>
                             <ThemedText style={styles.appointmentListTitle}>
                               {appt.title || "Survey visit"}
