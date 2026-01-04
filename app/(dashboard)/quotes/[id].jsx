@@ -1148,13 +1148,13 @@ export default function QuoteDetails() {
               {upcomingAppointments.length > 0 && (
                 <View>
                   <ThemedText style={styles.appointmentSubheaderStandalone}>Upcoming</ThemedText>
-                  {upcomingAppointments.map((appt) => {
+                  {upcomingAppointments.map((appt, idx) => {
                     const scheduledDate = new Date(appt.scheduled_at);
                     const isConfirmed = appt.status === "confirmed";
                     const isProposed = appt.status === "proposed";
 
                     return (
-                      <View key={appt.id} style={styles.appointmentSingleCard}>
+                      <View key={appt.id ?? `upcoming-${idx}`} style={styles.appointmentSingleCard}>
                         <Ionicons
                           name="calendar"
                           size={20}
@@ -1239,10 +1239,10 @@ export default function QuoteDetails() {
 
                   {showPastAppointments && (
                     <View>
-                      {pastAppointments.map((appt) => {
+                      {pastAppointments.map((appt, idx) => {
                         const scheduledDate = new Date(appt.scheduled_at);
                         return (
-                          <View key={appt.id} style={styles.appointmentSingleCardPast}>
+                          <View key={appt.id ?? `past-${idx}`} style={styles.appointmentSingleCardPast}>
                             <Ionicons name="calendar" size={20} color="#9CA3AF" />
                             <View style={{ flex: 1 }}>
                               <View style={styles.tradeAppointmentTitleRow}>
@@ -1762,7 +1762,7 @@ export default function QuoteDetails() {
                 const isDeclined = appt.status === "declined";
 
                 return (
-                  <View key={appt.id}>
+                  <View key={appt.id ?? `client-appt-${idx}`}>
                     <View style={styles.appointmentListItem}>
                       <View style={styles.appointmentListIconWrap}>
                         <Ionicons
