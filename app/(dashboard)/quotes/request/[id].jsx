@@ -364,24 +364,9 @@ function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, d
             </View>
             <ThemedText style={quoteStyles.emptyStateTitle}>No quotes yet</ThemedText>
             <ThemedText style={quoteStyles.emptyStateSubtitle}>
-              Create a quote to send to the client
+              Tap + Create above to send a quote
             </ThemedText>
           </View>
-          <Pressable
-            style={quoteStyles.createQuoteButton}
-            onPress={() => {
-              router.push({
-                pathname: "/quotes/create",
-                params: {
-                  requestId: String(requestId || ""),
-                  title: encodeURIComponent(derivedTitleForCreate),
-                },
-              });
-            }}
-          >
-            <Ionicons name="add-circle" size={18} color="#FFF" />
-            <ThemedText style={quoteStyles.createQuoteButtonText}>Create quote</ThemedText>
-          </Pressable>
         </View>
       ) : acceptedQuote ? (
         <>
