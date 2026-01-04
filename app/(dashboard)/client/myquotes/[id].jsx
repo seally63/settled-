@@ -289,8 +289,9 @@ export default function ClientMyQuoteDetail() {
     () => String(quote?.status || "created").toLowerCase(),
     [quote?.status]
   );
-  const canAccept = ["created", "sent", "quoted", "draft"].includes(status);
-  const canDecline = ["created", "sent", "quoted", "draft"].includes(status);
+  // Clients can only accept/decline sent quotes - NOT drafts
+  const canAccept = ["created", "sent", "quoted"].includes(status);
+  const canDecline = ["created", "sent", "quoted"].includes(status);
 
   const currency = quote?.currency || "GBP";
   const subtotal = Number(quote?.subtotal ?? 0);

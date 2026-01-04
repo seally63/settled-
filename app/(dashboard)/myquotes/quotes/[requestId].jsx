@@ -7,6 +7,7 @@ import {
   ScrollView,
   RefreshControl,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { useEffect, useState, useCallback } from "react";
 import { Ionicons } from "@expo/vector-icons";
@@ -40,13 +41,29 @@ function getInitials(name) {
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }
 
-// Avatar component
-function Avatar({ name, size = 48 }) {
+// Avatar component with photo support
+function Avatar({ name, size = 48, photoUrl }) {
   const initials = getInitials(name);
   const colors = ["#6849a7", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
   const colorIndex = name ? name.charCodeAt(0) % colors.length : 0;
   const bgColor = colors[colorIndex];
 
+  // If we have a photo URL, show the image
+  if (photoUrl) {
+    return (
+      <Image
+        source={{ uri: photoUrl }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: "#E5E7EB",
+        }}
+      />
+    );
+  }
+
+  // Fallback to initials
   return (
     <View
       style={{
@@ -72,62 +89,136 @@ function Avatar({ name, size = 48 }) {
 }
 
 // Status chip component
-function StatusChip({ type }) {
+function StatusChip({ type, small = false }) {
   const chips = {
     QUOTE_RECEIVED: { color: "#F59E0B", bg: "#FEF3C7", text: "New Quote" },
     PREPARING: { color: "#3B82F6", bg: "#DBEAFE", text: "Preparing Quote" },
     DECLINED: { color: "#EF4444", bg: "#FEE2E2", text: "Declined" },
     ACCEPTED: { color: "#10B981", bg: "#D1FAE5", text: "Accepted" },
     EXPIRED: { color: "#6B7280", bg: "#F3F4F6", text: "Expired" },
+    SENT: { color: "#3B82F6", bg: "#DBEAFE", text: "Sent" },
+    DRAFT: { color: "#F59E0B", bg: "#FEF3C7", text: "Draft" },
   };
 
   const chip = chips[type] || chips.PREPARING;
 
   return (
-    <View style={[styles.chip, { backgroundColor: chip.bg }]}>
-      <ThemedText style={[styles.chipText, { color: chip.color }]}>
+    <View style={[styles.chip, { backgroundColor: chip.bg }, small && { paddingVertical: 2, paddingHorizontal: 8 }]}>
+      <ThemedText style={[styles.chipText, { color: chip.color }, small && { fontSize: 11 }]}>
         {chip.text}
       </ThemedText>
     </View>
   );
 }
 
-// Trade row component
-function TradeRow({ trade, onPress }) {
+// Get quote status chip type
+function getQuoteChipType(quote, targetState) {
+  if (targetState === "declined") return "DECLINED";
+  if (!quote) return "PREPARING";
+  if (quote.status === "accepted") return "ACCEPTED";
+  if (quote.status === "declined") return "DECLINED";
+  if (quote.status === "draft") return "DRAFT";
+  if (quote.status === "sent") return "SENT";
+  return "QUOTE_RECEIVED";
+}
+
+// Individual quote row within a trade group
+function QuoteRow({ quote, quoteNumber, onPress }) {
+  const chipType = quote.status === "accepted" ? "ACCEPTED" :
+                   quote.status === "declined" ? "DECLINED" :
+                   quote.status === "draft" ? "DRAFT" : "SENT";
+
   return (
-    <Pressable style={styles.tradeRow} onPress={onPress}>
-      <Avatar name={trade.name} size={48} />
-      <View style={styles.tradeInfo}>
-        <ThemedText style={styles.tradeName} numberOfLines={1}>
-          {trade.name}
-        </ThemedText>
-        {trade.hasQuote ? (
-          <ThemedText style={styles.tradePrice}>
-            £{formatNumber(trade.amount)}
+    <Pressable style={styles.quoteRow} onPress={onPress}>
+      <View style={styles.quoteRowLeft}>
+        <View style={styles.quoteNumberBadge}>
+          <ThemedText style={styles.quoteNumberText}>#{quoteNumber}</ThemedText>
+        </View>
+        <View style={styles.quoteRowInfo}>
+          <ThemedText style={styles.quoteRowPrice}>
+            £{formatNumber(quote.grand_total)}
           </ThemedText>
-        ) : (
-          <ThemedText style={styles.tradeStatus}>
-            {trade.status === "declined" ? "Declined request" : "Preparing quote..."}
+          <ThemedText style={styles.quoteRowDate}>
+            {quote.created_at ? new Date(quote.created_at).toLocaleDateString() : ""}
           </ThemedText>
-        )}
+        </View>
       </View>
-      <View style={styles.tradeRight}>
-        <StatusChip
-          type={
-            trade.status === "declined"
-              ? "DECLINED"
-              : trade.status === "accepted"
-              ? "ACCEPTED"
-              : trade.status === "expired"
-              ? "EXPIRED"
-              : trade.hasQuote
-              ? "QUOTE_RECEIVED"
-              : "PREPARING"
-          }
-        />
-        <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+      <View style={styles.quoteRowRight}>
+        <StatusChip type={chipType} small />
+        <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
       </View>
     </Pressable>
+  );
+}
+
+// Trade group component - shows trade info and all their quotes
+function TradeGroup({ trade, quotes, onQuotePress, expanded, onToggle }) {
+  const hasQuotes = quotes.length > 0;
+  const hasMultipleQuotes = quotes.length > 1;
+  const latestQuote = quotes[0]; // quotes are sorted by date desc
+
+  // Get the best status to show on the trade row
+  const getBestStatus = () => {
+    if (trade.state === "declined") return "DECLINED";
+    const acceptedQuote = quotes.find(q => q.status === "accepted");
+    if (acceptedQuote) return "ACCEPTED";
+    if (!hasQuotes) return "PREPARING";
+    return "QUOTE_RECEIVED";
+  };
+
+  return (
+    <View style={styles.tradeGroup}>
+      {/* Trade header row */}
+      <Pressable
+        style={styles.tradeRow}
+        onPress={hasMultipleQuotes ? onToggle : () => hasQuotes && onQuotePress(latestQuote.id)}
+      >
+        <Avatar name={trade.name} size={48} photoUrl={trade.photoUrl} />
+        <View style={styles.tradeInfo}>
+          <ThemedText style={styles.tradeName} numberOfLines={1}>
+            {trade.name}
+          </ThemedText>
+          {hasQuotes ? (
+            <View style={styles.tradeQuoteInfo}>
+              <ThemedText style={styles.tradePrice}>
+                £{formatNumber(latestQuote.grand_total)}
+              </ThemedText>
+              {hasMultipleQuotes && (
+                <ThemedText style={styles.tradeQuoteCount}>
+                  · {quotes.length} quotes
+                </ThemedText>
+              )}
+            </View>
+          ) : (
+            <ThemedText style={styles.tradeStatus}>
+              {trade.state === "declined" ? "Declined request" : "Preparing quote..."}
+            </ThemedText>
+          )}
+        </View>
+        <View style={styles.tradeRight}>
+          <StatusChip type={getBestStatus()} />
+          <Ionicons
+            name={hasMultipleQuotes ? (expanded ? "chevron-up" : "chevron-down") : "chevron-forward"}
+            size={20}
+            color="#9CA3AF"
+          />
+        </View>
+      </Pressable>
+
+      {/* Expanded quote list */}
+      {expanded && hasMultipleQuotes && (
+        <View style={styles.quotesList}>
+          {quotes.map((quote, idx) => (
+            <QuoteRow
+              key={quote.id}
+              quote={quote}
+              quoteNumber={quotes.length - idx}
+              onPress={() => onQuotePress(quote.id)}
+            />
+          ))}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -140,7 +231,8 @@ export default function QuoteListScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [request, setRequest] = useState(null);
-  const [trades, setTrades] = useState([]);
+  const [tradeGroups, setTradeGroups] = useState([]); // Array of { trade, quotes }
+  const [expandedTrades, setExpandedTrades] = useState({}); // { tradeId: boolean }
 
   const fetchData = useCallback(async () => {
     if (!requestId || !user?.id) return;
@@ -170,8 +262,8 @@ export default function QuoteListScreen() {
           profiles:trade_id (
             id,
             business_name,
-            first_name,
-            last_name
+            full_name,
+            photo_url
           )
         `)
         .eq("request_id", requestId);
@@ -180,53 +272,73 @@ export default function QuoteListScreen() {
         console.error("[QuoteList] Error fetching targets:", targetsError);
       }
 
-      // Fetch quotes for this request
+      // Fetch ALL quotes for this request (up to 3 per trade)
+      // Filter out drafts - clients should only see sent/quoted/accepted/declined quotes
       const { data: quotesData, error: quotesError } = await supabase
         .from("tradify_native_app_db")
-        .select("id, trade_id, grand_total, currency, issued_at, status")
-        .eq("request_id", requestId);
+        .select("id, trade_id, grand_total, currency, issued_at, status, created_at")
+        .eq("request_id", requestId)
+        .neq("status", "draft")
+        .order("created_at", { ascending: false });
 
       if (quotesError) {
         console.error("[QuoteList] Error fetching quotes:", quotesError);
       }
 
-      // Combine data
-      const quotesMap = {};
+      // Group quotes by trade_id
+      const quotesByTrade = {};
       (quotesData || []).forEach((q) => {
-        quotesMap[q.trade_id] = q;
+        if (!quotesByTrade[q.trade_id]) {
+          quotesByTrade[q.trade_id] = [];
+        }
+        quotesByTrade[q.trade_id].push(q);
       });
 
-      const combinedTrades = (targetsData || []).map((t) => {
-        const quote = quotesMap[t.trade_id];
+      // Build trade groups from targets
+      const groups = (targetsData || []).map((t) => {
         const profile = t.profiles;
         const name =
           profile?.business_name ||
-          [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") ||
+          profile?.full_name ||
           "Unknown Trade";
 
+        const tradeQuotes = quotesByTrade[t.trade_id] || [];
+
         return {
-          id: t.trade_id,
-          name,
-          state: t.state,
-          hasQuote: !!quote,
-          quoteId: quote?.id,
-          amount: quote?.grand_total,
-          currency: quote?.currency || "GBP",
-          issuedAt: quote?.issued_at,
-          status: t.state === "declined" ? "declined" : quote?.status || null,
+          trade: {
+            id: t.trade_id,
+            name,
+            state: t.state,
+            photoUrl: profile?.photo_url || null,
+          },
+          quotes: tradeQuotes,
         };
       });
 
-      // Sort: quotes received first, then preparing, then declined
-      combinedTrades.sort((a, b) => {
-        if (a.hasQuote && !b.hasQuote) return -1;
-        if (!a.hasQuote && b.hasQuote) return 1;
-        if (a.status === "declined" && b.status !== "declined") return 1;
-        if (a.status !== "declined" && b.status === "declined") return -1;
+      // Sort: trades with accepted quotes first, then with quotes, then preparing, then declined
+      groups.sort((a, b) => {
+        const aHasAccepted = a.quotes.some(q => q.status === "accepted");
+        const bHasAccepted = b.quotes.some(q => q.status === "accepted");
+        if (aHasAccepted && !bHasAccepted) return -1;
+        if (!aHasAccepted && bHasAccepted) return 1;
+
+        const aHasQuotes = a.quotes.length > 0;
+        const bHasQuotes = b.quotes.length > 0;
+        if (aHasQuotes && !bHasQuotes) return -1;
+        if (!aHasQuotes && bHasQuotes) return 1;
+
+        if (a.trade.state === "declined" && b.trade.state !== "declined") return 1;
+        if (a.trade.state !== "declined" && b.trade.state === "declined") return -1;
+
         return 0;
       });
 
-      setTrades(combinedTrades);
+      setTradeGroups(groups);
+
+      // Auto-expand if there's only 1 trade with multiple quotes
+      if (groups.length === 1 && groups[0].quotes.length > 1) {
+        setExpandedTrades({ [groups[0].trade.id]: true });
+      }
     } catch (err) {
       console.error("[QuoteList] Error:", err);
     } finally {
@@ -252,11 +364,15 @@ export default function QuoteListScreen() {
     router.push(`/myquotes/request/${requestId}`);
   };
 
-  const handleTradePress = (trade) => {
-    if (trade.hasQuote && trade.quoteId) {
-      router.push(`/myquotes/${trade.quoteId}`);
-    }
-    // If no quote yet, could show a modal or do nothing
+  const handleQuotePress = (quoteId) => {
+    router.push(`/myquotes/${quoteId}`);
+  };
+
+  const toggleTradeExpand = (tradeId) => {
+    setExpandedTrades(prev => ({
+      ...prev,
+      [tradeId]: !prev[tradeId],
+    }));
   };
 
   if (loading) {
@@ -274,11 +390,14 @@ export default function QuoteListScreen() {
     );
   }
 
-  const quotesReceived = trades.filter((t) => t.hasQuote).length;
-  const preparing = trades.filter((t) => !t.hasQuote && t.state !== "declined").length;
-  const lowestPrice = trades
-    .filter((t) => t.hasQuote && t.amount)
-    .reduce((min, t) => (min === null || t.amount < min ? t.amount : min), null);
+  // Calculate summary stats from trade groups
+  const totalQuotes = tradeGroups.reduce((sum, g) => sum + g.quotes.length, 0);
+  const tradesWithQuotes = tradeGroups.filter(g => g.quotes.length > 0).length;
+  const preparing = tradeGroups.filter(g => g.quotes.length === 0 && g.trade.state !== "declined").length;
+  const allQuotes = tradeGroups.flatMap(g => g.quotes);
+  const lowestPrice = allQuotes
+    .filter(q => q.grand_total != null)
+    .reduce((min, q) => (min === null || q.grand_total < min ? q.grand_total : min), null);
 
   return (
     <ThemedView style={styles.container}>
@@ -311,9 +430,15 @@ export default function QuoteListScreen() {
           <Spacer height={12} />
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
-              <ThemedText style={styles.summaryValue}>{quotesReceived}</ThemedText>
+              <ThemedText style={styles.summaryValue}>{totalQuotes}</ThemedText>
               <ThemedText style={styles.summaryLabel}>
-                Quote{quotesReceived !== 1 ? "s" : ""} received
+                Quote{totalQuotes !== 1 ? "s" : ""} received
+              </ThemedText>
+            </View>
+            <View style={styles.summaryItem}>
+              <ThemedText style={styles.summaryValue}>{tradesWithQuotes}</ThemedText>
+              <ThemedText style={styles.summaryLabel}>
+                Trade{tradesWithQuotes !== 1 ? "s" : ""}
               </ThemedText>
             </View>
             {preparing > 0 && (
@@ -322,7 +447,7 @@ export default function QuoteListScreen() {
                 <ThemedText style={styles.summaryLabel}>Preparing</ThemedText>
               </View>
             )}
-            {lowestPrice && (
+            {lowestPrice != null && (
               <View style={styles.summaryItem}>
                 <ThemedText style={styles.summaryValue}>
                   £{formatNumber(lowestPrice)}
@@ -346,21 +471,24 @@ export default function QuoteListScreen() {
 
         {/* Section header */}
         <ThemedText style={styles.sectionTitle}>
-          {trades.length} trade{trades.length !== 1 ? "s" : ""}
+          {tradeGroups.length} trade{tradeGroups.length !== 1 ? "s" : ""}
         </ThemedText>
 
         <Spacer height={8} />
 
-        {/* Trade list */}
-        {trades.map((trade) => (
-          <TradeRow
+        {/* Trade groups list */}
+        {tradeGroups.map(({ trade, quotes }) => (
+          <TradeGroup
             key={trade.id}
             trade={trade}
-            onPress={() => handleTradePress(trade)}
+            quotes={quotes}
+            onQuotePress={handleQuotePress}
+            expanded={!!expandedTrades[trade.id]}
+            onToggle={() => toggleTradeExpand(trade.id)}
           />
         ))}
 
-        {trades.length === 0 && (
+        {tradeGroups.length === 0 && (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color="#9CA3AF" />
             <ThemedText style={styles.emptyText}>No trades yet</ThemedText>
@@ -473,16 +601,19 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
+  tradeGroup: {
+    marginBottom: 8,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    overflow: "hidden",
+  },
   tradeRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     padding: 14,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
   },
   tradeInfo: {
     flex: 1,
@@ -493,16 +624,72 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#111827",
   },
+  tradeQuoteInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   tradePrice: {
     fontSize: 18,
     fontWeight: "700",
     color: "#111827",
+  },
+  tradeQuoteCount: {
+    fontSize: 14,
+    color: "#6B7280",
   },
   tradeStatus: {
     fontSize: 14,
     color: "#6B7280",
   },
   tradeRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  quotesList: {
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    backgroundColor: "#F9FAFB",
+  },
+  quoteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+  },
+  quoteRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  quoteNumberBadge: {
+    backgroundColor: "#E5E7EB",
+    borderRadius: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  quoteNumberText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  quoteRowInfo: {
+    gap: 2,
+  },
+  quoteRowPrice: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  quoteRowDate: {
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  quoteRowRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,

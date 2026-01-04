@@ -645,7 +645,9 @@ export default function ClientProjects() {
     const quotesByRequest = {};
 
     // Group decideQuotes (pending quotes) by request
-    decideQuotes.forEach((q) => {
+    // Filter out drafts - clients should not see draft quotes
+    const visibleDecideQuotes = decideQuotes.filter(q => q.status !== "draft");
+    visibleDecideQuotes.forEach((q) => {
       const reqId = q.request_id;
       if (!reqId) return;
       if (!quotesByRequest[reqId]) {
@@ -662,15 +664,28 @@ export default function ClientProjects() {
         };
       }
       quotesByRequest[reqId].quotes.push(q);
-      quotesByRequest[reqId].trades.push({
-        id: q.trade_id,
-        name: q.trade_business_name || "Trade",
-        photoUrl: q.trade_photo_url || null,
-        hasQuote: true,
-        quoteId: q.quote_id,
-        amount: q.grand_total,
-        issuedAt: q.issued_at,
-      });
+      // Only add trade if not already in list (avoid duplicate avatars for multiple quotes from same trade)
+      const existingTrade = quotesByRequest[reqId].trades.find(t => t.id === q.trade_id);
+      if (!existingTrade) {
+        quotesByRequest[reqId].trades.push({
+          id: q.trade_id,
+          name: q.trade_business_name || "Trade",
+          photoUrl: q.trade_photo_url || null,
+          hasQuote: true,
+          quoteId: q.quote_id,
+          amount: q.grand_total,
+          issuedAt: q.issued_at,
+          quoteCount: 1,
+        });
+      } else {
+        // Update existing trade with latest quote info and increment count
+        existingTrade.quoteCount = (existingTrade.quoteCount || 1) + 1;
+        // Keep the lowest price for display
+        if (q.grand_total < existingTrade.amount) {
+          existingTrade.amount = q.grand_total;
+          existingTrade.quoteId = q.quote_id;
+        }
+      }
       quotesByRequest[reqId].hasNewQuotes = true;
       const price = q.grand_total;
       if (price && (quotesByRequest[reqId].lowestPrice === null || price < quotesByRequest[reqId].lowestPrice)) {
@@ -681,7 +696,7 @@ export default function ClientProjects() {
     // Process grouped quotes needing decision
     Object.values(quotesByRequest).forEach((group) => {
       const quotesReceived = group.quotes.length;
-      const tradesCount = group.trades.length;
+      const tradesCount = group.trades.length; // Now deduplicated - unique trades
 
       // Check for expiry
       const oldestQuote = group.quotes.reduce((oldest, q) => {
@@ -697,10 +712,13 @@ export default function ClientProjects() {
 
       // Build status description based on count
       let statusDescription;
-      if (tradesCount === 1) {
+      if (tradesCount === 1 && quotesReceived === 1) {
         statusDescription = "Quote received";
+      } else if (tradesCount === 1 && quotesReceived > 1) {
+        // Single trade with multiple quotes
+        statusDescription = `${quotesReceived} quotes from 1 trade`;
       } else {
-        statusDescription = `${quotesReceived} quote${quotesReceived !== 1 ? "s" : ""} received`;
+        statusDescription = `${quotesReceived} quote${quotesReceived !== 1 ? "s" : ""} from ${tradesCount} trade${tradesCount !== 1 ? "s" : ""}`;
       }
 
       needsAttention.push({
@@ -711,14 +729,15 @@ export default function ClientProjects() {
         location: group.location,
         tertiaryText: group.tertiaryText,
         trades: group.trades,
+        quotesCount: quotesReceived, // Total quotes (for navigation logic)
         statusDescription,
         statusType,
         priceInfo: group.lowestPrice
-          ? tradesCount > 1
+          ? (quotesReceived > 1 || tradesCount > 1)
             ? `From £${formatNumber(group.lowestPrice)}`
             : `£${formatNumber(group.lowestPrice)}`
           : null,
-        priceLabel: tradesCount > 1 ? "Prices from" : "Quote total",
+        priceLabel: (quotesReceived > 1 || tradesCount > 1) ? "Prices from" : "Quote total",
         warningText: expiresSoon ? `Expires in ${expiryDays} day${expiryDays !== 1 ? "s" : ""}` : null,
       });
     });
@@ -930,8 +949,10 @@ export default function ClientProjects() {
     });
 
     // Process decided quotes (accepted quotes = active jobs)
+    // Filter out drafts - clients should not see draft quotes
+    const visibleDecidedQuotes = decidedQuotes.filter(q => q.status !== "draft");
     const activeByRequest = {};
-    decidedQuotes.forEach((q) => {
+    visibleDecidedQuotes.forEach((q) => {
       const status = String(q.status || "").toLowerCase();
       const reqId = q.request_id;
 
@@ -944,17 +965,23 @@ export default function ClientProjects() {
             location: q.postcode || null,
             tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
             trades: [],
+            quotesCount: 0, // Track total quotes
             quoteId: q.quote_id, // For single-trade navigation
           };
         }
-        activeByRequest[reqId].trades.push({
-          id: q.trade_id,
-          name: q.trade_business_name || "Trade",
-          photoUrl: q.trade_photo_url || null,
-          hasQuote: true,
-          quoteId: q.quote_id,
-          amount: q.grand_total,
-        });
+        activeByRequest[reqId].quotesCount++; // Count each quote
+        // Only add trade if not already in list (avoid duplicate avatars)
+        const existingActiveTrade = activeByRequest[reqId].trades.find(t => t.id === q.trade_id);
+        if (!existingActiveTrade) {
+          activeByRequest[reqId].trades.push({
+            id: q.trade_id,
+            name: q.trade_business_name || "Trade",
+            photoUrl: q.trade_photo_url || null,
+            hasQuote: true,
+            quoteId: q.quote_id,
+            amount: q.grand_total,
+          });
+        }
       } else if (status === "declined") {
         const daysAgo = daysSince(q.issued_at);
         completedProjects.push({
@@ -1054,6 +1081,7 @@ export default function ClientProjects() {
         location: group.location,
         tertiaryText: group.tertiaryText,
         trades: group.trades,
+        quotesCount: group.quotesCount, // Track total quotes for navigation
         statusDescription,
         statusType,
         priceInfo: totalPrice > 0 ? `GBP ${formatNumber(totalPrice)}` : null,
@@ -1154,11 +1182,11 @@ export default function ClientProjects() {
                 statusType={project.statusType}
                 onPress={() => {
                   // Navigate based on project type
-                  if (project.trades && project.trades.length > 1) {
-                    // Multiple trades -> go to quote list
+                  // If multiple quotes OR multiple trades -> go to quote comparison list
+                  if ((project.quotesCount && project.quotesCount > 1) || (project.trades && project.trades.length > 1)) {
                     router.push(`/myquotes/quotes/${project.requestId}`);
                   } else if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
-                    // Single trade with quote -> go to quote detail
+                    // Single trade with single quote -> go to quote detail
                     router.push(`/myquotes/${project.trades[0].quoteId}`);
                   } else {
                     // No trades or request view
@@ -1186,7 +1214,7 @@ export default function ClientProjects() {
                 statusType={project.statusType}
                 onPress={() => {
                   // Navigate based on project type
-                  if (project.trades && project.trades.length > 1) {
+                  if ((project.quotesCount && project.quotesCount > 1) || (project.trades && project.trades.length > 1)) {
                     router.push(`/myquotes/quotes/${project.requestId}`);
                   } else if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
                     router.push(`/myquotes/${project.trades[0].quoteId}`);
@@ -1215,7 +1243,7 @@ export default function ClientProjects() {
                 statusType={project.statusType}
                 onPress={() => {
                   // Active jobs - go to quote detail (single trade) or quote list (multiple)
-                  if (project.trades && project.trades.length > 1) {
+                  if ((project.quotesCount && project.quotesCount > 1) || (project.trades && project.trades.length > 1)) {
                     router.push(`/myquotes/quotes/${project.requestId}`);
                   } else if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
                     router.push(`/myquotes/${project.trades[0].quoteId}`);
