@@ -181,6 +181,7 @@ export default function QuoteDetails() {
   const [completionNotes, setCompletionNotes] = useState("");
   const [completeBusy, setCompleteBusy] = useState(false);
   const [showPaymentMethodPicker, setShowPaymentMethodPicker] = useState(false);
+  const [clientConfirmBusy, setClientConfirmBusy] = useState(false);
 
   // Payment method options
   const PAYMENT_METHODS = [
@@ -1030,6 +1031,48 @@ export default function QuoteDetails() {
       setCompleteBusy(false);
     }
   };
+
+  // Handle client confirmation of completion (Step 3 -> Step 4)
+  const handleClientConfirmCompletion = async () => {
+    if (clientConfirmBusy) return;
+
+    try {
+      setClientConfirmBusy(true);
+
+      const { data, error } = await supabase.rpc("rpc_client_confirm_complete", {
+        p_quote_id: quote?.id,
+      });
+
+      if (error) {
+        console.warn("Client confirm complete error:", error.message || error);
+        Alert.alert(
+          "Could not confirm completion",
+          error.message || "Something went wrong, please try again."
+        );
+        return;
+      }
+
+      // Reload the quote to get updated status
+      const row = await fetchQuoteById(quote.id);
+      if (row) {
+        setQuote(row);
+      }
+
+      Alert.alert(
+        "Job confirmed complete!",
+        "Thank you for confirming. Would you like to leave a review?"
+      );
+    } catch (e) {
+      console.warn("Client confirm complete error:", e?.message || e);
+      Alert.alert(
+        "Could not confirm completion",
+        e?.message || "Something went wrong, please try again."
+      );
+    } finally {
+      setClientConfirmBusy(false);
+    }
+  };
+
 
   if (loading) {
     return (
@@ -2110,14 +2153,29 @@ export default function QuoteDetails() {
               </ThemedText>
             </View>
 
-            {isAccepted && (
+            {/* Status chip - handles accepted, awaiting_completion, and completed */}
+            {status === "completed" ? (
+              <View style={styles.statusChipCompleted}>
+                <Ionicons name="checkmark-done-circle" size={16} color="#10B981" />
+                <ThemedText style={styles.statusChipCompletedText}>
+                  Completed
+                </ThemedText>
+              </View>
+            ) : status === "awaiting_completion" ? (
+              <View style={styles.statusChipAwaitingCompletion}>
+                <Ionicons name="hourglass" size={16} color="#F59E0B" />
+                <ThemedText style={styles.statusChipAwaitingText}>
+                  Awaiting confirmation
+                </ThemedText>
+              </View>
+            ) : isAccepted ? (
               <View style={styles.statusChipAccepted}>
                 <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
                 <ThemedText style={styles.statusChipAcceptedText}>
                   Accepted
                 </ThemedText>
               </View>
-            )}
+            ) : null}
           </View>
 
           <Spacer size={12} />
@@ -2736,6 +2794,109 @@ export default function QuoteDetails() {
             </View>
           </>
         ) : null}
+
+
+        {/* Client completion flow UI */}
+        {status === "awaiting_completion" && (
+          <View style={styles.clientCompletionCard}>
+            <View style={styles.awaitingProgressRow}>
+              <View style={styles.awaitingProgressDot} />
+              <View style={styles.awaitingProgressLine} />
+              <View style={[styles.awaitingProgressDot, styles.awaitingProgressDotEmpty]} />
+            </View>
+            <Spacer size={16} />
+            <ThemedText style={styles.clientCompletionTitle}>
+              {tradeBusiness || "The tradesperson"} has marked this job as complete
+            </ThemedText>
+            <ThemedText style={styles.clientCompletionSubtitle}>
+              Please confirm if the work has been completed to your satisfaction.
+            </ThemedText>
+            <Spacer size={20} />
+            <Pressable
+              style={styles.confirmCompleteBtn}
+              onPress={handleClientConfirmCompletion}
+              disabled={clientConfirmBusy}
+            >
+              {clientConfirmBusy ? (
+                <ThemedText style={styles.confirmCompleteBtnText}>Confirming...</ThemedText>
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+                  <ThemedText style={styles.confirmCompleteBtnText}>Confirm complete</ThemedText>
+                </>
+              )}
+            </Pressable>
+            <Pressable
+              style={styles.reportIssueBtn}
+              onPress={() => {
+                const reqId = quote?.request_id || quote?.requestId || request?.id;
+                if (reqId) {
+                  router.push({
+                    pathname: "/(dashboard)/messages/[id]",
+                    params: {
+                      id: String(reqId),
+                      name: tradeBusiness || "",
+                      quoteId: quote?.id ? String(quote.id) : "",
+                      returnTo: `/quotes/${quote?.id}`,
+                    },
+                  });
+                }
+              }}
+            >
+              <ThemedText style={styles.reportIssueBtnText}>Report an issue</ThemedText>
+            </Pressable>
+          </View>
+        )}
+
+        {status === "completed" && (
+          <View style={styles.clientCompletedCard}>
+            <View style={styles.completedCheckCircle}>
+              <Ionicons name="checkmark" size={32} color="#10B981" />
+            </View>
+            <Spacer size={12} />
+            <ThemedText style={styles.completedTitle}>Job complete!</ThemedText>
+            <ThemedText style={styles.clientCompletedSubtitle}>
+              You confirmed the work on{" "}
+              {quote?.completion_confirmed_at
+                ? new Date(quote.completion_confirmed_at).toLocaleDateString(undefined, {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })
+                : "recently"}
+            </ThemedText>
+            <Spacer size={24} />
+            <View style={styles.reviewPromptCard}>
+              <ThemedText style={styles.reviewPromptTitle}>
+                How was your experience with {tradeBusiness || "the tradesperson"}?
+              </ThemedText>
+              <ThemedText style={styles.reviewPromptSubtitle}>
+                Your review helps other homeowners find great tradespeople.
+              </ThemedText>
+            </View>
+            <Spacer size={16} />
+            <Pressable
+              style={styles.leaveReviewBtn}
+              onPress={() => {
+                Alert.alert(
+                  "Leave a review",
+                  "Review feature coming soon!"
+                );
+              }}
+            >
+              <Ionicons name="star" size={18} color="#FFFFFF" />
+              <ThemedText style={styles.leaveReviewBtnText}>Leave a review</ThemedText>
+            </Pressable>
+            <Pressable
+              style={styles.maybeLaterBtn}
+              onPress={() => {
+                // Just dismiss
+              }}
+            >
+              <ThemedText style={styles.maybeLaterBtnText}>Maybe later</ThemedText>
+            </Pressable>
+          </View>
+        )}
 
         <Spacer size={20} />
       </ScrollView>
@@ -4156,5 +4317,103 @@ const styles = StyleSheet.create({
   pickerOptionTextSelected: {
     color: PRIMARY,
     fontWeight: "600",
+  },
+  // Client completion flow styles
+  statusChipCompleted: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#D1FAE5",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  statusChipCompletedText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#10B981",
+  },
+  statusChipAwaitingCompletion: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  statusChipAwaitingText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#F59E0B",
+  },
+  clientCompletionCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 16,
+    marginTop: 16,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  clientCompletionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#111827",
+    textAlign: "center",
+  },
+  clientCompletionSubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    marginTop: 8,
+  },
+  confirmCompleteBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#10B981",
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    gap: 8,
+    width: "100%",
+  },
+  confirmCompleteBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  reportIssueBtn: {
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  reportIssueBtnText: {
+    fontSize: 14,
+    color: "#6B7280",
+    textDecorationLine: "underline",
+  },
+  clientCompletedCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 16,
+    marginTop: 16,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  clientCompletedSubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    marginTop: 4,
   },
 });
