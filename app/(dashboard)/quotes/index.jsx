@@ -378,7 +378,9 @@ export default function TradesmanProjects() {
         const contactInfo = clientContactByRequestId[requestId] || {};
         const clientFullName = contactInfo.name || clientNameByRequestId[requestId] || null;
         // Contact is unlocked when any quote is accepted
-        const hasAcceptedQuote = requestQuotes.some(q => (q.status || "").toLowerCase() === "accepted");
+        const acceptedQuote = requestQuotes.find(q => (q.status || "").toLowerCase() === "accepted");
+        const hasAcceptedQuote = !!acceptedQuote;
+        const acceptedQuoteId = acceptedQuote?.id || null;
         const contactUnlocked = contactInfo.contact_unlocked || hasAcceptedQuote;
 
         // Calculate price range if multiple quotes
@@ -410,6 +412,7 @@ export default function TradesmanProjects() {
           maxPrice,
           hasPriceRange,
           hasAcceptedQuote,
+          acceptedQuoteId,
           // Client contact info (privacy-aware)
           clientFullName,
           clientName: getClientDisplayName(clientFullName, contactUnlocked),
@@ -1057,7 +1060,12 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
               style={[styles.actionBtn, styles.actionBtnPrimary]}
               onPress={(e) => {
                 e.stopPropagation();
-                router.push(`/quotes/request/${project.request_id}`);
+                // For accepted quotes, go to Quote Overview; otherwise request page
+                if (project.hasAcceptedQuote && project.acceptedQuoteId) {
+                  router.push(`/quotes/${project.acceptedQuoteId}`);
+                } else {
+                  router.push(`/quotes/request/${project.request_id}`);
+                }
               }}
             >
               <ThemedText style={styles.actionBtnTextPrimary}>View Details</ThemedText>
@@ -1099,8 +1107,11 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
                 if (isInbox) {
                   // Inbox items go to request details
                   router.push(`/quotes/request/${project.request_id}`);
+                } else if (project.hasAcceptedQuote && project.acceptedQuoteId) {
+                  // Accepted quotes go to Quote Overview (using acceptedQuoteId)
+                  router.push(`/quotes/${project.acceptedQuoteId}`);
                 } else if (project.id) {
-                  // Quotes go to quote details
+                  // Other quotes go to quote details
                   router.push(`/quotes/${project.id}`);
                 }
               }}
@@ -1149,8 +1160,12 @@ function ActiveProjectsSection({ needsAction, activeQuotes, router }) {
                 project={project}
                 router={router}
                 onPress={() => {
-                  // Always go to Client Request page (project.request_id)
-                  router.push(`/quotes/request/${project.request_id}`);
+                  // For accepted quotes, go directly to Quote Overview
+                  if (project.hasAcceptedQuote && project.acceptedQuoteId) {
+                    router.push(`/quotes/${project.acceptedQuoteId}`);
+                  } else {
+                    router.push(`/quotes/request/${project.request_id}`);
+                  }
                 }}
                 onAction={() => {
                   router.push({
@@ -1180,8 +1195,12 @@ function ActiveProjectsSection({ needsAction, activeQuotes, router }) {
                 project={project}
                 router={router}
                 onPress={() => {
-                  // Always go to Client Request page (project.request_id)
-                  router.push(`/quotes/request/${project.request_id}`);
+                  // For accepted quotes, go directly to Quote Overview
+                  if (project.hasAcceptedQuote && project.acceptedQuoteId) {
+                    router.push(`/quotes/${project.acceptedQuoteId}`);
+                  } else {
+                    router.push(`/quotes/request/${project.request_id}`);
+                  }
                 }}
               />
             ))}
@@ -1216,8 +1235,12 @@ function CompletedProjects({ data, router }) {
           project={project}
           router={router}
           onPress={() => {
-            // Always go to Client Request page (project.request_id)
-            router.push(`/quotes/request/${project.request_id}`);
+            // For accepted quotes, go directly to Quote Overview
+            if (project.hasAcceptedQuote && project.acceptedQuoteId) {
+              router.push(`/quotes/${project.acceptedQuoteId}`);
+            } else {
+              router.push(`/quotes/request/${project.request_id}`);
+            }
           }}
         />
       ))}

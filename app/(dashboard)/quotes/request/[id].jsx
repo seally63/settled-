@@ -131,6 +131,11 @@ function QuoteStatusBadge({ status }) {
     tone = "action";
     label = "Draft";
     icon = "create-outline";
+  } else if (s === "unused") {
+    // Draft quote that wasn't sent when another quote was accepted
+    tone = "muted";
+    label = "Draft (unused)";
+    icon = "document-outline";
   } else if (s === "sent" || s === "created") {
     tone = "waiting";
     label = "Sent";
@@ -209,10 +214,14 @@ function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, d
   };
 
   // Render a single quote card
-  const renderQuoteCard = (quote, quoteNumber, isAccepted = false) => {
+  const renderQuoteCard = (quote, quoteNumber, isAccepted = false, isInOtherSection = false) => {
     const status = (quote.status || "").toLowerCase();
     const isDraft = status === "draft";
     const isSent = status === "sent" || status === "created";
+    const isDeclined = status === "declined";
+    const isExpired = status === "expired";
+    // Muted styling for non-accepted quotes when an accepted quote exists
+    const isMuted = isInOtherSection && (isDraft || isDeclined || isExpired);
 
     // Calculate expiry info for sent quotes
     const createdDate = quote.created_at ? new Date(quote.created_at) : null;
@@ -242,20 +251,20 @@ function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, d
     return (
       <Pressable
         key={quote.id}
-        style={quoteStyles.quoteCard}
+        style={[quoteStyles.quoteCard, isMuted && quoteStyles.quoteCardMuted]}
         onPress={!isDraft ? handleCardPress : undefined}
         disabled={isDraft}
       >
         {/* Header with title and status badge */}
         <View style={quoteStyles.quoteCardHeader}>
-          <ThemedText style={quoteStyles.quoteCardTitle}>
+          <ThemedText style={[quoteStyles.quoteCardTitle, isMuted && { color: "#9CA3AF" }]}>
             {quoteTitle}
           </ThemedText>
-          <QuoteStatusBadge status={quote.status} />
+          <QuoteStatusBadge status={isDraft && isInOtherSection ? "unused" : quote.status} />
         </View>
 
         {/* Price */}
-        <ThemedText style={quoteStyles.quoteCardPrice}>
+        <ThemedText style={[quoteStyles.quoteCardPrice, isMuted && { color: "#9CA3AF" }]}>
           £{formatNumber(quote.grand_total || 0)}
         </ThemedText>
 
@@ -267,7 +276,8 @@ function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, d
         )}
 
         {/* Status-specific content */}
-        {isDraft && (
+        {/* Only show Edit/Send buttons for drafts that are NOT in the "other" section */}
+        {isDraft && !isInOtherSection && (
           <View style={quoteStyles.quoteCardActions}>
             <Pressable
               style={quoteStyles.editButton}
@@ -396,7 +406,7 @@ function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, d
           )}
 
           {showOtherQuotes && otherQuotes.map(q =>
-            renderQuoteCard(q, quoteNumberMap[q.id])
+            renderQuoteCard(q, quoteNumberMap[q.id], false, true)
           )}
         </>
       ) : (
@@ -503,6 +513,10 @@ const quoteStyles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 8,
     elevation: 2,
+  },
+  quoteCardMuted: {
+    backgroundColor: "#F9FAFB",
+    opacity: 0.8,
   },
   quoteCardHeader: {
     flexDirection: "row",
