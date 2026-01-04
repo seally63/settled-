@@ -683,6 +683,9 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
   const hasAppointment = !!project.nextAppointment;
   const hasMultipleQuotes = (project.quoteCount || 0) > 1;
 
+  // Get status for all quote-related checks
+  const status = (project.status || displayStatus || "").toLowerCase();
+
   // Show action buttons for: quotes (sent/active/scheduled), OR inbox items with appointments
   // For multiple quotes, always show "View Details" button
   const showActionButtons = (!isInbox && (displayStatus === "in_progress" || displayStatus === "scheduled" || displayStatus === "sent" || displayStatus === "awaiting" || hasMultipleQuotes)) ||
@@ -728,24 +731,36 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
   } else {
     // Quote exists - determine based on status
     // For multiple quotes, use priority: Draft > Sent > Accepted > Declined/Expired
-    const status = (project.status || displayStatus || "").toLowerCase();
     const daysOld = daysSince(project.issued_at);
 
     // Check if there's an accepted quote (highest priority for display)
-    if (project.hasAcceptedQuote) {
-      // Check appointment status for accepted quotes
-      const apptStatus = project.nextAppointment?.status?.toLowerCase();
-      if (apptStatus === "proposed") {
-        chipLabel = "Visit Pending";
-        chipTone = "action";
+    // Also check for awaiting_completion and completed statuses (post-acceptance states)
+    if (project.hasAcceptedQuote || status === "awaiting_completion" || status === "completed") {
+      // Handle post-acceptance statuses first
+      if (status === "awaiting_completion") {
+        chipLabel = "Awaiting Confirm.";
+        chipTone = "waiting";
         chipIcon = "hourglass";
-      } else if (apptStatus === "confirmed") {
-        chipLabel = "Scheduled";
-        chipTone = "active";
-        chipIcon = "calendar";
+      } else if (status === "completed") {
+        chipLabel = "Completed";
+        chipTone = "completed";
+        chipIcon = "checkmark-done";
       } else {
-        chipLabel = "Accepted";
-        chipTone = "active";
+        // Check appointment status for accepted quotes
+        const apptStatus = project.nextAppointment?.status?.toLowerCase();
+        if (apptStatus === "proposed") {
+          chipLabel = "Visit Pending";
+          chipTone = "action";
+          chipIcon = "hourglass";
+        } else if (apptStatus === "confirmed") {
+          chipLabel = "Scheduled";
+          chipTone = "active";
+          chipIcon = "calendar";
+        } else {
+          chipLabel = "In Progress";
+          chipTone = "active";
+          chipIcon = "hammer";
+        }
       }
     } else if (status === "draft") {
       chipLabel = "Draft";
@@ -761,6 +776,11 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
         chipTone = "waiting";
         chipIcon = "send";
       }
+    } else if (status === "awaiting_completion") {
+      // Trade marked complete, waiting for client confirmation
+      chipLabel = "Awaiting Confirm.";
+      chipTone = "waiting";
+      chipIcon = "hourglass";
     } else if (status === "accepted" || status === "in_progress" || status === "scheduled") {
       // Check appointment status for accepted quotes
       const apptStatus = project.nextAppointment?.status?.toLowerCase();
@@ -773,8 +793,9 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
         chipTone = "active";
         chipIcon = "calendar";
       } else {
-        chipLabel = "Accepted";
+        chipLabel = "In Progress";
         chipTone = "active";
+        chipIcon = "hammer";
       }
     } else if (status === "declined") {
       chipLabel = "Declined";
@@ -934,8 +955,28 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
           />
         )}
 
+        {/* Awaiting completion info */}
+        {!isInbox && status === "awaiting_completion" && (
+          <View style={styles.awaitingConfirmRow}>
+            <Ionicons name="hourglass" size={14} color="#3B82F6" />
+            <ThemedText style={styles.awaitingConfirmText}>
+              Waiting for {project.clientName ? project.clientName.split(" ")[0] : "client"} to confirm
+            </ThemedText>
+          </View>
+        )}
+
+        {/* Completed info */}
+        {!isInbox && status === "completed" && project.completion_confirmed_at && (
+          <ThemedText style={styles.completedMetaText}>
+            Completed {new Date(project.completion_confirmed_at).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+            })}
+          </ThemedText>
+        )}
+
         {/* Quote age/meta info */}
-        {!isInbox && project.issued_at && (
+        {!isInbox && project.issued_at && status !== "awaiting_completion" && status !== "completed" && (
           <ThemedText style={styles.metaText}>
             Sent {new Date(project.issued_at).toLocaleDateString(undefined, {
               month: "short",
@@ -1635,5 +1676,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
     color: "#6B7280",
+  },
+
+  // Awaiting confirmation row
+  awaitingConfirmRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: "#EFF6FF",
+    borderRadius: 8,
+  },
+  awaitingConfirmText: {
+    fontSize: 13,
+    color: "#3B82F6",
+    fontWeight: "500",
+  },
+
+  // Completed meta text
+  completedMetaText: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 8,
+    fontWeight: "500",
   },
 });

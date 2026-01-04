@@ -12,7 +12,7 @@ import {
   Keyboard,
   Text,
 } from "react-native";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,6 +26,15 @@ import CustomDateTimePicker from "../../../components/CustomDateTimePicker";
 
 const PRIMARY = "#6849a7";
 const INPUT_ACCESSORY_ID = "schedule-keyboard-accessory";
+
+// Predefined appointment types
+const APPOINTMENT_TYPES = [
+  { id: 'survey', label: 'Survey / Assessment', icon: 'search-outline' },
+  { id: 'design', label: 'Design consultation', icon: 'color-palette-outline' },
+  { id: 'start_work', label: 'Start work', icon: 'hammer-outline' },
+  { id: 'followup', label: 'Follow-up visit', icon: 'refresh-outline' },
+  { id: 'final', label: 'Final inspection', icon: 'checkmark-done-outline' },
+];
 
 function getInitials(name) {
   if (!name) return "?";
@@ -62,7 +71,8 @@ export default function ScheduleAppointment() {
     : params.postcode;
 
   // State
-  const [apptTitle, setApptTitle] = useState("");
+  const [selectedType, setSelectedType] = useState(null); // appointment type id
+  const [apptNote, setApptNote] = useState(""); // optional note
   const [apptDateTime, setApptDateTime] = useState(null);
   const [hasDate, setHasDate] = useState(false);
   const [hasTime, setHasTime] = useState(false);
@@ -135,16 +145,8 @@ export default function ScheduleAppointment() {
     })();
   }, [requestId, titleParam]);
 
-  // Handle appointment title with auto-capitalize first letter
-  const handleTitleChange = useCallback((text) => {
-    if (text.length === 1) {
-      setApptTitle(text.charAt(0).toUpperCase());
-    } else if (text.length > 0 && apptTitle.length === 0) {
-      setApptTitle(text.charAt(0).toUpperCase() + text.slice(1));
-    } else {
-      setApptTitle(text);
-    }
-  }, [apptTitle]);
+  // Get the selected type object
+  const selectedTypeObj = APPOINTMENT_TYPES.find(t => t.id === selectedType);
 
   const handlePressDateRow = () => {
     const base = apptDateTime || new Date();
@@ -215,11 +217,10 @@ export default function ScheduleAppointment() {
   };
 
   const validateAppointment = () => {
-    const trimmedTitle = apptTitle.trim();
-    if (!trimmedTitle) {
+    if (!selectedType) {
       Alert.alert(
-        "Missing name",
-        "Please name this appointment (e.g. Survey visit)."
+        "Select visit type",
+        "Please select what type of visit this is."
       );
       return { ok: false };
     }
@@ -259,10 +260,12 @@ export default function ScheduleAppointment() {
       return { ok: false };
     }
 
-    return { ok: true, trimmedTitle };
+    // Get the label from the selected type
+    const typeLabel = selectedTypeObj?.label || "Appointment";
+    return { ok: true, typeLabel };
   };
 
-  const performScheduleAppointment = async (trimmedTitle) => {
+  const performScheduleAppointment = async (typeLabel) => {
     if (busy) return;
 
     if (!requestId) {
@@ -277,11 +280,14 @@ export default function ScheduleAppointment() {
       setBusy(true);
 
       // Use the RPC that creates appointment AND sends it to messages
+      // Note is passed as part of location for now (or could be added to notes param if RPC supports it)
+      const noteText = apptNote.trim();
+
       console.log("[DEBUG] Schedule - Calling rpc_send_appointment_message with:", {
         p_request_id: requestId,
         p_quote_id: quoteId || null,
         p_scheduled_at: apptDateTime.toISOString(),
-        p_title: trimmedTitle,
+        p_title: typeLabel,
         p_location: location || null,
       });
 
@@ -291,7 +297,7 @@ export default function ScheduleAppointment() {
           p_request_id: requestId,
           p_quote_id: quoteId || null,
           p_scheduled_at: apptDateTime.toISOString(),
-          p_title: trimmedTitle,
+          p_title: typeLabel,
           p_location: location || null,
         }
       );
@@ -338,18 +344,17 @@ export default function ScheduleAppointment() {
   const handleConfirmSchedule = () => {
     if (busy) return;
 
-    const { ok, trimmedTitle } = validateAppointment();
+    const { ok, typeLabel } = validateAppointment();
     if (!ok) return;
 
-    const label = trimmedTitle || "Appointment";
     const whenStr = apptDateTime.toLocaleString();
 
-    Alert.alert("Schedule this appointment?", `"${label}"\n\n${whenStr}`, [
+    Alert.alert("Schedule this appointment?", `"${typeLabel}"\n\n${whenStr}`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Schedule",
         style: "default",
-        onPress: () => performScheduleAppointment(trimmedTitle),
+        onPress: () => performScheduleAppointment(typeLabel),
       },
     ]);
   };
@@ -436,36 +441,52 @@ export default function ScheduleAppointment() {
           </View>
         </View>
 
-        {/* Appointment name */}
-        <View style={styles.card}>
-          <ThemedText style={styles.fieldLabel}>Appointment name</ThemedText>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. Survey visit"
-            value={apptTitle}
-            onChangeText={handleTitleChange}
-            editable={!busy}
-            autoCapitalize="sentences"
-            returnKeyType="done"
-            blurOnSubmit={true}
-            inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
-          />
+        {/* What type of visit? */}
+        <ThemedText style={styles.sectionLabel}>What type of visit?</ThemedText>
+        <View style={styles.typeCardsContainer}>
+          {APPOINTMENT_TYPES.map((type) => {
+            const isSelected = selectedType === type.id;
+            return (
+              <Pressable
+                key={type.id}
+                style={[
+                  styles.typeCard,
+                  isSelected && styles.typeCardSelected,
+                ]}
+                onPress={() => setSelectedType(type.id)}
+                disabled={busy}
+              >
+                <View style={styles.typeCardContent}>
+                  <Ionicons
+                    name={type.icon}
+                    size={20}
+                    color={isSelected ? PRIMARY : "#6B7280"}
+                    style={styles.typeCardIcon}
+                  />
+                  <ThemedText
+                    style={[
+                      styles.typeCardLabel,
+                      isSelected && styles.typeCardLabelSelected,
+                    ]}
+                  >
+                    {type.label}
+                  </ThemedText>
+                </View>
+                <View
+                  style={[
+                    styles.typeCardRadio,
+                    isSelected && styles.typeCardRadioSelected,
+                  ]}
+                >
+                  {isSelected && <View style={styles.typeCardRadioInner} />}
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
 
-        {/* Details rows */}
-        <View style={[styles.card, { marginTop: 12 }]}>
-          {/* Location row */}
-          <View style={styles.detailRow}>
-            <View style={styles.detailLeft}>
-              <ThemedText style={styles.detailLabel}>Location</ThemedText>
-              <ThemedText style={styles.detailValue} numberOfLines={2}>
-                {displayLocation}
-              </ThemedText>
-            </View>
-          </View>
-
-          <View style={styles.detailDivider} />
-
+        {/* Date & Time */}
+        <View style={[styles.card, { marginTop: 16 }]}>
           {/* Date row */}
           <Pressable
             style={styles.detailRow}
@@ -509,6 +530,23 @@ export default function ScheduleAppointment() {
               </ThemedText>
             </View>
           </Pressable>
+        </View>
+
+        {/* Note (optional) */}
+        <View style={[styles.card, { marginTop: 16 }]}>
+          <ThemedText style={styles.fieldLabel}>Note (optional)</ThemedText>
+          <TextInput
+            style={styles.noteInput}
+            placeholder="e.g., I'll need access to the back garden..."
+            placeholderTextColor="#9CA3AF"
+            value={apptNote}
+            onChangeText={setApptNote}
+            editable={!busy}
+            multiline
+            numberOfLines={3}
+            textAlignVertical="top"
+            inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
+          />
         </View>
 
         <Spacer size={24} />
@@ -698,6 +736,78 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#FFFFFF",
+  },
+  // Section label
+  sectionLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 12,
+  },
+  // Type selector cards
+  typeCardsContainer: {
+    gap: 8,
+  },
+  typeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  typeCardSelected: {
+    borderColor: PRIMARY,
+    backgroundColor: "#FAF5FF",
+  },
+  typeCardContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  typeCardIcon: {
+    marginRight: 12,
+  },
+  typeCardLabel: {
+    fontSize: 15,
+    color: "#374151",
+    fontWeight: "500",
+  },
+  typeCardLabelSelected: {
+    color: PRIMARY,
+    fontWeight: "600",
+  },
+  typeCardRadio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: "#D1D5DB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  typeCardRadioSelected: {
+    borderColor: PRIMARY,
+  },
+  typeCardRadioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: PRIMARY,
+  },
+  // Note input
+  noteInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    backgroundColor: "#FFFFFF",
+    minHeight: 80,
   },
   // Keyboard accessory
   keyboardAccessory: {

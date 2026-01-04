@@ -10,10 +10,13 @@ import {
   Alert,
   TextInput,
   Dimensions,
+  Modal,
+  KeyboardAvoidingView,
+  Keyboard,
 } from "react-native";
 import ImageViewing from "react-native-image-viewing";
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import CustomDateTimePicker from "../../../components/CustomDateTimePicker";
@@ -170,6 +173,26 @@ export default function QuoteDetails() {
 
   // Full-screen viewer state (zoomable, swipeable)
   const [viewer, setViewer] = useState({ open: false, index: 0 });
+
+  // Mark Complete bottom sheet state
+  const [showCompleteSheet, setShowCompleteSheet] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
+  const [completionNotes, setCompletionNotes] = useState("");
+  const [completeBusy, setCompleteBusy] = useState(false);
+  const [showPaymentMethodPicker, setShowPaymentMethodPicker] = useState(false);
+
+  // Payment method options
+  const PAYMENT_METHODS = [
+    { id: "bank_transfer", label: "Bank transfer" },
+    { id: "cash", label: "Cash" },
+    { id: "card", label: "Card" },
+    { id: "paypal", label: "PayPal" },
+    { id: "other", label: "Other" },
+  ];
+
+  // Get selected payment method label
+  const selectedPaymentMethodLabel = PAYMENT_METHODS.find(m => m.id === paymentMethod)?.label || "Select method";
 
   const closeViewer = useCallback(() => {
     setViewer((v) => ({ ...v, open: false }));
@@ -421,6 +444,133 @@ export default function QuoteDetails() {
     }
   }, [shouldOpenSchedule, loading, quote, appointments, userRole]);
 
+  // Real-time subscription for appointments
+  useEffect(() => {
+    const reqId = quote?.request_id || quote?.requestId;
+    const quoteId = quote?.id;
+
+    if (!reqId && !quoteId) return;
+
+    // Create a channel for real-time updates
+    const channel = supabase
+      .channel(`appointments-quote-${quoteId || reqId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*", // Listen to INSERT, UPDATE, DELETE
+          schema: "public",
+          table: "appointments",
+        },
+        async (payload) => {
+          console.log("[REALTIME] Appointment change detected:", payload.eventType);
+
+          // Reload appointments when any change occurs
+          try {
+            let finalAppointments = [];
+
+            // Try RPC first
+            const { data: allAppts, error: apptErr } = await supabase.rpc(
+              "rpc_trade_list_appointments",
+              { p_only_upcoming: false }
+            );
+
+            if (!apptErr && allAppts && allAppts.length > 0) {
+              const filtered = (Array.isArray(allAppts) ? allAppts : [])
+                .filter((a) => a.request_id === reqId || a.quote_id === quoteId);
+
+              finalAppointments = filtered.map((a) => ({
+                id: a.id,
+                request_id: a.request_id,
+                quote_id: a.quote_id,
+                scheduled_at: a.scheduled_at,
+                title: a.title || "Appointment",
+                status: a.status,
+                location: a.location,
+              }));
+            } else {
+              // Fallback: direct query
+              const { data: directAppts, error: directErr } = await supabase
+                .from("appointments")
+                .select("id, request_id, quote_id, scheduled_at, title, status, location")
+                .or(`request_id.eq.${reqId},quote_id.eq.${quoteId}`)
+                .order("scheduled_at", { ascending: true });
+
+              if (!directErr && directAppts) {
+                finalAppointments = directAppts;
+              }
+            }
+
+            setAppointments(finalAppointments);
+            console.log("[REALTIME] Appointments updated:", finalAppointments.length);
+          } catch (e) {
+            console.warn("[REALTIME] Failed to reload appointments:", e?.message || e);
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log("[REALTIME] Subscription status:", status);
+      });
+
+    // Cleanup subscription on unmount
+    return () => {
+      console.log("[REALTIME] Unsubscribing from appointments channel");
+      supabase.removeChannel(channel);
+    };
+  }, [quote?.id, quote?.request_id, quote?.requestId]);
+
+  // Reload appointments when screen is focused (fallback for when realtime doesn't work)
+  useFocusEffect(
+    useCallback(() => {
+      const reqId = quote?.request_id || quote?.requestId;
+      const quoteId = quote?.id;
+
+      if (!reqId && !quoteId) return;
+
+      const reloadAppointments = async () => {
+        try {
+          let finalAppointments = [];
+
+          const { data: allAppts, error: apptErr } = await supabase.rpc(
+            "rpc_trade_list_appointments",
+            { p_only_upcoming: false }
+          );
+
+          if (!apptErr && allAppts && allAppts.length > 0) {
+            const filtered = (Array.isArray(allAppts) ? allAppts : [])
+              .filter((a) => a.request_id === reqId || a.quote_id === quoteId);
+
+            finalAppointments = filtered.map((a) => ({
+              id: a.id,
+              request_id: a.request_id,
+              quote_id: a.quote_id,
+              scheduled_at: a.scheduled_at,
+              title: a.title || "Appointment",
+              status: a.status,
+              location: a.location,
+            }));
+          } else {
+            const { data: directAppts, error: directErr } = await supabase
+              .from("appointments")
+              .select("id, request_id, quote_id, scheduled_at, title, status, location")
+              .or(`request_id.eq.${reqId},quote_id.eq.${quoteId}`)
+              .order("scheduled_at", { ascending: true });
+
+            if (!directErr && directAppts) {
+              finalAppointments = directAppts;
+            }
+          }
+
+          setAppointments(finalAppointments);
+          console.log("[FOCUS] Appointments reloaded:", finalAppointments.length);
+        } catch (e) {
+          console.warn("[FOCUS] Failed to reload appointments:", e?.message || e);
+        }
+      };
+
+      reloadAppointments();
+    }, [quote?.id, quote?.request_id, quote?.requestId])
+  );
+
   const items = useMemo(
     () => (Array.isArray(quote?.line_items) ? quote.line_items : []),
     [quote]
@@ -495,15 +645,16 @@ export default function QuoteDetails() {
 
   // Scheduling helpers
   const openSchedulePage = () => {
-    // Reset form each time
-    setApptTitle("");
-    setApptDateTime(null);
-    setHasDate(false);
-    setHasTime(false);
-    setPickerVisible(false);
-    setPickerMode("date");
-    setPickerDraftDate(new Date());
-    setScheduling(true);
+    const reqId = quote?.request_id || quote?.requestId || request?.id || null;
+    router.push({
+      pathname: "/quotes/schedule",
+      params: {
+        requestId: reqId ? String(reqId) : "",
+        quoteId: quote?.id ? String(quote.id) : "",
+        title: request?.suggested_title || quote?.project_title || "",
+        postcode: request?.postcode || "",
+      },
+    });
   };
 
   const closeSchedulePage = () => {
@@ -816,6 +967,68 @@ export default function QuoteDetails() {
         },
       ]
     );
+  };
+
+  // Open mark complete sheet with pre-filled amount
+  const openMarkCompleteSheet = () => {
+    setPaymentAmount(String(grandTotal || ""));
+    setPaymentMethod("bank_transfer");
+    setCompletionNotes("");
+    setShowCompleteSheet(true);
+  };
+
+  // Close mark complete sheet
+  const closeMarkCompleteSheet = () => {
+    if (completeBusy) return;
+    setShowCompleteSheet(false);
+  };
+
+  // Handle mark complete submission
+  const handleMarkComplete = async () => {
+    if (completeBusy) return;
+
+    try {
+      setCompleteBusy(true);
+
+      const amount = parseFloat(paymentAmount) || grandTotal || 0;
+
+      const { data, error } = await supabase.rpc("rpc_trade_mark_complete", {
+        p_quote_id: quote?.id,
+        p_payment_received: amount,
+        p_payment_method: paymentMethod,
+        p_notes: completionNotes.trim() || null,
+      });
+
+      if (error) {
+        console.warn("Mark complete error:", error.message || error);
+        Alert.alert(
+          "Could not mark complete",
+          error.message || "Something went wrong, please try again."
+        );
+        return;
+      }
+
+      // Reload the quote to get updated status
+      const row = await fetchQuoteById(quote.id);
+      if (row) {
+        setQuote(row);
+      }
+
+      setShowCompleteSheet(false);
+
+      Alert.alert(
+        "Job marked as complete",
+        `${displayName} will be notified to confirm the work is done.`
+      );
+    } catch (e) {
+      console.warn("Mark complete error:", e?.message || e);
+      Alert.alert(
+        "Could not mark complete",
+        e?.message || "Something went wrong, please try again."
+      );
+    } finally {
+      setCompleteBusy(false);
+    }
   };
 
   if (loading) {
@@ -1542,48 +1755,302 @@ export default function QuoteDetails() {
 
           <Spacer size={20} />
 
-          {/* Action Buttons */}
-          <View style={styles.actionButtonsContainer}>
-            {isAccepted && (
+          {/* Status-based content for completion flow */}
+          {status === "awaiting_completion" && (
+            <View style={styles.awaitingCompletionCard}>
+              <View style={styles.awaitingProgressRow}>
+                <View style={styles.awaitingProgressDot} />
+                <View style={styles.awaitingProgressLine} />
+                <View style={[styles.awaitingProgressDot, styles.awaitingProgressDotEmpty]} />
+              </View>
+              <Spacer size={16} />
+              <ThemedText style={styles.awaitingTitle}>
+                Waiting for {displayName ? displayName.split(" ")[0] : "client"} to confirm completion
+              </ThemedText>
+              {quote?.marked_complete_at && (
+                <ThemedText style={styles.awaitingMeta}>
+                  Marked complete {new Date(quote.marked_complete_at).toLocaleDateString(undefined, {
+                    day: "numeric",
+                    month: "short",
+                  })}
+                </ThemedText>
+              )}
+            </View>
+          )}
+
+          {status === "completed" && (
+            <View style={styles.completedCard}>
+              <View style={styles.completedCheckCircle}>
+                <Ionicons name="checkmark" size={32} color="#10B981" />
+              </View>
+              <Spacer size={12} />
+              <ThemedText style={styles.completedTitle}>Job complete</ThemedText>
+              {quote?.completion_confirmed_at && (
+                <ThemedText style={styles.completedMeta}>
+                  {displayName ? displayName.split(" ")[0] : "Client"} confirmed on{" "}
+                  {new Date(quote.completion_confirmed_at).toLocaleDateString(undefined, {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </ThemedText>
+              )}
+              <Spacer size={20} />
+              <View style={styles.reviewPromptCard}>
+                <ThemedText style={styles.reviewPromptTitle}>
+                  How was working with {displayName ? displayName.split(" ")[0] : "the client"}?
+                </ThemedText>
+                <ThemedText style={styles.reviewPromptSubtitle}>
+                  Your review helps build trust in the community.
+                </ThemedText>
+              </View>
+              <Spacer size={16} />
               <Pressable
-                style={styles.markCompleteBtn}
+                style={styles.leaveReviewBtn}
                 onPress={() => {
                   Alert.alert(
-                    "Mark as complete",
-                    "This feature is coming soon. You'll be able to mark jobs as complete and create invoices."
+                    "Leave a review",
+                    "Review feature coming soon!"
                   );
                 }}
               >
-                <ThemedText style={styles.markCompleteBtnText}>Mark as complete</ThemedText>
+                <ThemedText style={styles.leaveReviewBtnText}>Leave a review</ThemedText>
               </Pressable>
-            )}
+              <Pressable
+                style={styles.maybeLaterBtn}
+                onPress={() => {
+                  // Just dismiss, do nothing
+                }}
+              >
+                <ThemedText style={styles.maybeLaterBtnText}>Maybe later</ThemedText>
+              </Pressable>
+            </View>
+          )}
 
-            {/* Message client button */}
-            <Pressable
-              style={styles.messageClientBtn}
-              onPress={() => {
-                const reqId = quote?.request_id || quote?.requestId || request?.id;
-                if (reqId) {
-                  router.push({
-                    pathname: "/(dashboard)/messages/[id]",
-                    params: {
-                      id: String(reqId),
-                      name: displayName || "",
-                      quoteId: quote?.id ? String(quote.id) : "",
-                      returnTo: `/quotes/${quote?.id}`,
-                    },
-                  });
-                }
-              }}
-            >
-              <ThemedText style={styles.messageClientBtnText}>
-                Message {displayName ? displayName.split(" ")[0] : "client"}
-              </ThemedText>
-            </Pressable>
-          </View>
+          {/* Action Buttons - Only show for accepted status (not awaiting/completed) */}
+          {status !== "awaiting_completion" && status !== "completed" && (
+            <View style={styles.actionButtonsContainer}>
+              {isAccepted && (
+                <Pressable
+                  style={styles.markCompleteBtn}
+                  onPress={openMarkCompleteSheet}
+                >
+                  <ThemedText style={styles.markCompleteBtnText}>Mark as complete</ThemedText>
+                </Pressable>
+              )}
+
+              {/* Message client button */}
+              <Pressable
+                style={styles.messageClientBtn}
+                onPress={() => {
+                  const reqId = quote?.request_id || quote?.requestId || request?.id;
+                  if (reqId) {
+                    router.push({
+                      pathname: "/(dashboard)/messages/[id]",
+                      params: {
+                        id: String(reqId),
+                        name: displayName || "",
+                        quoteId: quote?.id ? String(quote.id) : "",
+                        returnTo: `/quotes/${quote?.id}`,
+                      },
+                    });
+                  }
+                }}
+              >
+                <ThemedText style={styles.messageClientBtnText}>
+                  Message {displayName ? displayName.split(" ")[0] : "client"}
+                </ThemedText>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Message button for awaiting_completion status */}
+          {status === "awaiting_completion" && (
+            <View style={styles.actionButtonsContainer}>
+              <Pressable
+                style={styles.messageClientBtn}
+                onPress={() => {
+                  const reqId = quote?.request_id || quote?.requestId || request?.id;
+                  if (reqId) {
+                    router.push({
+                      pathname: "/(dashboard)/messages/[id]",
+                      params: {
+                        id: String(reqId),
+                        name: displayName || "",
+                        quoteId: quote?.id ? String(quote.id) : "",
+                        returnTo: `/quotes/${quote?.id}`,
+                      },
+                    });
+                  }
+                }}
+              >
+                <ThemedText style={styles.messageClientBtnText}>
+                  Message {displayName ? displayName.split(" ")[0] : "client"}
+                </ThemedText>
+              </Pressable>
+            </View>
+          )}
 
           <Spacer size={40} />
         </ScrollView>
+
+        {/* Mark Complete Bottom Sheet */}
+        <Modal
+          visible={showCompleteSheet}
+          animationType="slide"
+          transparent
+          onRequestClose={closeMarkCompleteSheet}
+        >
+          <View style={styles.sheetModalContainer}>
+            {/* Backdrop - tap to close */}
+            <Pressable style={styles.sheetBackdropArea} onPress={closeMarkCompleteSheet} />
+
+            {/* Sheet content */}
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              style={styles.sheetKeyboardView}
+            >
+              <View style={[styles.sheetContent, { paddingBottom: insets.bottom + 20 }]}>
+                {/* Handle */}
+                <View style={styles.sheetHandle} />
+
+                <ScrollView
+                  contentContainerStyle={styles.sheetScrollContent}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
+                  <ThemedText style={styles.sheetTitle}>Confirm completion</ThemedText>
+                  <ThemedText style={styles.sheetSubtitle}>
+                    Let {displayName ? displayName.split(" ")[0] : "the client"} know the work is done.
+                    They'll confirm before the job closes.
+                  </ThemedText>
+
+                  <Spacer size={20} />
+
+                  <ThemedText style={styles.sheetSectionLabel}>Payment received</ThemedText>
+
+                  <Spacer size={12} />
+
+                  {/* Amount */}
+                  <ThemedText style={styles.sheetFieldLabel}>Amount</ThemedText>
+                  <View style={styles.sheetAmountInputContainer}>
+                    <ThemedText style={styles.sheetCurrencySymbol}>£</ThemedText>
+                    <TextInput
+                      style={styles.sheetAmountInput}
+                      value={paymentAmount}
+                      onChangeText={setPaymentAmount}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                      placeholderTextColor="#9CA3AF"
+                      editable={!completeBusy}
+                    />
+                  </View>
+
+                  <Spacer size={16} />
+
+                  {/* Payment Method - Dropdown */}
+                  <ThemedText style={styles.sheetFieldLabel}>Method</ThemedText>
+                  <Pressable
+                    style={styles.sheetDropdown}
+                    onPress={() => setShowPaymentMethodPicker(true)}
+                    disabled={completeBusy}
+                  >
+                    <ThemedText style={styles.sheetDropdownText}>
+                      {selectedPaymentMethodLabel}
+                    </ThemedText>
+                    <Ionicons name="chevron-down" size={20} color="#6B7280" />
+                  </Pressable>
+
+                  <Spacer size={16} />
+
+                  {/* Notes */}
+                  <ThemedText style={styles.sheetFieldLabel}>Final notes (optional)</ThemedText>
+                  <TextInput
+                    style={styles.sheetNotesInput}
+                    value={completionNotes}
+                    onChangeText={setCompletionNotes}
+                    placeholder="Any details about the work..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    numberOfLines={3}
+                    textAlignVertical="top"
+                    editable={!completeBusy}
+                  />
+
+                  <Spacer size={24} />
+
+                  {/* Confirm button */}
+                  <Pressable
+                    style={[
+                      styles.sheetConfirmBtn,
+                      { opacity: completeBusy ? 0.7 : 1 },
+                    ]}
+                    onPress={handleMarkComplete}
+                    disabled={completeBusy}
+                  >
+                    <ThemedText style={styles.sheetConfirmBtnText}>
+                      {completeBusy ? "Confirming..." : "Mark as complete"}
+                    </ThemedText>
+                  </Pressable>
+
+                  {/* Cancel */}
+                  <Pressable
+                    style={styles.sheetCancelBtn}
+                    onPress={closeMarkCompleteSheet}
+                    disabled={completeBusy}
+                  >
+                    <ThemedText style={styles.sheetCancelBtnText}>Cancel</ThemedText>
+                  </Pressable>
+                </ScrollView>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+
+          {/* Payment Method Picker Modal */}
+          <Modal
+            visible={showPaymentMethodPicker}
+            animationType="fade"
+            transparent
+            onRequestClose={() => setShowPaymentMethodPicker(false)}
+          >
+            <Pressable
+              style={styles.pickerBackdrop}
+              onPress={() => setShowPaymentMethodPicker(false)}
+            >
+              <View style={styles.pickerContainer}>
+                <View style={styles.pickerHeader}>
+                  <ThemedText style={styles.pickerTitle}>Select payment method</ThemedText>
+                  <Pressable onPress={() => setShowPaymentMethodPicker(false)} hitSlop={8}>
+                    <Ionicons name="close" size={24} color="#6B7280" />
+                  </Pressable>
+                </View>
+                {PAYMENT_METHODS.map((method, idx) => (
+                  <Pressable
+                    key={method.id}
+                    style={[
+                      styles.pickerOption,
+                      idx < PAYMENT_METHODS.length - 1 && styles.pickerOptionBorder,
+                    ]}
+                    onPress={() => {
+                      setPaymentMethod(method.id);
+                      setShowPaymentMethodPicker(false);
+                    }}
+                  >
+                    <ThemedText style={[
+                      styles.pickerOptionText,
+                      paymentMethod === method.id && styles.pickerOptionTextSelected,
+                    ]}>
+                      {method.label}
+                    </ThemedText>
+                    {paymentMethod === method.id && (
+                      <Ionicons name="checkmark" size={20} color={PRIMARY} />
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+            </Pressable>
+          </Modal>
+        </Modal>
 
         {/* Image viewer */}
         <ImageViewing
@@ -1739,43 +2206,55 @@ export default function QuoteDetails() {
         </View>
       )}
 
-      {/* Appointments Section - Full list with + Add button (for client only on accepted quotes) */}
+      {/* Appointments Section - matching trade view UI */}
       {isAccepted && userRole === 'client' && (
-        <>
+        <View style={styles.appointmentsSection}>
           <View style={styles.sectionHeaderRow}>
             <ThemedText style={styles.sectionHeaderText}>
               Appointments
             </ThemedText>
           </View>
 
-          <View style={styles.card}>
-            {appointments.length === 0 ? (
-              <View style={styles.emptyAppointments}>
-                <Ionicons name="calendar-outline" size={32} color="#D1D5DB" />
-                <ThemedText style={styles.emptyAppointmentsText}>No appointments yet</ThemedText>
-              </View>
-            ) : (
-              appointments.map((appt, idx) => {
+          {/* Upcoming appointments - each as its own card */}
+          {upcomingAppointments.length > 0 && (
+            <View>
+              <ThemedText style={styles.appointmentSubheaderStandalone}>Upcoming</ThemedText>
+              {upcomingAppointments.map((appt, idx) => {
                 const scheduledDate = new Date(appt.scheduled_at);
-                const isProposed = appt.status === "proposed";
                 const isConfirmed = appt.status === "confirmed";
-                const isDeclined = appt.status === "declined";
+                const isProposed = appt.status === "proposed";
 
                 return (
-                  <View key={appt.id ?? `client-appt-${idx}`}>
-                    <View style={styles.appointmentListItem}>
-                      <View style={styles.appointmentListIconWrap}>
-                        <Ionicons
-                          name="calendar"
-                          size={18}
-                          color={isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#6B7280"}
-                        />
-                      </View>
+                  <View key={appt.id ?? `client-upcoming-${idx}`}>
+                    <View style={styles.appointmentSingleCard}>
+                      <Ionicons
+                        name="calendar"
+                        size={20}
+                        color="#6B7280"
+                      />
                       <View style={{ flex: 1 }}>
-                        <ThemedText style={styles.appointmentListTitle}>
-                          {appt.title || "Survey visit"}
-                        </ThemedText>
-                        <ThemedText style={styles.appointmentListDateTime}>
+                        <View style={styles.tradeAppointmentTitleRow}>
+                          <ThemedText style={styles.tradeAppointmentTitle}>
+                            {appt.title || "Appointment"}
+                          </ThemedText>
+                          <View style={[
+                            styles.tradeAppointmentBadge,
+                            { backgroundColor: isConfirmed ? "#D1FAE5" : "#FEF3C7" }
+                          ]}>
+                            <Ionicons
+                              name={isConfirmed ? "checkmark-circle" : "hourglass"}
+                              size={12}
+                              color={isConfirmed ? "#10B981" : "#F59E0B"}
+                            />
+                            <ThemedText style={[
+                              styles.tradeAppointmentBadgeText,
+                              { color: isConfirmed ? "#10B981" : "#F59E0B" }
+                            ]}>
+                              {isConfirmed ? "Confirmed" : "Awaiting confirmation"}
+                            </ThemedText>
+                          </View>
+                        </View>
+                        <ThemedText style={styles.tradeAppointmentDateTime}>
                           {scheduledDate.toLocaleDateString(undefined, {
                             weekday: "short",
                             day: "numeric",
@@ -1786,58 +2265,109 @@ export default function QuoteDetails() {
                           })}
                         </ThemedText>
                         {appt.location && (
-                          <ThemedText style={styles.appointmentListLocation}>
+                          <ThemedText style={styles.tradeAppointmentLocation}>
                             {appt.location}
                           </ThemedText>
                         )}
-                      </View>
-                      <View style={[
-                        styles.appointmentListBadge,
-                        { backgroundColor: isConfirmed ? "#D1FAE5" : isProposed ? "#FEF3C7" : "#FEE2E2" }
-                      ]}>
-                        <Ionicons
-                          name={isConfirmed ? "checkmark-circle" : isProposed ? "hourglass" : "close-circle"}
-                          size={14}
-                          color={isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#EF4444"}
-                        />
-                        <ThemedText style={[
-                          styles.appointmentListBadgeText,
-                          { color: isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#EF4444" }
-                        ]}>
-                          {isConfirmed ? "Confirmed" : isProposed ? "Awaiting confirmation" : isDeclined ? "Declined" : appt.status}
-                        </ThemedText>
+
+                        {/* Client: Show Accept/Decline buttons for proposed appointments */}
+                        {isProposed && (
+                          <View style={styles.clientAppointmentActions}>
+                            <Pressable
+                              onPress={() => handleClientDeclineAppointment(appt.id)}
+                              style={styles.heroDeclineBtn}
+                              hitSlop={6}
+                            >
+                              <Ionicons name="close-circle-outline" size={18} color="#B42318" />
+                              <ThemedText style={styles.heroDeclineBtnText}>Decline</ThemedText>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => handleClientConfirmAppointment(appt.id)}
+                              style={styles.heroConfirmBtn}
+                              hitSlop={6}
+                            >
+                              <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
+                              <ThemedText style={styles.heroConfirmBtnText}>Accept</ThemedText>
+                            </Pressable>
+                          </View>
+                        )}
                       </View>
                     </View>
-
-                    {/* Client: Show Accept/Decline buttons for proposed appointments */}
-                    {isProposed && (
-                      <View style={styles.appointmentListActions}>
-                        <Pressable
-                          onPress={() => handleClientDeclineAppointment(appt.id)}
-                          style={styles.heroDeclineBtn}
-                          hitSlop={6}
-                        >
-                          <Ionicons name="close-circle-outline" size={18} color="#B42318" />
-                          <ThemedText style={styles.heroDeclineBtnText}>Decline</ThemedText>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => handleClientConfirmAppointment(appt.id)}
-                          style={styles.heroConfirmBtn}
-                          hitSlop={6}
-                        >
-                          <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
-                          <ThemedText style={styles.heroConfirmBtnText}>Accept</ThemedText>
-                        </Pressable>
-                      </View>
-                    )}
-
-                    {idx < appointments.length - 1 && <View style={styles.appointmentListDivider} />}
                   </View>
                 );
-              })
-            )}
-          </View>
-        </>
+              })}
+            </View>
+          )}
+
+          {/* No appointments state */}
+          {appointments.length === 0 && (
+            <View style={styles.card}>
+              <View style={styles.emptyAppointments}>
+                <Ionicons name="calendar-outline" size={32} color="#D1D5DB" />
+                <ThemedText style={styles.emptyAppointmentsText}>No appointments yet</ThemedText>
+                <ThemedText style={styles.emptyAppointmentsSubtext}>
+                  The tradesperson will schedule a visit soon
+                </ThemedText>
+              </View>
+            </View>
+          )}
+
+          {/* Past Appointments - Collapsible */}
+          {pastAppointments.length > 0 && (
+            <View>
+              <Pressable
+                style={styles.pastAppointmentsHeader}
+                onPress={() => setShowPastAppointments(!showPastAppointments)}
+              >
+                <ThemedText style={styles.appointmentSubheaderStandalone}>Past</ThemedText>
+                <View style={styles.collapsibleToggle}>
+                  <ThemedText style={styles.collapsibleToggleText}>
+                    {showPastAppointments ? "Hide" : "Show"}
+                  </ThemedText>
+                  <Ionicons
+                    name={showPastAppointments ? "chevron-up" : "chevron-down"}
+                    size={16}
+                    color="#6B7280"
+                  />
+                </View>
+              </Pressable>
+
+              {showPastAppointments && (
+                <View>
+                  {pastAppointments.map((appt, idx) => {
+                    const scheduledDate = new Date(appt.scheduled_at);
+                    return (
+                      <View key={appt.id ?? `client-past-${idx}`} style={styles.appointmentSingleCardPast}>
+                        <Ionicons name="calendar" size={20} color="#9CA3AF" />
+                        <View style={{ flex: 1 }}>
+                          <View style={styles.tradeAppointmentTitleRow}>
+                            <ThemedText style={[styles.tradeAppointmentTitle, { color: "#6B7280" }]}>
+                              {appt.title || "Appointment"}
+                            </ThemedText>
+                            <Ionicons name="checkmark" size={18} color="#9CA3AF" />
+                          </View>
+                          <ThemedText style={[styles.tradeAppointmentDateTime, { color: "#9CA3AF" }]}>
+                            {scheduledDate.toLocaleDateString(undefined, {
+                              weekday: "short",
+                              day: "numeric",
+                              month: "short",
+                            })}, {scheduledDate.toLocaleTimeString(undefined, {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </ThemedText>
+                          <ThemedText style={styles.tradeAppointmentCompleted}>
+                            Completed
+                          </ThemedText>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          )}
+        </View>
       )}
 
         {/* Quote request - styled like client version */}
@@ -2494,6 +3024,18 @@ const styles = StyleSheet.create({
   emptyAppointmentsText: {
     fontSize: 14,
     color: "#9CA3AF",
+  },
+  emptyAppointmentsSubtext: {
+    fontSize: 13,
+    color: "#9CA3AF",
+  },
+  appointmentsSection: {
+    marginBottom: 8,
+  },
+  clientAppointmentActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
   },
   scheduleVisitBtn: {
     marginTop: 8,
@@ -3327,5 +3869,292 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#374151",
+  },
+
+  // =============================================
+  // AWAITING COMPLETION / COMPLETED STATES
+  // =============================================
+  awaitingCompletionCard: {
+    backgroundColor: "#F0F9FF",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#BAE6FD",
+  },
+  awaitingProgressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  awaitingProgressDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: PRIMARY,
+  },
+  awaitingProgressDotEmpty: {
+    backgroundColor: "transparent",
+    borderWidth: 2,
+    borderColor: "#D1D5DB",
+  },
+  awaitingProgressLine: {
+    width: 60,
+    height: 2,
+    backgroundColor: "#D1D5DB",
+    marginHorizontal: 4,
+  },
+  awaitingTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1E40AF",
+    textAlign: "center",
+  },
+  awaitingMeta: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 8,
+  },
+
+  completedCard: {
+    backgroundColor: "#F0FDF4",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+  },
+  completedCheckCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#DCFCE7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  completedTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#166534",
+  },
+  completedMeta: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 4,
+  },
+  reviewPromptCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    width: "100%",
+  },
+  reviewPromptTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+    textAlign: "center",
+  },
+  reviewPromptSubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 4,
+    textAlign: "center",
+  },
+  leaveReviewBtn: {
+    backgroundColor: PRIMARY,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    width: "100%",
+    alignItems: "center",
+  },
+  leaveReviewBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  maybeLaterBtn: {
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  maybeLaterBtnText: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+
+  // =============================================
+  // MARK COMPLETE BOTTOM SHEET
+  // =============================================
+  sheetModalContainer: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  sheetBackdropArea: {
+    flex: 1,
+  },
+  sheetKeyboardView: {
+    // This ensures the sheet stays at the bottom
+  },
+  sheetContent: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: 750,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: "#D1D5DB",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  sheetScrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    marginTop: 12,
+  },
+  sheetSubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  sheetSectionLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#374151",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+    paddingBottom: 8,
+  },
+  sheetFieldLabel: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#6B7280",
+    marginBottom: 6,
+  },
+  sheetAmountInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+  },
+  sheetCurrencySymbol: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#374151",
+    marginRight: 4,
+  },
+  sheetAmountInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: 12,
+    color: "#111827",
+  },
+  sheetDropdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  sheetDropdownText: {
+    fontSize: 15,
+    color: "#111827",
+  },
+  sheetNotesInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    backgroundColor: "#FFFFFF",
+    minHeight: 80,
+    color: "#111827",
+  },
+  sheetConfirmBtn: {
+    backgroundColor: PRIMARY,
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetConfirmBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  sheetCancelBtn: {
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  sheetCancelBtnText: {
+    fontSize: 15,
+    color: "#6B7280",
+  },
+
+  // Payment method picker modal
+  pickerBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  pickerContainer: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    width: "100%",
+    maxWidth: 340,
+    overflow: "hidden",
+  },
+  pickerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E7EB",
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  pickerOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  pickerOptionBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E7EB",
+  },
+  pickerOptionText: {
+    fontSize: 16,
+    color: "#374151",
+  },
+  pickerOptionTextSelected: {
+    color: PRIMARY,
+    fontWeight: "600",
   },
 });

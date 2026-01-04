@@ -22,7 +22,10 @@
       "Bash(node -e \"require(''''./app/(dashboard)/client/clienthome.jsx'''')\")",
       "Bash(grep:*)",
       "Bash(npm install:*)",
-      "Bash(git rev-parse:*)"
+      "Bash(git rev-parse:*)",
+      "Bash(cat:*)",
+      "Bash(npx expo install:*)",
+      "Bash(node -e \"require(''./app/(dashboard)/quotes/schedule.jsx'')\")"
     ],
     "deny": [],
     "ask": []
