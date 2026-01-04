@@ -114,6 +114,505 @@ function Chip({ children, tone = "muted", icon }) {
   );
 }
 
+// Helper: format currency number
+function formatNumber(n) {
+  if (n == null) return "";
+  return n.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+// Quote status badge for individual quotes in the list
+function QuoteStatusBadge({ status }) {
+  const s = (status || "").toLowerCase();
+  let tone = "muted";
+  let label = status;
+  let icon = null;
+
+  if (s === "draft") {
+    tone = "action";
+    label = "Draft";
+    icon = "create-outline";
+  } else if (s === "sent" || s === "created") {
+    tone = "waiting";
+    label = "Sent";
+    icon = "paper-plane-outline";
+  } else if (s === "accepted") {
+    tone = "active";
+    label = "Accepted";
+    icon = "checkmark-circle";
+  } else if (s === "declined") {
+    tone = "negative";
+    label = "Declined";
+    icon = "close-circle";
+  } else if (s === "expired") {
+    tone = "negative";
+    label = "Expired";
+    icon = "time-outline";
+  }
+
+  const t = CHIP_TONES[tone] || CHIP_TONES.muted;
+
+  return (
+    <View style={{
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: t.bg,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 12,
+    }}>
+      {icon && <Ionicons name={icon} size={14} color={t.fg} />}
+      <ThemedText style={{ fontSize: 12, fontWeight: "600", color: t.fg }}>
+        {label}
+      </ThemedText>
+    </View>
+  );
+}
+
+// Quotes section component for Client Request page
+function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, derivedTitleForCreate, clientName }) {
+  const [showOtherQuotes, setShowOtherQuotes] = useState(false);
+
+  // Get client first name for quote labels
+  const clientFirstName = clientName ? clientName.split(" ")[0] : null;
+
+  // Sort quotes by creation date (oldest first for numbering)
+  const sortedByDate = [...quotes].sort((a, b) =>
+    new Date(a.created_at) - new Date(b.created_at)
+  );
+
+  // Create a map of quote id to its number
+  const quoteNumberMap = {};
+  sortedByDate.forEach((q, idx) => {
+    quoteNumberMap[q.id] = idx + 1;
+  });
+
+  // Sort quotes for display: accepted first, then drafts (action needed), then sent, then declined/expired
+  const sortedQuotes = [...quotes].sort((a, b) => {
+    const aStatus = (a.status || "").toLowerCase();
+    const bStatus = (b.status || "").toLowerCase();
+    const priorityOrder = { accepted: 0, draft: 1, sent: 2, created: 2, declined: 3, expired: 3 };
+    const aPrio = priorityOrder[aStatus] ?? 4;
+    const bPrio = priorityOrder[bStatus] ?? 4;
+    return aPrio - bPrio;
+  });
+
+  // Check if any quote is accepted
+  const acceptedQuote = sortedQuotes.find(q => (q.status || "").toLowerCase() === "accepted");
+  const otherQuotes = acceptedQuote ? sortedQuotes.filter(q => q.id !== acceptedQuote.id) : [];
+
+  // Format date helper
+  const formatDate = (dateStr) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  };
+
+  // Render a single quote card
+  const renderQuoteCard = (quote, quoteNumber, isAccepted = false) => {
+    const status = (quote.status || "").toLowerCase();
+    const isDraft = status === "draft";
+    const isSent = status === "sent" || status === "created";
+
+    // Calculate expiry info for sent quotes
+    const createdDate = quote.created_at ? new Date(quote.created_at) : null;
+    const validUntil = quote.valid_until ? new Date(quote.valid_until) : null;
+    const sentDateLabel = createdDate ? formatDate(quote.created_at) : null;
+    const expiryDateLabel = validUntil ? formatDate(quote.valid_until) : null;
+
+    // Build quote title: "Quote N - ClientName" or just "Quote N"
+    const quoteTitle = clientFirstName
+      ? `Quote ${quoteNumber} - ${clientFirstName}`
+      : `Quote ${quoteNumber}`;
+
+    // Handle card press for sent/accepted quotes (navigate to read-only view)
+    const handleCardPress = () => {
+      if (!isDraft) {
+        router.push({
+          pathname: "/quotes/[id]",
+          params: {
+            id: quote.id,
+            readOnly: "true",
+            quoteTitle: encodeURIComponent(quoteTitle),
+          },
+        });
+      }
+    };
+
+    return (
+      <Pressable
+        key={quote.id}
+        style={quoteStyles.quoteCard}
+        onPress={!isDraft ? handleCardPress : undefined}
+        disabled={isDraft}
+      >
+        {/* Header with title and status badge */}
+        <View style={quoteStyles.quoteCardHeader}>
+          <ThemedText style={quoteStyles.quoteCardTitle}>
+            {quoteTitle}
+          </ThemedText>
+          <QuoteStatusBadge status={quote.status} />
+        </View>
+
+        {/* Price */}
+        <ThemedText style={quoteStyles.quoteCardPrice}>
+          £{formatNumber(quote.grand_total || 0)}
+        </ThemedText>
+
+        {/* Date info for sent quotes */}
+        {isSent && sentDateLabel && (
+          <ThemedText style={quoteStyles.quoteCardDateInfo}>
+            Sent {sentDateLabel}{expiryDateLabel ? ` • Expires ${expiryDateLabel}` : ""}
+          </ThemedText>
+        )}
+
+        {/* Status-specific content */}
+        {isDraft && (
+          <View style={quoteStyles.quoteCardActions}>
+            <Pressable
+              style={quoteStyles.editButton}
+              onPress={() => router.push({
+                pathname: "/quotes/create",
+                params: { quoteId: quote.id },
+              })}
+            >
+              <ThemedText style={quoteStyles.editButtonText}>Edit</ThemedText>
+            </Pressable>
+            <Pressable
+              style={quoteStyles.sendButton}
+              onPress={() => router.push({
+                pathname: "/quotes/create",
+                params: { quoteId: quote.id },
+              })}
+            >
+              <ThemedText style={quoteStyles.sendButtonText}>Send</ThemedText>
+            </Pressable>
+          </View>
+        )}
+
+        {isSent && (
+          <View style={quoteStyles.quoteCardFooter}>
+            <Ionicons name="hourglass-outline" size={16} color="#3B82F6" />
+            <ThemedText style={quoteStyles.awaitingText}>Awaiting client response</ThemedText>
+          </View>
+        )}
+
+        {isAccepted && (
+          <Pressable
+            style={quoteStyles.scheduleButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              router.push({
+                pathname: "/quotes/schedule",
+                params: {
+                  requestId: String(requestId || ""),
+                  quoteId: quote.id,
+                  title: encodeURIComponent(quote.project_title || derivedTitleForCreate),
+                },
+              });
+            }}
+          >
+            <Ionicons name="calendar" size={16} color="#FFF" />
+            <ThemedText style={quoteStyles.scheduleButtonText}>Schedule work</ThemedText>
+          </Pressable>
+        )}
+      </Pressable>
+    );
+  };
+
+  return (
+    <>
+      <View style={quoteStyles.sectionHeaderRow}>
+        <ThemedText style={quoteStyles.sectionHeaderTitle}>
+          Quotes{hasQuotes ? ` (${quotes.length})` : ""}
+        </ThemedText>
+        {canCreateQuote && (
+          <Pressable
+            onPress={() => {
+              router.push({
+                pathname: "/quotes/create",
+                params: {
+                  requestId: String(requestId || ""),
+                  title: encodeURIComponent(derivedTitleForCreate),
+                },
+              });
+            }}
+            style={quoteStyles.sectionHeaderBtn}
+            hitSlop={6}
+          >
+            <Ionicons name="add" size={16} color={Colors.primary} />
+            <ThemedText style={quoteStyles.sectionHeaderBtnText}>Create</ThemedText>
+          </Pressable>
+        )}
+      </View>
+
+      {!hasQuotes ? (
+        <View style={quoteStyles.emptyCard}>
+          <View style={quoteStyles.emptyStateContainer}>
+            <View style={quoteStyles.emptyStateIcon}>
+              <Ionicons name="document-text-outline" size={32} color="#9CA3AF" />
+            </View>
+            <ThemedText style={quoteStyles.emptyStateTitle}>No quotes yet</ThemedText>
+            <ThemedText style={quoteStyles.emptyStateSubtitle}>
+              Create a quote to send to the client
+            </ThemedText>
+          </View>
+          <Pressable
+            style={quoteStyles.createQuoteButton}
+            onPress={() => {
+              router.push({
+                pathname: "/quotes/create",
+                params: {
+                  requestId: String(requestId || ""),
+                  title: encodeURIComponent(derivedTitleForCreate),
+                },
+              });
+            }}
+          >
+            <Ionicons name="add-circle" size={18} color="#FFF" />
+            <ThemedText style={quoteStyles.createQuoteButtonText}>Create quote</ThemedText>
+          </Pressable>
+        </View>
+      ) : acceptedQuote ? (
+        <>
+          {/* Show accepted quote prominently */}
+          {renderQuoteCard(acceptedQuote, quoteNumberMap[acceptedQuote.id], true)}
+
+          {/* Collapsible section for other quotes */}
+          {otherQuotes.length > 0 && (
+            <Pressable
+              style={quoteStyles.otherQuotesToggle}
+              onPress={() => setShowOtherQuotes(!showOtherQuotes)}
+            >
+              <ThemedText style={quoteStyles.otherQuotesToggleText}>
+                {otherQuotes.length} other quote{otherQuotes.length > 1 ? "s" : ""}
+              </ThemedText>
+              <Ionicons
+                name={showOtherQuotes ? "chevron-up" : "chevron-down"}
+                size={18}
+                color="#6B7280"
+              />
+            </Pressable>
+          )}
+
+          {showOtherQuotes && otherQuotes.map(q =>
+            renderQuoteCard(q, quoteNumberMap[q.id])
+          )}
+        </>
+      ) : (
+        // No accepted quote - show all quotes as separate cards
+        sortedQuotes.map(q => renderQuoteCard(q, quoteNumberMap[q.id]))
+      )}
+    </>
+  );
+}
+
+// Styles for QuotesSection
+const quoteStyles = StyleSheet.create({
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 24,
+    marginHorizontal: 16,
+  },
+  sectionHeaderTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  sectionHeaderBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+  },
+  sectionHeaderBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Colors.primary,
+  },
+
+  // Empty state card
+  emptyCard: {
+    marginTop: 12,
+    marginHorizontal: 16,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  emptyStateContainer: {
+    alignItems: "center",
+    paddingVertical: 16,
+  },
+  emptyStateIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  emptyStateTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 4,
+  },
+  emptyStateSubtitle: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    textAlign: "center",
+  },
+  createQuoteButton: {
+    marginTop: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: Colors.primary,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  createQuoteButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFF",
+  },
+
+  // Quote card - each quote is its own card
+  quoteCard: {
+    marginTop: 12,
+    marginHorizontal: 16,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  quoteCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  quoteCardTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  quoteCardPrice: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  quoteCardDateInfo: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginBottom: 8,
+  },
+
+  // Actions row for draft quotes - equal width buttons
+  quoteCardActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+  },
+  editButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#fff",
+  },
+  editButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  sendButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: Colors.primary,
+  },
+  sendButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#FFF",
+  },
+  scheduleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: Colors.primary,
+    marginTop: 8,
+  },
+  scheduleButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#FFF",
+  },
+
+  // Awaiting response footer
+  quoteCardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+  },
+  awaitingText: {
+    fontSize: 14,
+    color: "#3B82F6",
+    fontWeight: "500",
+  },
+
+  // Other quotes collapsible section
+  otherQuotesToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 16,
+    marginHorizontal: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  otherQuotesToggleText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#6B7280",
+  },
+});
+
 export default function RequestDetails() {
   const { id } = useLocalSearchParams(); // request_id
   const router = useRouter();
@@ -444,7 +943,6 @@ export default function RequestDetails() {
               ...(prev || {}),
               state: "declined",
             }));
-            setQuote(null);
           } catch (e) {
             Alert.alert("Failed", e?.message || "Unable to decline this request.");
           }
@@ -501,18 +999,6 @@ export default function RequestDetails() {
   const displayTitleWithClient = clientName
     ? `${clientName.split(" ")[0]}'s ${derivedTitleForCreate}`
     : derivedTitleForCreate;
-
-  // Debug logs for title building
-  console.log("[DEBUG Client Request] Title building:", JSON.stringify({
-    categoryName,
-    serviceName,
-    postcode: out,
-    baseTitle,
-    derivedTitleForCreate,
-    displayTitleWithClient,
-    clientName,
-    suggested_title: req?.suggested_title,
-  }));
 
   const hasAttachments = attachments.length > 0;
 
@@ -701,139 +1187,15 @@ export default function RequestDetails() {
 
           {/* Quote Section - shown when request is claimed */}
           {status === "claimed" && (
-            <>
-              <View style={styles.sectionHeaderRow}>
-                <ThemedText style={styles.sectionHeaderTitle}>Quotes</ThemedText>
-                {canCreateQuote && (
-                  <Pressable
-                    onPress={() => {
-                      router.push({
-                        pathname: "/quotes/create",
-                        params: {
-                          requestId: String(id || ""),
-                          title: encodeURIComponent(derivedTitleForCreate),
-                          lockTitle: "1",
-                        },
-                      });
-                    }}
-                    style={styles.sectionHeaderBtn}
-                    hitSlop={6}
-                  >
-                    <Ionicons name="add" size={16} color={Colors.primary} />
-                    <ThemedText style={styles.sectionHeaderBtnText}>
-                      {hasQuotes ? "New" : "Create"}
-                    </ThemedText>
-                  </Pressable>
-                )}
-              </View>
-
-              <View style={[styles.card, { marginTop: 8 }]}>
-                {!hasQuotes ? (
-                  <ThemedText style={styles.emptyStateText}>No quote yet</ThemedText>
-                ) : (
-                  <View style={{ gap: 16 }}>
-                    {quotes.map((quote, quoteIdx) => (
-                      <View key={quote.id}>
-                        {/* Divider between quotes */}
-                        {quoteIdx > 0 && <View style={styles.quoteDivider} />}
-
-                        {quote.status === "draft" ? (
-                          /* Draft quote - show detailed preview card */
-                          <View>
-                            {/* Header with status */}
-                            <View style={styles.draftQuoteHeader}>
-                              <View style={styles.draftQuoteHeaderLeft}>
-                                <View style={styles.draftQuoteBadge}>
-                                  <Ionicons name="create-outline" size={12} color="#F59E0B" />
-                                  <ThemedText style={styles.draftQuoteBadgeText}>Draft</ThemedText>
-                                </View>
-                                <ThemedText style={styles.draftQuoteTitle}>
-                                  {displayTitleWithClient}
-                                </ThemedText>
-                              </View>
-                            </View>
-
-                            {/* Line items preview */}
-                            {quote.line_items && Array.isArray(quote.line_items) && quote.line_items.length > 0 && (
-                              <View style={styles.draftQuoteItems}>
-                                {quote.line_items.slice(0, 3).map((item, idx) => (
-                                  <View key={idx} style={styles.draftQuoteItemRow}>
-                                    <ThemedText style={styles.draftQuoteItemName} numberOfLines={1}>
-                                      {item.description || item.name || `Item ${idx + 1}`}
-                                    </ThemedText>
-                                    <ThemedText style={styles.draftQuoteItemPrice}>
-                                      £{Number(item.total || item.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </ThemedText>
-                                  </View>
-                                ))}
-                                {quote.line_items.length > 3 && (
-                                  <ThemedText style={styles.draftQuoteMoreItems}>
-                                    +{quote.line_items.length - 3} more item{quote.line_items.length - 3 !== 1 ? 's' : ''}
-                                  </ThemedText>
-                                )}
-                              </View>
-                            )}
-
-                            {/* Total */}
-                            <View style={styles.draftQuoteTotalRow}>
-                              <ThemedText style={styles.draftQuoteTotalLabel}>Total</ThemedText>
-                              <ThemedText style={styles.draftQuoteTotalValue}>
-                                £{Number(quote.grand_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </ThemedText>
-                            </View>
-
-                            {/* Edit button */}
-                            <View style={styles.quoteDraftActions}>
-                              <Pressable
-                                onPress={() => {
-                                  router.push({
-                                    pathname: "/quotes/create",
-                                    params: {
-                                      quoteId: quote.id,
-                                      requestId: String(id || ""),
-                                    },
-                                  });
-                                }}
-                                style={styles.quoteDraftEditBtn}
-                              >
-                                <Ionicons name="create-outline" size={16} color="#FFF" />
-                                <ThemedText style={styles.quoteDraftEditText}>Edit Quote</ThemedText>
-                              </Pressable>
-                            </View>
-                          </View>
-                        ) : (
-                          /* Sent/accepted quotes - show simple row */
-                          <Pressable
-                            onPress={() => router.push(`/quotes/${quote.id}`)}
-                            style={styles.quoteSummaryRow}
-                          >
-                            <View style={styles.quoteSummaryIcon}>
-                              <Ionicons name="document-text" size={20} color={Colors.primary} />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <ThemedText style={styles.quoteSummaryTitle}>
-                                {displayTitleWithClient}
-                              </ThemedText>
-                              <ThemedText style={styles.quoteSummaryStatus}>
-                                {quote.status === "sent" ? "Sent to client" :
-                                 quote.status === "accepted" ? "Accepted" :
-                                 quote.status === "declined" ? "Declined" : quote.status}
-                              </ThemedText>
-                            </View>
-                            {quote.grand_total != null && (
-                              <ThemedText style={styles.quoteSummaryTotal}>
-                                £{Number(quote.grand_total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </ThemedText>
-                            )}
-                            <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-                          </Pressable>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            </>
+            <QuotesSection
+              quotes={quotes}
+              hasQuotes={hasQuotes}
+              canCreateQuote={canCreateQuote}
+              router={router}
+              requestId={id}
+              derivedTitleForCreate={derivedTitleForCreate}
+              clientName={clientName}
+            />
           )}
 
           {/* Service Details Card */}
@@ -842,87 +1204,117 @@ export default function RequestDetails() {
           </View>
           <View style={[styles.card, { marginTop: 8 }]}>
             {/* Category - from joined table or parsed */}
-            <View style={styles.kvRow}>
-              <ThemedText style={styles.kvKey}>Category</ThemedText>
-              <ThemedText style={styles.kvVal}>
-                {req?.service_categories?.name || parsed.category || "—"}
-              </ThemedText>
+            <View style={styles.requestDetailRow}>
+              <Ionicons name="grid-outline" size={18} color="#6B7280" />
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Category</ThemedText>
+                <ThemedText style={styles.requestDetailValue}>
+                  {req?.service_categories?.name || parsed.category || "—"}
+                </ThemedText>
+              </View>
             </View>
 
             {/* Service Type - from joined table or parsed */}
-            <View style={styles.kvRow}>
-              <ThemedText style={styles.kvKey}>Service</ThemedText>
-              <ThemedText style={styles.kvVal}>
-                {req?.service_types?.name || parsed.service || parsed.main || "—"}
-              </ThemedText>
+            <View style={styles.requestDetailRow}>
+              <Ionicons name="construct-outline" size={18} color="#6B7280" />
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Service</ThemedText>
+                <ThemedText style={styles.requestDetailValue}>
+                  {req?.service_types?.name || parsed.service || parsed.main || "—"}
+                </ThemedText>
+              </View>
             </View>
 
             {/* Property Type - from joined table or parsed */}
-            <View style={styles.kvRow}>
-              <ThemedText style={styles.kvKey}>Property</ThemedText>
-              <ThemedText style={styles.kvVal}>
-                {req?.property_types?.name || parsed.property || "Not specified"}
-              </ThemedText>
+            <View style={styles.requestDetailRow}>
+              <Ionicons name="home-outline" size={18} color="#6B7280" />
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Property</ThemedText>
+                <ThemedText style={styles.requestDetailValue}>
+                  {req?.property_types?.name || parsed.property || "Not specified"}
+                </ThemedText>
+              </View>
             </View>
 
             {/* Timing - from joined table or parsed */}
-            <View style={styles.kvRow}>
-              <ThemedText style={styles.kvKey}>Timing</ThemedText>
-              <ThemedText style={styles.kvVal}>
-                {req?.timing_options?.name || parsed.timing || "—"}
-              </ThemedText>
+            <View style={styles.requestDetailRow}>
+              <Ionicons name="time-outline" size={18} color={req?.timing_options?.is_emergency ? "#EF4444" : "#6B7280"} />
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Timing</ThemedText>
+                <ThemedText style={[styles.requestDetailValue, req?.timing_options?.is_emergency && { color: "#EF4444" }]}>
+                  {req?.timing_options?.name || parsed.timing || "—"}
+                </ThemedText>
+              </View>
             </View>
 
             {/* Location - postcode */}
             {!!req?.postcode && (
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Location</ThemedText>
-                <ThemedText style={styles.kvVal}>{req.postcode}</ThemedText>
+              <View style={styles.requestDetailRow}>
+                <Ionicons name="location-outline" size={18} color="#6B7280" />
+                <View style={styles.requestDetailContent}>
+                  <ThemedText style={styles.requestDetailLabel}>Location</ThemedText>
+                  <ThemedText style={styles.requestDetailValue}>{req.postcode}</ThemedText>
+                </View>
               </View>
             )}
 
             {/* Budget - from database or parsed from details */}
             {(!!req?.budget_band || !!parsed.budget) && (
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Budget</ThemedText>
-                <ThemedText style={styles.kvVal}>{req?.budget_band || parsed.budget}</ThemedText>
+              <View style={styles.requestDetailRow}>
+                <Ionicons name="cash-outline" size={18} color="#6B7280" />
+                <View style={styles.requestDetailContent}>
+                  <ThemedText style={styles.requestDetailLabel}>Budget</ThemedText>
+                  <ThemedText style={styles.requestDetailValue}>{req?.budget_band || parsed.budget}</ThemedText>
+                </View>
               </View>
             )}
 
             {/* Legacy: Address if available */}
             {!!parsed.address && (
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Address</ThemedText>
-                <ThemedText style={styles.kvVal}>{parsed.address}</ThemedText>
+              <View style={styles.requestDetailRow}>
+                <Ionicons name="navigate-outline" size={18} color="#6B7280" />
+                <View style={styles.requestDetailContent}>
+                  <ThemedText style={styles.requestDetailLabel}>Address</ThemedText>
+                  <ThemedText style={styles.requestDetailValue}>{parsed.address}</ThemedText>
+                </View>
               </View>
             )}
 
             {/* Legacy: Start date if available */}
             {!!parsed.start && (
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Start</ThemedText>
-                <ThemedText style={styles.kvVal}>{parsed.start}</ThemedText>
+              <View style={styles.requestDetailRow}>
+                <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                <View style={styles.requestDetailContent}>
+                  <ThemedText style={styles.requestDetailLabel}>Start</ThemedText>
+                  <ThemedText style={styles.requestDetailValue}>{parsed.start}</ThemedText>
+                </View>
               </View>
             )}
 
             {/* Legacy: Refit type if available */}
             {!!parsed.refit && (
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Refit type</ThemedText>
-                <ThemedText style={styles.kvVal}>{parsed.refit}</ThemedText>
+              <View style={styles.requestDetailRow}>
+                <Ionicons name="hammer-outline" size={18} color="#6B7280" />
+                <View style={styles.requestDetailContent}>
+                  <ThemedText style={styles.requestDetailLabel}>Refit type</ThemedText>
+                  <ThemedText style={styles.requestDetailValue}>{parsed.refit}</ThemedText>
+                </View>
               </View>
             )}
 
             {/* Description - always show, even if empty */}
             <View style={styles.divider} />
-            <View style={styles.descriptionSection}>
-              <ThemedText style={styles.descriptionLabel}>Description</ThemedText>
-              <ThemedText style={[
-                styles.descriptionText,
-                !(parsed.description || parsed.notes) && styles.descriptionEmpty
-              ]}>
-                {parsed.description || parsed.notes || "No description provided"}
-              </ThemedText>
+            <View style={styles.requestDetailRow}>
+              <Ionicons name="document-text-outline" size={18} color="#6B7280" />
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Description</ThemedText>
+                <ThemedText style={[
+                  styles.requestDetailValue,
+                  !(parsed.description || parsed.notes) && styles.descriptionEmpty
+                ]}>
+                  {parsed.description || parsed.notes || "No description provided"}
+                </ThemedText>
+              </View>
             </View>
           </View>
 
@@ -1122,6 +1514,28 @@ const styles = StyleSheet.create({
   kvRow: { flexDirection: "row", gap: 10, marginVertical: 6 },
   kvKey: { width: 100, fontWeight: "600", color: "#6B7280", fontSize: 14 },
   kvVal: { flex: 1, color: "#111827", fontSize: 14 },
+
+  // Request detail row with icons (matching Quote Overview style)
+  requestDetailRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginVertical: 8,
+  },
+  requestDetailContent: {
+    flex: 1,
+  },
+  requestDetailLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6B7280",
+    marginBottom: 2,
+  },
+  requestDetailValue: {
+    fontSize: 14,
+    color: "#111827",
+    lineHeight: 20,
+  },
 
   // Description section
   descriptionSection: {

@@ -210,19 +210,148 @@ export default function ClientRequestDetails() {
 
       await loadAttachments(id);
 
-      // Fetch appointments for this request (survey visits before quote exists)
+      // Fetch appointments for this request using multiple methods
+      // Priority: Direct query first (works in main index), then RPCs as fallback
       try {
-        const { data: apptData, error: apptErr } = await supabase
-          .from("appointments")
-          .select("id, request_id, quote_id, scheduled_at, title, status, location")
-          .eq("request_id", id)
-          .order("scheduled_at", { ascending: true });
+        let appointmentsToUse = [];
 
-        if (!apptErr && apptData) {
-          setAppointments(apptData);
+        // Method 1: Direct query for ALL appointments (this works in the main index page)
+        try {
+          const { data: directAppts, error: directErr } = await supabase
+            .from("appointments")
+            .select("*")
+            .eq("request_id", id)
+            .order("scheduled_at", { ascending: true });
+
+          if (!directErr && directAppts && directAppts.length > 0) {
+            appointmentsToUse = directAppts;
+          }
+        } catch (e) {
+          // Method 1 failed, will try fallback methods
+        }
+
+        // Method 2: Try rpc_client_list_appointments and filter by request_id
+        if (appointmentsToUse.length === 0) {
+          try {
+            const { data: allAppts, error: apptErr } = await supabase.rpc(
+              "rpc_client_list_appointments",
+              { p_only_upcoming: false }
+            );
+
+            if (!apptErr && allAppts && allAppts.length > 0) {
+              const filtered = allAppts.filter((a) => String(a.request_id) === String(id));
+              if (filtered.length > 0) {
+                appointmentsToUse = filtered.map((a) => ({
+                  id: a.appointment_id || a.id,
+                  request_id: a.request_id,
+                  quote_id: a.quote_id,
+                  scheduled_at: a.scheduled_at,
+                  title: a.title,
+                  status: a.status,
+                  location: a.location,
+                  tradesperson_id: a.tradesperson_id,
+                }));
+              }
+            }
+          } catch (e) {
+            // Method 2 failed, will try fallback
+          }
+        }
+
+        // Method 3: Try rpc_get_latest_request_appointment (only returns 1 appointment)
+        if (appointmentsToUse.length === 0) {
+          try {
+            const { data: latestAppt, error: latestErr } = await supabase.rpc(
+              "rpc_get_latest_request_appointment",
+              { p_request_id: id }
+            );
+
+            if (!latestErr && latestAppt) {
+              let appt = latestAppt;
+              while (Array.isArray(appt)) {
+                if (appt.length === 0) break;
+                appt = appt[0];
+              }
+
+              if (appt && (appt.id || appt.appointment_id)) {
+                appointmentsToUse = [{
+                  id: appt.appointment_id || appt.id,
+                  request_id: appt.request_id || id,
+                  quote_id: appt.quote_id,
+                  scheduled_at: appt.scheduled_at,
+                  title: appt.title || "Survey visit",
+                  status: appt.status,
+                  location: appt.location,
+                  tradesperson_id: appt.tradesperson_id,
+                }];
+              }
+            }
+          } catch (e) {
+            // Method 3 failed
+          }
+        }
+
+        // Sort by scheduled_at
+        appointmentsToUse.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+
+        if (appointmentsToUse.length > 0) {
+          // Get unique tradesperson IDs to fetch their names
+          let tradeIds = [...new Set(appointmentsToUse.map(a => a.tradesperson_id).filter(Boolean))];
+
+          // If tradesperson_id is missing from appointments, get it from request_targets
+          if (tradeIds.length === 0) {
+            try {
+              const { data: targetsData } = await supabase
+                .from("request_targets")
+                .select("trade_id")
+                .eq("request_id", id);
+
+              if (targetsData && targetsData.length > 0) {
+                tradeIds = [...new Set(targetsData.map(t => t.trade_id).filter(Boolean))];
+
+                // If there's only one trade, assign it to all appointments
+                if (tradeIds.length === 1) {
+                  appointmentsToUse = appointmentsToUse.map(appt => ({
+                    ...appt,
+                    tradesperson_id: tradeIds[0],
+                  }));
+                }
+              }
+            } catch (e) {
+              // Failed to fetch request_targets
+            }
+          }
+
+          if (tradeIds.length > 0) {
+            // Fetch trade names using RPC (bypasses RLS)
+            const { data: tradeNames, error: tradeErr } = await supabase.rpc(
+              "rpc_trade_public_names",
+              { trade_ids: tradeIds }
+            );
+
+            // Create a map of trade_id -> business_name
+            const tradeNameMap = {};
+            if (!tradeErr && tradeNames) {
+              tradeNames.forEach((t) => {
+                tradeNameMap[t.profile_id] = t.business_name || t.full_name || "Trade";
+              });
+            }
+
+            // Attach trade name to each appointment
+            const appointmentsWithTrade = appointmentsToUse.map((appt) => ({
+              ...appt,
+              tradeName: tradeNameMap[appt.tradesperson_id] || (tradeIds.length === 1 ? tradeNameMap[tradeIds[0]] : null),
+            }));
+            setAppointments(appointmentsWithTrade);
+          } else {
+            setAppointments(appointmentsToUse);
+          }
+        } else {
+          setAppointments([]);
         }
       } catch (apptErr) {
         console.warn("appointments/load error:", apptErr?.message || apptErr);
+        setAppointments([]);
       }
     } catch (e) {
       setErr(e?.message || String(e));
@@ -419,6 +548,16 @@ export default function ClientRequestDetails() {
 
                 return (
                   <View key={appt.id} style={styles.appointmentCard}>
+                    {/* Trade name - shown for open requests with multiple trades */}
+                    {appt.tradeName && (
+                      <View style={styles.appointmentCardTradeRow}>
+                        <Ionicons name="person-circle-outline" size={16} color="#6849a7" />
+                        <ThemedText style={styles.appointmentCardTradeName}>
+                          {appt.tradeName}
+                        </ThemedText>
+                      </View>
+                    )}
+
                     {/* Appointment name prominent */}
                     <ThemedText style={styles.appointmentCardTitle}>
                       {appt.title || "Survey Visit"}
@@ -491,70 +630,100 @@ export default function ClientRequestDetails() {
           )}
 
           {/* Service Details Card */}
-          <View style={styles.card}>
-            <View style={styles.sectionHeader}>
+          <View style={styles.sectionHeaderRow}>
+            <ThemedText style={styles.sectionHeaderTitle}>Service Details</ThemedText>
+          </View>
+          <View style={[styles.card, { marginTop: 8 }]}>
+            {/* Category */}
+            <View style={styles.requestDetailRow}>
+              <Ionicons name="grid-outline" size={18} color="#6B7280" />
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Category</ThemedText>
+                <ThemedText style={styles.requestDetailValue}>
+                  {req?.service_categories?.name || parsed.category || "-"}
+                </ThemedText>
+              </View>
+            </View>
+
+            {/* Service */}
+            <View style={styles.requestDetailRow}>
               <Ionicons name="construct-outline" size={18} color="#6B7280" />
-              <ThemedText style={styles.sectionTitle}>Service Details</ThemedText>
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Service</ThemedText>
+                <ThemedText style={styles.requestDetailValue}>
+                  {req?.service_types?.name || parsed.service || parsed.main || "-"}
+                </ThemedText>
+              </View>
             </View>
 
-            <View style={styles.kvRow}>
-              <ThemedText style={styles.kvKey}>Category</ThemedText>
-              <ThemedText style={styles.kvVal}>
-                {req?.service_categories?.name || parsed.category || "-"}
-              </ThemedText>
+            {/* Property */}
+            <View style={styles.requestDetailRow}>
+              <Ionicons name="home-outline" size={18} color="#6B7280" />
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Property</ThemedText>
+                <ThemedText style={styles.requestDetailValue}>
+                  {req?.property_types?.name || parsed.property || "Not specified"}
+                </ThemedText>
+              </View>
             </View>
 
-            <View style={styles.kvRow}>
-              <ThemedText style={styles.kvKey}>Service</ThemedText>
-              <ThemedText style={styles.kvVal}>
-                {req?.service_types?.name || parsed.service || parsed.main || "-"}
-              </ThemedText>
+            {/* Timing */}
+            <View style={styles.requestDetailRow}>
+              <Ionicons name="time-outline" size={18} color={req?.timing_options?.is_emergency ? "#EF4444" : "#6B7280"} />
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Timing</ThemedText>
+                <ThemedText style={[styles.requestDetailValue, req?.timing_options?.is_emergency && { color: "#EF4444" }]}>
+                  {req?.timing_options?.name || parsed.timing || "-"}
+                </ThemedText>
+              </View>
             </View>
 
-            <View style={styles.kvRow}>
-              <ThemedText style={styles.kvKey}>Property</ThemedText>
-              <ThemedText style={styles.kvVal}>
-                {req?.property_types?.name || parsed.property || "Not specified"}
-              </ThemedText>
-            </View>
-
-            <View style={styles.kvRow}>
-              <ThemedText style={styles.kvKey}>Timing</ThemedText>
-              <ThemedText style={styles.kvVal}>
-                {req?.timing_options?.name || parsed.timing || "-"}
-              </ThemedText>
-            </View>
-
+            {/* Location */}
             {!!req?.postcode && (
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Location</ThemedText>
-                <ThemedText style={styles.kvVal}>{req.postcode}</ThemedText>
+              <View style={styles.requestDetailRow}>
+                <Ionicons name="location-outline" size={18} color="#6B7280" />
+                <View style={styles.requestDetailContent}>
+                  <ThemedText style={styles.requestDetailLabel}>Location</ThemedText>
+                  <ThemedText style={styles.requestDetailValue}>{req.postcode}</ThemedText>
+                </View>
               </View>
             )}
 
+            {/* Budget */}
             {(!!req?.budget_band || !!parsed.budget) && (
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Budget</ThemedText>
-                <ThemedText style={styles.kvVal}>{req?.budget_band || parsed.budget}</ThemedText>
+              <View style={styles.requestDetailRow}>
+                <Ionicons name="cash-outline" size={18} color="#6B7280" />
+                <View style={styles.requestDetailContent}>
+                  <ThemedText style={styles.requestDetailLabel}>Budget</ThemedText>
+                  <ThemedText style={styles.requestDetailValue}>{req?.budget_band || parsed.budget}</ThemedText>
+                </View>
               </View>
             )}
 
+            {/* Address */}
             {!!parsed.address && (
-              <View style={styles.kvRow}>
-                <ThemedText style={styles.kvKey}>Address</ThemedText>
-                <ThemedText style={styles.kvVal}>{parsed.address}</ThemedText>
+              <View style={styles.requestDetailRow}>
+                <Ionicons name="navigate-outline" size={18} color="#6B7280" />
+                <View style={styles.requestDetailContent}>
+                  <ThemedText style={styles.requestDetailLabel}>Address</ThemedText>
+                  <ThemedText style={styles.requestDetailValue}>{parsed.address}</ThemedText>
+                </View>
               </View>
             )}
 
+            {/* Description */}
             <View style={styles.divider} />
-            <View style={styles.descriptionSection}>
-              <ThemedText style={styles.descriptionLabel}>Description</ThemedText>
-              <ThemedText style={[
-                styles.descriptionText,
-                !(parsed.description || parsed.notes) && styles.descriptionEmpty
-              ]}>
-                {parsed.description || parsed.notes || "No description provided"}
-              </ThemedText>
+            <View style={styles.requestDetailRow}>
+              <Ionicons name="document-text-outline" size={18} color="#6B7280" />
+              <View style={styles.requestDetailContent}>
+                <ThemedText style={styles.requestDetailLabel}>Description</ThemedText>
+                <ThemedText style={[
+                  styles.requestDetailValue,
+                  !(parsed.description || parsed.notes) && styles.descriptionEmpty
+                ]}>
+                  {parsed.description || parsed.notes || "No description provided"}
+                </ThemedText>
+              </View>
             </View>
           </View>
 
@@ -729,6 +898,29 @@ const styles = StyleSheet.create({
   kvRow: { flexDirection: "row", gap: 10, marginVertical: 6 },
   kvKey: { width: 100, fontWeight: "600", color: "#6B7280", fontSize: 14 },
   kvVal: { flex: 1, color: "#111827", fontSize: 14 },
+
+  // Request detail row with icons (matching Quote Overview style)
+  requestDetailRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginVertical: 8,
+  },
+  requestDetailContent: {
+    flex: 1,
+  },
+  requestDetailLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6B7280",
+    marginBottom: 2,
+  },
+  requestDetailValue: {
+    fontSize: 14,
+    color: "#111827",
+    lineHeight: 20,
+  },
+
   descriptionSection: {
     marginTop: 4,
   },
@@ -906,5 +1098,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#10B981",
+  },
+  appointmentCardTradeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  appointmentCardTradeName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6849a7",
   },
 });

@@ -242,7 +242,7 @@ export default function QuoteDetails() {
             setRequest(null);
             setAttachments([]);
             setAttachmentsCount(0);
-            setAppointment(null);
+            setAppointments([]);
 
             // Fallback name from quote if we don't already have one
             if (row?.full_name) {
@@ -302,29 +302,52 @@ export default function QuoteDetails() {
           }
         }
 
-        // 4) Load ALL appointments for this request
+        // 4) Load ALL appointments for this request using RPC (same method as Client Request page)
         try {
           setApptLoading(true);
-          const { data: apptData, error: apptErr } = await supabase
-            .from("appointments")
-            .select("id, request_id, quote_id, scheduled_at, title, status, location")
-            .eq("request_id", reqId)
-            .order("scheduled_at", { ascending: true });
+          const quoteId = row?.id;
+
+          let finalAppointments = [];
+
+          // Method 1: Try rpc_trade_list_appointments (this works on Client Request page)
+          const { data: allAppts, error: apptErr } = await supabase.rpc(
+            "rpc_trade_list_appointments",
+            { p_only_upcoming: false }
+          );
+
+          if (!apptErr && allAppts && allAppts.length > 0) {
+            // Filter to only appointments for this request
+            const filtered = (Array.isArray(allAppts) ? allAppts : [])
+              .filter((a) => a.request_id === reqId || a.quote_id === quoteId);
+
+            // Map to the expected format
+            finalAppointments = filtered.map((a) => ({
+              id: a.id,
+              request_id: a.request_id,
+              quote_id: a.quote_id,
+              scheduled_at: a.scheduled_at,
+              title: a.title || "Appointment",
+              status: a.status,
+              location: a.location,
+            }));
+          } else {
+            // Fallback: direct query (may not work due to RLS)
+            const { data: directAppts, error: directErr } = await supabase
+              .from("appointments")
+              .select("id, request_id, quote_id, scheduled_at, title, status, location")
+              .or(`request_id.eq.${reqId},quote_id.eq.${quoteId}`)
+              .order("scheduled_at", { ascending: true });
+
+            if (!directErr && directAppts) {
+              finalAppointments = directAppts;
+            }
+          }
 
           if (!mounted) return;
 
-          if (apptErr) {
-            console.warn(
-              "appointment load error",
-              apptErr.message || apptErr
-            );
-            setAppointments([]);
-          } else {
-            setAppointments(apptData || []);
-          }
+          setAppointments(finalAppointments);
         } catch (e) {
           if (mounted) {
-            console.warn("appointment load error", e?.message || e);
             setAppointments([]);
           }
         } finally {
@@ -449,6 +472,26 @@ export default function QuoteDetails() {
       hour: "2-digit",
       minute: "2-digit",
     });
+
+  // Separate appointments into upcoming and past for trades view
+  const now = new Date();
+  const upcomingAppointments = appointments.filter(
+    (a) => new Date(a.scheduled_at) > now
+  ).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+  const pastAppointments = appointments.filter(
+    (a) => new Date(a.scheduled_at) <= now
+  ).sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at));
+
+  // Collapsible sections state for trades
+  const [showPastAppointments, setShowPastAppointments] = useState(false);
+  const [showClientRequest, setShowClientRequest] = useState(false);
+
+  // Auto-expand past appointments if there are no upcoming ones (so user sees something)
+  useEffect(() => {
+    if (upcomingAppointments.length === 0 && pastAppointments.length > 0) {
+      setShowPastAppointments(true);
+    }
+  }, [upcomingAppointments.length, pastAppointments.length]);
 
   // Scheduling helpers
   const openSchedulePage = () => {
@@ -1002,7 +1045,563 @@ export default function QuoteDetails() {
   }
 
   // --------------------------------------------------
-  // ORIGINAL QUOTE DETAILS PAGE
+  // TRADES QUOTE OVERVIEW (POST-ACCEPTANCE REDESIGN)
+  // --------------------------------------------------
+  if (userRole === 'trades') {
+    return (
+      <ThemedView style={styles.container}>
+        {/* Header */}
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.headerRow}>
+            <ThemedText style={styles.headerTitle}>Quote Overview</ThemedText>
+            <Pressable
+              onPress={() => {
+                if (fromAppointments) {
+                  router.push('/appointments');
+                } else if (router.canGoBack?.()) {
+                  router.back();
+                } else {
+                  router.replace("/quotes");
+                }
+              }}
+              hitSlop={10}
+              style={styles.backButton}
+            >
+              <Ionicons name="close" size={28} color="#6B7280" />
+            </Pressable>
+          </View>
+        </View>
+
+        <ScrollView
+          contentContainerStyle={styles.scrollContents}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Hero summary card - Client name, job, location, status, total, issued */}
+          <View style={styles.heroCard}>
+            <View style={styles.heroTopRow}>
+              <View style={{ flex: 1 }}>
+                <ThemedText style={styles.heroClientName}>
+                  {displayName}
+                </ThemedText>
+                <ThemedText style={styles.heroJobTitle}>
+                  {request?.suggested_title || quote?.project_title || "Quote"}
+                </ThemedText>
+                {request?.postcode && (
+                  <ThemedText style={styles.heroLocation} variant="muted">
+                    {request.postcode}
+                  </ThemedText>
+                )}
+              </View>
+
+              {isAccepted && (
+                <View style={styles.statusChipAccepted}>
+                  <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
+                  <ThemedText style={styles.statusChipAcceptedText}>
+                    Accepted
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+
+            <Spacer size={16} />
+
+            {/* Total and Issued date row */}
+            <View style={styles.heroInfoGrid}>
+              <View style={styles.heroInfoItem}>
+                <ThemedText style={styles.heroInfoLabel}>Total quote</ThemedText>
+                <ThemedText style={styles.heroInfoValue}>
+                  £{formatNumber(grandTotal)}
+                </ThemedText>
+              </View>
+              {issuedAt && (
+                <View style={styles.heroInfoItem}>
+                  <ThemedText style={styles.heroInfoLabel}>Issued</ThemedText>
+                  <ThemedText style={styles.heroInfoValue}>
+                    {new Date(issuedAt).toLocaleDateString('en-GB', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                    })}
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Appointments Section - with + Add button */}
+          {/* Show appointments section if there are any appointments OR if quote is accepted */}
+          {(appointments.length > 0 || isAccepted) && (
+            <View>
+              <View style={styles.sectionHeaderRow}>
+                <ThemedText style={styles.sectionHeaderText}>Appointments</ThemedText>
+                <Pressable
+                  style={styles.addAppointmentTextBtn}
+                  onPress={openSchedulePage}
+                  hitSlop={8}
+                >
+                  <Ionicons name="add" size={18} color={PRIMARY} />
+                  <ThemedText style={styles.addAppointmentTextBtnLabel}>Add</ThemedText>
+                </Pressable>
+              </View>
+
+              {/* Upcoming Appointments - each as its own card */}
+              {upcomingAppointments.length > 0 && (
+                <View>
+                  <ThemedText style={styles.appointmentSubheaderStandalone}>Upcoming</ThemedText>
+                  {upcomingAppointments.map((appt) => {
+                    const scheduledDate = new Date(appt.scheduled_at);
+                    const isConfirmed = appt.status === "confirmed";
+                    const isProposed = appt.status === "proposed";
+
+                    return (
+                      <View key={appt.id} style={styles.appointmentSingleCard}>
+                        <Ionicons
+                          name="calendar"
+                          size={20}
+                          color="#6B7280"
+                        />
+                        <View style={{ flex: 1 }}>
+                          <View style={styles.tradeAppointmentTitleRow}>
+                            <ThemedText style={styles.tradeAppointmentTitle}>
+                              {appt.title || "Appointment"}
+                            </ThemedText>
+                            <View style={[
+                              styles.tradeAppointmentBadge,
+                              { backgroundColor: isConfirmed ? "#D1FAE5" : "#FEF3C7" }
+                            ]}>
+                              <Ionicons
+                                name={isConfirmed ? "checkmark-circle" : "hourglass"}
+                                size={12}
+                                color={isConfirmed ? "#10B981" : "#F59E0B"}
+                              />
+                              <ThemedText style={[
+                                styles.tradeAppointmentBadgeText,
+                                { color: isConfirmed ? "#10B981" : "#F59E0B" }
+                              ]}>
+                                {isConfirmed ? "Confirmed" : isProposed ? "Awaiting confirmation" : "Pending"}
+                              </ThemedText>
+                            </View>
+                          </View>
+                          <ThemedText style={styles.tradeAppointmentDateTime}>
+                            {scheduledDate.toLocaleDateString(undefined, {
+                              weekday: "short",
+                              day: "numeric",
+                              month: "short",
+                            })}, {scheduledDate.toLocaleTimeString(undefined, {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </ThemedText>
+                          {appt.location && (
+                            <ThemedText style={styles.tradeAppointmentLocation}>
+                              {appt.location}
+                            </ThemedText>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* No appointments state */}
+              {upcomingAppointments.length === 0 && pastAppointments.length === 0 && (
+                <View style={styles.card}>
+                  <View style={styles.emptyAppointments}>
+                    <Ionicons name="calendar-outline" size={32} color="#D1D5DB" />
+                    <ThemedText style={styles.emptyAppointmentsText}>No appointments yet</ThemedText>
+                    <Pressable style={styles.scheduleVisitBtn} onPress={openSchedulePage}>
+                      <ThemedText style={styles.scheduleVisitBtnText}>Schedule a visit</ThemedText>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+
+              {/* Past Appointments - Collapsible header, each appointment as own card */}
+              {pastAppointments.length > 0 && (
+                <View>
+                  <Pressable
+                    style={styles.pastAppointmentsHeader}
+                    onPress={() => setShowPastAppointments(!showPastAppointments)}
+                  >
+                    <ThemedText style={styles.appointmentSubheaderStandalone}>Past</ThemedText>
+                    <View style={styles.collapsibleToggle}>
+                      <ThemedText style={styles.collapsibleToggleText}>
+                        {showPastAppointments ? "Hide" : "Show"}
+                      </ThemedText>
+                      <Ionicons
+                        name={showPastAppointments ? "chevron-up" : "chevron-down"}
+                        size={16}
+                        color="#6B7280"
+                      />
+                    </View>
+                  </Pressable>
+
+                  {showPastAppointments && (
+                    <View>
+                      {pastAppointments.map((appt) => {
+                        const scheduledDate = new Date(appt.scheduled_at);
+                        return (
+                          <View key={appt.id} style={styles.appointmentSingleCardPast}>
+                            <Ionicons name="calendar" size={20} color="#9CA3AF" />
+                            <View style={{ flex: 1 }}>
+                              <View style={styles.tradeAppointmentTitleRow}>
+                                <ThemedText style={[styles.tradeAppointmentTitle, { color: "#6B7280" }]}>
+                                  {appt.title || "Appointment"}
+                                </ThemedText>
+                                <Ionicons name="checkmark" size={18} color="#9CA3AF" />
+                              </View>
+                              <ThemedText style={[styles.tradeAppointmentDateTime, { color: "#9CA3AF" }]}>
+                                {scheduledDate.toLocaleDateString(undefined, {
+                                  weekday: "short",
+                                  day: "numeric",
+                                  month: "short",
+                                })}, {scheduledDate.toLocaleTimeString(undefined, {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </ThemedText>
+                              <ThemedText style={styles.tradeAppointmentCompleted}>
+                                Completed
+                              </ThemedText>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Quote breakdown section */}
+          <View style={styles.sectionHeaderRow}>
+            <ThemedText style={styles.sectionHeaderText}>Quote breakdown</ThemedText>
+          </View>
+
+          <View style={styles.card}>
+            {/* Meta information */}
+            {issuedAt && (
+              <View style={styles.requestDetailRow}>
+                <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                <View style={styles.requestDetailContent}>
+                  <ThemedText style={styles.requestDetailLabel}>Issued</ThemedText>
+                  <ThemedText style={styles.requestDetailValue}>
+                    {new Date(issuedAt).toLocaleDateString(undefined, {
+                      weekday: 'short',
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    })}
+                  </ThemedText>
+                </View>
+              </View>
+            )}
+
+            {quote.valid_until && (
+              <View style={styles.requestDetailRow}>
+                <Ionicons name="time-outline" size={18} color="#6B7280" />
+                <View style={styles.requestDetailContent}>
+                  <ThemedText style={styles.requestDetailLabel}>Valid until</ThemedText>
+                  <ThemedText style={styles.requestDetailValue}>
+                    {new Date(quote.valid_until).toLocaleDateString(undefined, {
+                      weekday: 'short',
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    })}
+                  </ThemedText>
+                </View>
+              </View>
+            )}
+
+            {/* Line items */}
+            {items.length > 0 ? (
+              <>
+                <View style={styles.divider} />
+                <ThemedText style={styles.breakdownSectionLabel}>Line items</ThemedText>
+                <Spacer size={12} />
+
+                {items.map((item, i) => {
+                  const qty = Number(item?.qty ?? 0);
+                  const price = Number(item?.unit_price ?? 0);
+                  const line = Number.isFinite(qty * price) ? formatNumber(qty * price) : "0.00";
+                  return (
+                    <View key={`li-${i}`} style={styles.lineItemRow}>
+                      <View style={styles.lineItemNumberBadge}>
+                        <ThemedText style={styles.lineItemNumberText}>{i + 1}</ThemedText>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <ThemedText style={styles.lineItemName}>
+                          {item?.name || "Item"}
+                        </ThemedText>
+                        {!!item?.description && (
+                          <ThemedText style={styles.lineItemDescription}>
+                            {item.description}
+                          </ThemedText>
+                        )}
+                        <ThemedText style={styles.lineItemMeta}>
+                          Qty: {qty} • £{formatNumber(price)} each
+                        </ThemedText>
+                      </View>
+                      <ThemedText style={styles.lineItemTotal}>
+                        £{line}
+                      </ThemedText>
+                    </View>
+                  );
+                })}
+              </>
+            ) : (
+              <>
+                <View style={styles.divider} />
+                <ThemedText style={styles.breakdownSectionLabel}>Line items</ThemedText>
+                <Spacer size={12} />
+                <ThemedText variant="muted">No items added to this quote.</ThemedText>
+              </>
+            )}
+
+            {/* Totals */}
+            <View style={[styles.divider, { marginTop: 12 }]} />
+            <ThemedText style={styles.breakdownSectionLabel}>Summary</ThemedText>
+            <Spacer size={12} />
+
+            {!!quote.subtotal && (
+              <View style={styles.totalRow}>
+                <ThemedText style={styles.totalLabel}>
+                  {includesVat ? "Subtotal (excl. VAT)" : "Subtotal"}
+                </ThemedText>
+                <ThemedText style={styles.totalValue}>
+                  £{formatNumber(quote.subtotal)}
+                </ThemedText>
+              </View>
+            )}
+
+            {!!quote.tax_total && (
+              <View style={styles.totalRow}>
+                <ThemedText style={styles.totalLabel}>VAT</ThemedText>
+                <ThemedText style={styles.totalValue}>
+                  £{formatNumber(quote.tax_total)}
+                </ThemedText>
+              </View>
+            )}
+
+            <View style={[styles.totalRow, styles.totalRowFinal]}>
+              <ThemedText style={styles.totalLabelFinal}>Total</ThemedText>
+              <ThemedText style={styles.totalValueFinal}>
+                £{formatNumber(grandTotal)}
+              </ThemedText>
+            </View>
+            {includesVat && (
+              <ThemedText style={styles.totalNote}>Includes VAT</ThemedText>
+            )}
+          </View>
+
+          {/* Client request - Collapsible (collapsed by default) */}
+          {request && (
+            <>
+              <View style={styles.sectionHeaderRow}>
+                <ThemedText style={styles.sectionHeaderText}>Client request</ThemedText>
+                <Pressable
+                  style={styles.collapsibleToggle}
+                  onPress={() => setShowClientRequest(!showClientRequest)}
+                >
+                  <ThemedText style={styles.collapsibleToggleText}>
+                    {showClientRequest ? "Hide" : "Show"}
+                  </ThemedText>
+                  <Ionicons
+                    name={showClientRequest ? "chevron-up" : "chevron-down"}
+                    size={16}
+                    color="#6B7280"
+                  />
+                </Pressable>
+              </View>
+
+              {showClientRequest && (
+                <View style={styles.card}>
+                  {/* Category */}
+                  {parsedDetails.category && (
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="grid-outline" size={18} color="#6B7280" />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Category</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>{parsedDetails.category}</ThemedText>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Service */}
+                  {parsedDetails.main && (
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="construct-outline" size={18} color="#6B7280" />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Service</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>{parsedDetails.main}</ThemedText>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Location */}
+                  {request?.postcode && (
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="location-outline" size={18} color="#6B7280" />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Area</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>{request.postcode}</ThemedText>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Property */}
+                  {(request.property_types?.name || parsedDetails.property) && (
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="home-outline" size={18} color="#6B7280" />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Property</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>
+                          {request.property_types?.name || parsedDetails.property}
+                        </ThemedText>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Timing */}
+                  {(request.timing_options?.name || parsedDetails.timing) && (
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="time-outline" size={18} color={request.timing_options?.is_emergency ? "#EF4444" : "#6B7280"} />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Timing</ThemedText>
+                        <ThemedText style={[styles.requestDetailValue, request.timing_options?.is_emergency && { color: "#EF4444" }]}>
+                          {request.timing_options?.name || parsedDetails.timing}
+                        </ThemedText>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Budget */}
+                  {(request.budget_band || parsedDetails.budget) && (
+                    <View style={styles.requestDetailRow}>
+                      <Ionicons name="cash-outline" size={18} color="#6B7280" />
+                      <View style={styles.requestDetailContent}>
+                        <ThemedText style={styles.requestDetailLabel}>Budget</ThemedText>
+                        <ThemedText style={styles.requestDetailValue}>
+                          {request.budget_band || parsedDetails.budget}
+                        </ThemedText>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Description */}
+                  {parsedDetails.description && (
+                    <>
+                      <View style={styles.divider} />
+                      <View style={styles.requestDetailRow}>
+                        <Ionicons name="document-text-outline" size={18} color="#6B7280" />
+                        <View style={styles.requestDetailContent}>
+                          <ThemedText style={styles.requestDetailLabel}>Details</ThemedText>
+                          <ThemedText style={styles.requestDetailValue}>{parsedDetails.description}</ThemedText>
+                        </View>
+                      </View>
+                    </>
+                  )}
+
+                  {/* Photos */}
+                  {hasAttachments && (
+                    <>
+                      <View style={styles.divider} />
+                      <View style={[styles.requestDetailRow, { marginBottom: 8 }]}>
+                        <Ionicons name="images-outline" size={18} color="#6B7280" />
+                        <View style={styles.requestDetailContent}>
+                          <ThemedText style={styles.requestDetailLabel}>
+                            Photos ({attachmentsCount})
+                          </ThemedText>
+                        </View>
+                      </View>
+                      <View style={styles.gridWrap}>
+                        {attachments.map((url, i) => (
+                          <Pressable
+                            key={`${url}-${i}`}
+                            onPress={() => setViewer({ open: true, index: i })}
+                            style={styles.thumbCell}
+                            hitSlop={6}
+                          >
+                            <Image
+                              source={{ uri: url }}
+                              style={styles.thumbImg}
+                              resizeMode="cover"
+                            />
+                          </Pressable>
+                        ))}
+                      </View>
+                    </>
+                  )}
+                </View>
+              )}
+            </>
+          )}
+
+          <Spacer size={20} />
+
+          {/* Action Buttons */}
+          <View style={styles.actionButtonsContainer}>
+            {isAccepted && (
+              <Pressable
+                style={styles.markCompleteBtn}
+                onPress={() => {
+                  Alert.alert(
+                    "Mark as complete",
+                    "This feature is coming soon. You'll be able to mark jobs as complete and create invoices."
+                  );
+                }}
+              >
+                <ThemedText style={styles.markCompleteBtnText}>Mark as complete</ThemedText>
+              </Pressable>
+            )}
+
+            {/* Message client button */}
+            <Pressable
+              style={styles.messageClientBtn}
+              onPress={() => {
+                const reqId = quote?.request_id || quote?.requestId || request?.id;
+                if (reqId) {
+                  router.push({
+                    pathname: "/(dashboard)/messages/[id]",
+                    params: {
+                      id: String(reqId),
+                      name: displayName || "",
+                      quoteId: quote?.id ? String(quote.id) : "",
+                      returnTo: `/quotes/${quote?.id}`,
+                    },
+                  });
+                }
+              }}
+            >
+              <ThemedText style={styles.messageClientBtnText}>
+                Message {displayName ? displayName.split(" ")[0] : "client"}
+              </ThemedText>
+            </Pressable>
+          </View>
+
+          <Spacer size={40} />
+        </ScrollView>
+
+        {/* Image viewer */}
+        <ImageViewing
+          images={imageViewerData}
+          imageIndex={viewer.index}
+          visible={viewer.open}
+          onRequestClose={closeViewer}
+          swipeToCloseEnabled
+          doubleTapToZoomEnabled
+          presentationStyle="overFullScreen"
+          animationType="fade"
+        />
+      </ThemedView>
+    );
+  }
+
+  // --------------------------------------------------
+  // CLIENT QUOTE DETAILS PAGE
   // --------------------------------------------------
   return (
     <ThemedView style={styles.container}>
@@ -1034,70 +1633,51 @@ export default function QuoteDetails() {
       >
         {/* Hero summary card */}
         <View style={styles.heroCard}>
-        <View style={styles.heroTopRow}>
-          <View style={{ flex: 1 }}>
-            {/* For trades: show client name prominently, then job title, then location */}
-            {userRole === 'trades' ? (
-              <>
-                <ThemedText style={styles.heroClientName}>
-                  {displayName}
+          <View style={styles.heroTopRow}>
+            <View style={{ flex: 1 }}>
+              <ThemedText style={styles.heroTitle}>
+                {tradeBusiness || "Tradesperson"}
+              </ThemedText>
+              <ThemedText style={styles.heroProject} variant="muted">
+                {request?.suggested_title || quote?.project_title || "Project"}
+              </ThemedText>
+            </View>
+
+            {isAccepted && (
+              <View style={styles.statusChipAccepted}>
+                <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
+                <ThemedText style={styles.statusChipAcceptedText}>
+                  Accepted
                 </ThemedText>
-                <ThemedText style={styles.heroJobTitle}>
-                  {request?.suggested_title || quote?.project_title || "Quote"}
-                </ThemedText>
-                {request?.postcode && (
-                  <ThemedText style={styles.heroLocation} variant="muted">
-                    {request.postcode}
-                  </ThemedText>
-                )}
-              </>
-            ) : (
-              <>
-                <ThemedText style={styles.heroTitle}>
-                  {tradeBusiness || "Tradesperson"}
-                </ThemedText>
-                <ThemedText style={styles.heroProject} variant="muted">
-                  {request?.suggested_title || quote?.project_title || "Project"}
-                </ThemedText>
-              </>
+              </View>
             )}
           </View>
 
-          {isAccepted && (
-            <View style={styles.statusChipAccepted}>
-              <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
-              <ThemedText style={styles.statusChipAcceptedText}>
-                Accepted
+          <Spacer size={12} />
+
+          <View style={styles.heroAmountRow}>
+            <View>
+              <ThemedText style={styles.heroAmountLabel}>Total quote</ThemedText>
+              <ThemedText style={styles.heroAmount}>
+                {quote.currency || "GBP"} {formatNumber(grandTotal)}
+              </ThemedText>
+              <ThemedText variant="muted" style={styles.heroSub}>
+                {includesVat ? "Includes VAT" : "No VAT added"}
               </ThemedText>
             </View>
-          )}
-        </View>
-
-        <Spacer size={12} />
-
-        <View style={styles.heroAmountRow}>
-          <View>
-            <ThemedText style={styles.heroAmountLabel}>Total quote</ThemedText>
-            <ThemedText style={styles.heroAmount}>
-              {quote.currency || "GBP"} {formatNumber(grandTotal)}
-            </ThemedText>
-            <ThemedText variant="muted" style={styles.heroSub}>
-              {includesVat ? "Includes VAT" : "No VAT added"}
-            </ThemedText>
+            {issuedAt && (
+              <View style={{ alignItems: "flex-end" }}>
+                <ThemedText style={styles.heroMetaLabel}>Issued</ThemedText>
+                <ThemedText style={styles.heroMetaValue}>
+                  {new Date(issuedAt).toLocaleDateString()}
+                </ThemedText>
+              </View>
+            )}
           </View>
-          {issuedAt && (
-            <View style={{ alignItems: "flex-end" }}>
-              <ThemedText style={styles.heroMetaLabel}>Issued</ThemedText>
-              <ThemedText style={styles.heroMetaValue}>
-                {new Date(issuedAt).toLocaleDateString()}
-              </ThemedText>
-            </View>
-          )}
         </View>
-      </View>
 
       {/* Hero-linked appointment callout (like your green block) - only show for clients */}
-      {isAccepted && userRole === 'client' && (
+      {isAccepted && (
         <View style={styles.heroNoteCard}>
           <View style={styles.heroNoteRow}>
             <View style={styles.heroNoteIconWrap}>
@@ -2502,5 +3082,250 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+
+  // =============================================
+  // TRADES QUOTE OVERVIEW STYLES (POST-ACCEPTANCE)
+  // =============================================
+
+  // Hero info grid (Total + Issued side by side)
+  heroInfoGrid: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+  },
+  heroInfoItem: {
+    flex: 1,
+  },
+  heroInfoLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginBottom: 4,
+  },
+  heroInfoValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  // Appointment subheader
+  appointmentSubheader: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+    marginBottom: 12,
+  },
+  appointmentSubheaderStandalone: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+    marginTop: 16,
+    marginBottom: 8,
+    marginHorizontal: 4,
+  },
+  // Standalone appointment card (each appointment as its own card)
+  appointmentSingleCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    padding: 16,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    marginBottom: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  appointmentSingleCardPast: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    padding: 16,
+    backgroundColor: "#FAFAFA",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    marginBottom: 8,
+  },
+  pastAppointmentsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 16,
+    marginBottom: 8,
+    marginHorizontal: 4,
+  },
+
+  // Trade appointment card styles
+  tradeAppointmentCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingVertical: 12,
+  },
+  tradeAppointmentIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "#F0FDF4",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tradeAppointmentTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 4,
+  },
+  tradeAppointmentTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    flex: 1,
+  },
+  tradeAppointmentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  tradeAppointmentBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  tradeAppointmentDateTime: {
+    fontSize: 14,
+    color: "#374151",
+  },
+  tradeAppointmentLocation: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  tradeAppointmentCompleted: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    marginTop: 2,
+  },
+
+  // Collapsible section styles
+  collapsibleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  collapsibleToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  collapsibleToggleText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#6B7280",
+  },
+
+  // Quote breakdown styles
+  quoteBreakdownRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  quoteBreakdownLabel: {
+    fontSize: 15,
+    color: "#374151",
+    flex: 1,
+  },
+  quoteBreakdownValue: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  quoteBreakdownDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: 8,
+  },
+  quoteBreakdownTotalLabel: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  quoteBreakdownTotalValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  // Client request collapsible styles
+  clientRequestRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingVertical: 8,
+  },
+  clientRequestLabel: {
+    fontSize: 14,
+    color: "#6B7280",
+    width: 100,
+  },
+  clientRequestValue: {
+    fontSize: 14,
+    color: "#111827",
+    flex: 1,
+    textAlign: "right",
+  },
+  clientRequestSectionLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  clientRequestDescription: {
+    fontSize: 14,
+    color: "#374151",
+    lineHeight: 20,
+  },
+
+  // Action buttons container
+  actionButtonsContainer: {
+    gap: 8,
+  },
+  markCompleteBtn: {
+    backgroundColor: PRIMARY,
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  markCompleteBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  messageClientBtn: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  messageClientBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#374151",
   },
 });

@@ -318,28 +318,55 @@ export default function TradesmanProjects() {
           };
         });
 
-      // SENT (quote exists)
-      const sent = (quotes || []).map((q) => {
-        const r = reqById[q.request_id];
+      // SENT (quote exists) - Group quotes by request_id for multi-quote display
+      // First, group quotes by request_id
+      const quotesByRequest = {};
+      (quotes || []).forEach((q) => {
+        if (!quotesByRequest[q.request_id]) {
+          quotesByRequest[q.request_id] = [];
+        }
+        quotesByRequest[q.request_id].push(q);
+      });
+
+      // Now create a single project per request with all its quotes
+      const sent = Object.entries(quotesByRequest).map(([requestId, requestQuotes]) => {
+        const r = reqById[requestId];
         const t = (targets || []).find(
-          (tt) => tt.request_id === q.request_id && tt.trade_id === myId
+          (tt) => tt.request_id === requestId && tt.trade_id === myId
         );
 
-        // Calculate expiration info
-        const issuedAt = q.issued_at ? new Date(q.issued_at) : null;
-        const validUntil = q.valid_until ? new Date(q.valid_until) : null;
+        // Sort quotes: drafts first (need action), then by date
+        requestQuotes.sort((a, b) => {
+          const aStatus = (a.status || "").toLowerCase();
+          const bStatus = (b.status || "").toLowerCase();
+          // Priority order for chip: draft > sent > accepted > declined/expired
+          const priorityOrder = { draft: 0, sent: 1, created: 1, accepted: 2, declined: 3, expired: 3 };
+          const aPriority = priorityOrder[aStatus] ?? 2;
+          const bPriority = priorityOrder[bStatus] ?? 2;
+          if (aPriority !== bPriority) return aPriority - bPriority;
+          // Same priority - sort by date (newest first)
+          return new Date(b.created_at) - new Date(a.created_at);
+        });
+
+        // Use the most actionable quote for status calculations
+        const primaryQuote = requestQuotes[0];
+        const primaryStatus = (primaryQuote.status || "").toLowerCase();
+
+        // Calculate expiration info from primary quote
+        const issuedAt = primaryQuote.issued_at ? new Date(primaryQuote.issued_at) : null;
+        const validUntil = primaryQuote.valid_until ? new Date(primaryQuote.valid_until) : null;
         const daysToExpiry = validUntil ? daysUntil(validUntil) : (issuedAt ? 14 - daysSince(issuedAt) : null);
         const isExpiringSoon = daysToExpiry !== null && daysToExpiry <= 3 && daysToExpiry > 0;
         const isExpired = daysToExpiry !== null && daysToExpiry <= 0;
 
         // Client response tracking
         const daysSinceIssued = issuedAt ? daysSince(issuedAt) : 0;
-        const clientNotResponding = q.status === "sent" && daysSinceIssued >= 7;
+        const clientNotResponding = primaryStatus === "sent" && daysSinceIssued >= 7;
 
-        // Get appointments for this quote (or request if no quote-linked appointments)
-        const quoteAppointments = appointmentsByQuote[q.id] || [];
-        const requestAppointments = appointmentsByRequest[q.request_id] || [];
-        const allAppointments = quoteAppointments.length > 0 ? quoteAppointments : requestAppointments;
+        // Get appointments for all quotes in this request
+        const allQuoteAppointments = requestQuotes.flatMap(q => appointmentsByQuote[q.id] || []);
+        const requestAppointments = appointmentsByRequest[requestId] || [];
+        const allAppointments = allQuoteAppointments.length > 0 ? allQuoteAppointments : requestAppointments;
         const now = new Date();
         const upcomingAppointments = allAppointments
           .filter((a) => new Date(a.scheduled_at) > now)
@@ -348,25 +375,41 @@ export default function TradesmanProjects() {
         const additionalAppointmentsCount = upcomingAppointments.length > 1 ? upcomingAppointments.length - 1 : 0;
 
         // Get client contact info (privacy-aware)
-        const contactInfo = clientContactByRequestId[q.request_id] || {};
-        const clientFullName = contactInfo.name || clientNameByRequestId[q.request_id] || null;
-        // Contact is unlocked when quote is accepted
-        const contactUnlocked = contactInfo.contact_unlocked || (q.status || "").toLowerCase() === "accepted";
+        const contactInfo = clientContactByRequestId[requestId] || {};
+        const clientFullName = contactInfo.name || clientNameByRequestId[requestId] || null;
+        // Contact is unlocked when any quote is accepted
+        const hasAcceptedQuote = requestQuotes.some(q => (q.status || "").toLowerCase() === "accepted");
+        const contactUnlocked = contactInfo.contact_unlocked || hasAcceptedQuote;
+
+        // Calculate price range if multiple quotes
+        const quoteTotals = requestQuotes
+          .filter(q => q.grand_total != null)
+          .map(q => q.grand_total);
+        const minPrice = quoteTotals.length > 0 ? Math.min(...quoteTotals) : null;
+        const maxPrice = quoteTotals.length > 0 ? Math.max(...quoteTotals) : null;
+        const hasPriceRange = quoteTotals.length > 1 && minPrice !== maxPrice;
 
         return {
-          id: q.id,
-          request_id: q.request_id,
-          status: (q.status || "").toLowerCase(),
-          issued_at: q.issued_at ?? q.created_at,
-          valid_until: q.valid_until,
+          id: primaryQuote.id,
+          request_id: requestId,
+          status: primaryStatus,
+          issued_at: primaryQuote.issued_at ?? primaryQuote.created_at,
+          valid_until: primaryQuote.valid_until,
           title: r?.suggested_title || extractTitle(r),
           request_type: t?.invited_by || "system",
           budget_band: r?.budget_band || null,
           postcode: r?.postcode || null,
           acceptedByTrade: t?.state === "accepted",
-          currency: q.currency,
-          grand_total: q.grand_total,
-          tax_total: q.tax_total,
+          currency: primaryQuote.currency,
+          grand_total: primaryQuote.grand_total,
+          tax_total: primaryQuote.tax_total,
+          // Multi-quote info
+          quotes: requestQuotes,
+          quoteCount: requestQuotes.length,
+          minPrice,
+          maxPrice,
+          hasPriceRange,
+          hasAcceptedQuote,
           // Client contact info (privacy-aware)
           clientFullName,
           clientName: getClientDisplayName(clientFullName, contactUnlocked),
@@ -375,7 +418,7 @@ export default function TradesmanProjects() {
           // Expiration info
           daysToExpiry,
           isExpiringSoon,
-          isExpired: isExpired && q.status !== "expired",
+          isExpired: isExpired && primaryStatus !== "expired",
           // Client response tracking
           daysSinceIssued,
           clientNotResponding,
@@ -635,11 +678,15 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
   const isInbox = project.type === "inbox";
   const displayStatus = project.displayStatus || "pending";
   const hasAppointment = !!project.nextAppointment;
+  const hasMultipleQuotes = (project.quoteCount || 0) > 1;
+
   // Show action buttons for: quotes (sent/active/scheduled), OR inbox items with appointments
-  const showActionButtons = (!isInbox && (displayStatus === "in_progress" || displayStatus === "scheduled" || displayStatus === "sent" || displayStatus === "awaiting")) ||
+  // For multiple quotes, always show "View Details" button
+  const showActionButtons = (!isInbox && (displayStatus === "in_progress" || displayStatus === "scheduled" || displayStatus === "sent" || displayStatus === "awaiting" || hasMultipleQuotes)) ||
                            (isInbox && hasAppointment);
 
   // Determine chip label and tone based on context for TRADES view
+  // For multiple quotes, show the most actionable status
   let chipLabel = "";
   let chipTone = "waiting";
   let chipIcon = null;
@@ -677,41 +724,55 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
     }
   } else {
     // Quote exists - determine based on status
+    // For multiple quotes, use priority: Draft > Sent > Accepted > Declined/Expired
     const status = (project.status || displayStatus || "").toLowerCase();
     const daysOld = daysSince(project.issued_at);
 
-    if (status === "accepted" || status === "in_progress" || status === "scheduled") {
+    // Check if there's an accepted quote (highest priority for display)
+    if (project.hasAcceptedQuote) {
       // Check appointment status for accepted quotes
       const apptStatus = project.nextAppointment?.status?.toLowerCase();
       if (apptStatus === "proposed") {
-        // Waiting for client to confirm appointment
         chipLabel = "Visit Pending";
         chipTone = "action";
         chipIcon = "hourglass";
       } else if (apptStatus === "confirmed") {
-        // Appointment confirmed
         chipLabel = "Scheduled";
         chipTone = "active";
         chipIcon = "calendar";
       } else {
-        // No appointment yet
-        chipLabel = "Quote Accepted";
+        chipLabel = "Accepted";
         chipTone = "active";
       }
+    } else if (status === "draft") {
+      chipLabel = "Draft";
+      chipTone = "action";
+      chipIcon = "create-outline";
     } else if (status === "sent" || status === "created" || status === "awaiting") {
       // Quote sent, waiting for client response
       if (daysOld >= 7) {
         chipLabel = "No Response";
         chipTone = "negative";
       } else {
-        chipLabel = "Quote Sent";
+        chipLabel = "Sent";
         chipTone = "waiting";
         chipIcon = "send";
       }
-    } else if (status === "draft") {
-      chipLabel = "Draft";
-      chipTone = "action";
-      chipIcon = "create-outline";
+    } else if (status === "accepted" || status === "in_progress" || status === "scheduled") {
+      // Check appointment status for accepted quotes
+      const apptStatus = project.nextAppointment?.status?.toLowerCase();
+      if (apptStatus === "proposed") {
+        chipLabel = "Visit Pending";
+        chipTone = "action";
+        chipIcon = "hourglass";
+      } else if (apptStatus === "confirmed") {
+        chipLabel = "Scheduled";
+        chipTone = "active";
+        chipIcon = "calendar";
+      } else {
+        chipLabel = "Accepted";
+        chipTone = "active";
+      }
     } else if (status === "declined") {
       chipLabel = "Declined";
       chipTone = "negative";
@@ -723,7 +784,7 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
       chipLabel = "Completed";
       chipTone = "completed";
     } else {
-      chipLabel = "Quote Sent";
+      chipLabel = "Sent";
       chipTone = "waiting";
     }
   }
@@ -770,14 +831,36 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
           )}
         </View>
 
-        {/* Quote total for sent quotes */}
-        {!isInbox && project.grand_total != null && (
-          <View style={styles.amountRow}>
-            <ThemedText style={styles.amountLabel}>Quote total</ThemedText>
-            <ThemedText style={styles.amountValue}>
-              {project.currency || "GBP"} {formatNumber(project.grand_total)}
-            </ThemedText>
-          </View>
+        {/* Quote summary for sent quotes */}
+        {!isInbox && (
+          <>
+            {/* Multiple quotes summary */}
+            {hasMultipleQuotes ? (
+              <View style={styles.quoteSummaryBox}>
+                <View style={styles.quoteSummaryHeader}>
+                  <Ionicons name="document-text-outline" size={16} color="#6B7280" />
+                  <ThemedText style={styles.quoteSummaryLabel}>
+                    {project.quoteCount} quotes {project.status === "draft" ? "drafted" : "sent"}
+                  </ThemedText>
+                </View>
+                {project.minPrice != null && (
+                  <ThemedText style={styles.quoteSummaryAmount}>
+                    {project.hasPriceRange
+                      ? `£${formatNumber(project.minPrice)} - £${formatNumber(project.maxPrice)}`
+                      : `£${formatNumber(project.minPrice)}`}
+                  </ThemedText>
+                )}
+              </View>
+            ) : project.grand_total != null ? (
+              /* Single quote - show exact amount */
+              <View style={styles.amountRow}>
+                <ThemedText style={styles.amountLabel}>Quote total</ThemedText>
+                <ThemedText style={styles.amountValue}>
+                  £{formatNumber(project.grand_total)}
+                </ThemedText>
+              </View>
+            ) : null}
+          </>
         )}
 
         {/* Appointment info for quotes and inbox items */}
@@ -887,7 +970,8 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
       )}
 
       {/* Action buttons for draft quotes: Message icon + View Details + Edit Quote */}
-      {!isInbox && displayStatus === "pending" && project.status === "draft" && (
+      {/* For multiple quotes, show View Details only (user goes to request page to see all) */}
+      {!isInbox && displayStatus === "pending" && project.status === "draft" && !hasMultipleQuotes && (
         <>
           <Spacer height={12} />
           <View style={styles.cardActionsThree}>
@@ -945,8 +1029,46 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
         </>
       )}
 
+      {/* Multiple quotes - always show Message + View Details */}
+      {!isInbox && hasMultipleQuotes && (
+        <>
+          <Spacer height={12} />
+          <View style={styles.cardActions}>
+            <Pressable
+              style={[styles.actionBtn, styles.actionBtnSecondary]}
+              onPress={(e) => {
+                e.stopPropagation();
+                if (project.request_id && router) {
+                  router.push({
+                    pathname: "/(dashboard)/messages/[id]",
+                    params: {
+                      id: String(project.request_id),
+                      name: project.clientName || "",
+                      quoteId: project.id ? String(project.id) : "",
+                      returnTo: "/quotes",
+                    },
+                  });
+                }
+              }}
+            >
+              <ThemedText style={styles.actionBtnTextSecondary}>Message</ThemedText>
+            </Pressable>
+            <Pressable
+              style={[styles.actionBtn, styles.actionBtnPrimary]}
+              onPress={(e) => {
+                e.stopPropagation();
+                router.push(`/quotes/request/${project.request_id}`);
+              }}
+            >
+              <ThemedText style={styles.actionBtnTextPrimary}>View Details</ThemedText>
+            </Pressable>
+          </View>
+        </>
+      )}
+
       {/* Action buttons for sent/active quotes and inbox items with appointments (Message + View Details) */}
-      {showActionButtons && (
+      {/* Skip if multiple quotes (already handled above) or if single draft (handled above) */}
+      {showActionButtons && !hasMultipleQuotes && !(displayStatus === "pending" && project.status === "draft") && (
         <>
           <Spacer height={12} />
           <View style={styles.cardActions}>
@@ -1027,11 +1149,8 @@ function ActiveProjectsSection({ needsAction, activeQuotes, router }) {
                 project={project}
                 router={router}
                 onPress={() => {
-                  if (project.type === "inbox") {
-                    router.push(`/quotes/request/${project.request_id}`);
-                  } else {
-                    router.push(`/quotes/${project.id}`);
-                  }
+                  // Always go to Client Request page (project.request_id)
+                  router.push(`/quotes/request/${project.request_id}`);
                 }}
                 onAction={() => {
                   router.push({
@@ -1061,14 +1180,8 @@ function ActiveProjectsSection({ needsAction, activeQuotes, router }) {
                 project={project}
                 router={router}
                 onPress={() => {
-                  if (project.type === "inbox") {
-                    router.push(`/quotes/request/${project.request_id}`);
-                  } else if (project.status === "draft" && project.request_id) {
-                    // Drafts go to Client Request page where they can see the draft card
-                    router.push(`/quotes/request/${project.request_id}`);
-                  } else {
-                    router.push(`/quotes/${project.id}`);
-                  }
+                  // Always go to Client Request page (project.request_id)
+                  router.push(`/quotes/request/${project.request_id}`);
                 }}
               />
             ))}
@@ -1103,12 +1216,8 @@ function CompletedProjects({ data, router }) {
           project={project}
           router={router}
           onPress={() => {
-            // Draft quotes go to Client Request page, others go to overview
-            if (project.status === "draft" && project.request_id) {
-              router.push(`/quotes/request/${project.request_id}`);
-            } else {
-              router.push(`/quotes/${project.id}`);
-            }
+            // Always go to Client Request page (project.request_id)
+            router.push(`/quotes/request/${project.request_id}`);
           }}
         />
       ))}
@@ -1365,6 +1474,30 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
     color: "#111827",
+  },
+
+  // Quote summary box (for multiple quotes)
+  quoteSummaryBox: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 8,
+  },
+  quoteSummaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  quoteSummaryLabel: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  quoteSummaryAmount: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+    marginTop: 4,
   },
 
   // Appointment info
