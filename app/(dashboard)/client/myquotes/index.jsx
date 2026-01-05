@@ -1022,6 +1022,55 @@ export default function ClientProjects() {
           statusType: "EXPIRED",
           priceInfo: null,
         });
+      } else if (status === "awaiting_completion") {
+        // Trade marked complete, awaiting client confirmation
+        if (!activeByRequest[reqId]) {
+          activeByRequest[reqId] = {
+            requestId: reqId,
+            jobTitle: q.request_suggested_title || q.project_title || "Active job",
+            location: q.postcode || null,
+            tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
+            trades: [],
+            quotesCount: 0,
+            quoteId: q.quote_id,
+            isAwaitingCompletion: true,
+          };
+        }
+        activeByRequest[reqId].quotesCount++;
+        activeByRequest[reqId].isAwaitingCompletion = true;
+        const existingTrade = activeByRequest[reqId].trades.find(t => t.id === q.trade_id);
+        if (!existingTrade) {
+          activeByRequest[reqId].trades.push({
+            id: q.trade_id,
+            name: q.trade_business_name || "Trade",
+            photoUrl: q.trade_photo_url || null,
+            hasQuote: true,
+            quoteId: q.quote_id,
+            amount: q.grand_total,
+          });
+        }
+      } else if (status === "completed") {
+        // Job fully completed
+        completedProjects.push({
+          id: `completed-${q.quote_id}`,
+          type: "completed",
+          requestId: reqId,
+          jobTitle: q.request_suggested_title || q.project_title || "Job",
+          location: q.postcode || null,
+          tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
+          trades: [{
+            id: q.trade_id,
+            name: q.trade_business_name || "Trade",
+            photoUrl: q.trade_photo_url || null,
+            hasQuote: true,
+            quoteId: q.quote_id,
+            amount: q.grand_total,
+          }],
+          statusDescription: "Completed",
+          statusType: "COMPLETED",
+          priceInfo: q.grand_total > 0 ? `GBP ${formatNumber(q.grand_total)}` : null,
+          priceLabel: "Total paid",
+        });
       }
     });
 
@@ -1070,6 +1119,13 @@ export default function ClientProjects() {
           : null;
       }
 
+
+      // Override status for awaiting completion (trade marked complete)
+      if (group.isAwaitingCompletion) {
+        statusType = "AWAITING_CONFIRMATION";
+        statusDescription = "Trade marked complete";
+        helperText = "Confirm the work is done";
+      }
       // Calculate price from trades
       const totalPrice = group.trades.reduce((sum, t) => sum + (t.amount || 0), 0);
 

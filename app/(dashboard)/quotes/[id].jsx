@@ -1385,8 +1385,8 @@ export default function QuoteDetails() {
           </View>
 
           {/* Appointments Section - with + Add button */}
-          {/* Show appointments section if there are any appointments OR if quote is accepted */}
-          {(appointments.length > 0 || isAccepted) && (
+          {/* Hide appointments for awaiting_completion/completed - job is done */}
+          {(appointments.length > 0 || isAccepted) && status !== "awaiting_completion" && status !== "completed" && (
             <View>
               <View style={styles.sectionHeaderRow}>
                 <ThemedText style={styles.sectionHeaderText}>Appointments</ThemedText>
@@ -4036,12 +4036,15 @@ const styles = StyleSheet.create({
   // AWAITING COMPLETION / COMPLETED STATES
   // =============================================
   awaitingCompletionCard: {
-    backgroundColor: "#F0F9FF",
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     padding: 24,
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#BAE6FD",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   awaitingProgressRow: {
     flexDirection: "row",
