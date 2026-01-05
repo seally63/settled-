@@ -744,11 +744,26 @@ export default function ClientProjects() {
 
     // Process responses - trades who accepted but haven't sent quote yet
     // Group by request to combine with existing grouped cards
+    // IMPORTANT: Skip trades that already have a decided quote (accepted/declined/awaiting_completion/completed)
+    const decidedTradesByRequest = {};
+    decidedQuotes.forEach((q) => {
+      const reqId = q.request_id;
+      if (!decidedTradesByRequest[reqId]) {
+        decidedTradesByRequest[reqId] = new Set();
+      }
+      decidedTradesByRequest[reqId].add(q.trade_id);
+    });
+
     const responsesByRequest = {};
     responses.forEach((r) => {
       const reqId = r.request_id;
       const status = String(r.decision_status || "").toLowerCase();
       if (!reqId) return;
+
+      // Skip if this trade already has a decided quote for this request
+      if (decidedTradesByRequest[reqId]?.has(r.trade_id)) {
+        return;
+      }
 
       if (!responsesByRequest[reqId]) {
         responsesByRequest[reqId] = {
@@ -1237,7 +1252,6 @@ export default function ClientProjects() {
                 item={project}
                 statusType={project.statusType}
                 onPress={() => {
-                  // Navigate based on project type
                   // If multiple quotes OR multiple trades -> go to quote comparison list
                   if ((project.quotesCount && project.quotesCount > 1) || (project.trades && project.trades.length > 1)) {
                     router.push(`/myquotes/quotes/${project.requestId}`);
@@ -1269,7 +1283,6 @@ export default function ClientProjects() {
                 item={project}
                 statusType={project.statusType}
                 onPress={() => {
-                  // Navigate based on project type
                   if ((project.quotesCount && project.quotesCount > 1) || (project.trades && project.trades.length > 1)) {
                     router.push(`/myquotes/quotes/${project.requestId}`);
                   } else if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
@@ -1298,13 +1311,15 @@ export default function ClientProjects() {
                 item={project}
                 statusType={project.statusType}
                 onPress={() => {
-                  // Active jobs - go to quote detail (single trade) or quote list (multiple)
-                  if ((project.quotesCount && project.quotesCount > 1) || (project.trades && project.trades.length > 1)) {
+                  // Active jobs - go directly to Quote Overview
+                  const quoteId = project.quoteId || (project.trades && project.trades[0]?.quoteId);
+                  if (quoteId) {
+                    router.push(`/myquotes/${quoteId}`);
+                  } else if ((project.quotesCount && project.quotesCount > 1) || (project.trades && project.trades.length > 1)) {
                     router.push(`/myquotes/quotes/${project.requestId}`);
-                  } else if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
-                    router.push(`/myquotes/${project.trades[0].quoteId}`);
-                  } else if (project.quoteId) {
-                    router.push(`/myquotes/${project.quoteId}`);
+                  } else {
+                    // Fallback to request page
+                    router.push(`/myquotes/request/${project.requestId}`);
                   }
                 }}
               />
@@ -1327,9 +1342,10 @@ export default function ClientProjects() {
                 item={project}
                 statusType={project.statusType}
                 onPress={() => {
-                  // Completed projects - go to quote detail
-                  if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
-                    router.push(`/myquotes/${project.trades[0].quoteId}`);
+                  // Completed projects - go to Quote Overview
+                  const quoteId = project.quoteId || (project.trades && project.trades[0]?.quoteId);
+                  if (quoteId) {
+                    router.push(`/myquotes/${quoteId}`);
                   }
                 }}
               />

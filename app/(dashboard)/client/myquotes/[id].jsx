@@ -85,6 +85,7 @@ export default function ClientMyQuoteDetail() {
   const [trade, setTrade] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [clientConfirmBusy, setClientConfirmBusy] = useState(false);
 
   // Request + attachments for "Your request" block
   const [req, setReq] = useState(null);
@@ -94,6 +95,11 @@ export default function ClientMyQuoteDetail() {
   // Appointments data (multiple appointments)
   const [appointments, setAppointments] = useState([]);
   const [expandedAppointments, setExpandedAppointments] = useState(new Set());
+
+  // Collapsible section states
+  const [quoteBreakdownExpanded, setQuoteBreakdownExpanded] = useState(true);
+  const [yourRequestExpanded, setYourRequestExpanded] = useState(false);
+  const [appointmentsExpanded, setAppointmentsExpanded] = useState(true);
 
   // Full-screen image viewer state
   const [viewer, setViewer] = useState({ open: false, index: 0 });
@@ -285,6 +291,44 @@ export default function ClientMyQuoteDetail() {
     ]);
   }
 
+  // Handle client confirmation of completion
+  const handleClientConfirmCompletion = async () => {
+    if (clientConfirmBusy) return;
+
+    try {
+      setClientConfirmBusy(true);
+
+      const { data, error } = await supabase.rpc("rpc_client_confirm_complete", {
+        p_quote_id: quote?.id,
+      });
+
+      if (error) {
+        console.warn("Client confirm complete error:", error.message || error);
+        Alert.alert(
+          "Could not confirm completion",
+          error.message || "Something went wrong, please try again."
+        );
+        return;
+      }
+
+      // Reload the quote
+      await load();
+
+      Alert.alert(
+        "Job confirmed complete!",
+        "Thank you for confirming. Would you like to leave a review?"
+      );
+    } catch (e) {
+      console.warn("Client confirm complete error:", e?.message || e);
+      Alert.alert(
+        "Could not confirm completion",
+        e?.message || "Something went wrong, please try again."
+      );
+    } finally {
+      setClientConfirmBusy(false);
+    }
+  };
+
   const status = useMemo(
     () => String(quote?.status || "created").toLowerCase(),
     [quote?.status]
@@ -417,12 +461,14 @@ export default function ClientMyQuoteDetail() {
     if (v === "sent") return null;
 
     const map = {
-      accepted: { bg: "#E7F6EC", fg: "#166534", icon: "checkmark-circle" },
-      declined: { bg: "#FEE2E2", fg: "#991B1B", icon: "close-circle" },
-      quoted: { bg: "#F1F5F9", fg: "#0F172A", icon: "pricetag" },
-      created: { bg: "#F1F5F9", fg: "#0F172A", icon: "document-text" },
-      draft: { bg: "#F1F5F9", fg: "#0F172A", icon: "document-text" },
-      expired: { bg: "#F8FAFC", fg: "#334155", icon: "time" },
+      accepted: { bg: "#E7F6EC", fg: "#166534", icon: "checkmark-circle", label: "Accepted" },
+      declined: { bg: "#FEE2E2", fg: "#991B1B", icon: "close-circle", label: "Declined" },
+      quoted: { bg: "#F1F5F9", fg: "#0F172A", icon: "pricetag", label: "Quoted" },
+      created: { bg: "#F1F5F9", fg: "#0F172A", icon: "document-text", label: "Created" },
+      draft: { bg: "#F1F5F9", fg: "#0F172A", icon: "document-text", label: "Draft" },
+      expired: { bg: "#F8FAFC", fg: "#334155", icon: "time", label: "Expired" },
+      awaiting_completion: { bg: "#FEF3C7", fg: "#92400E", icon: "hourglass", label: "Awaiting Completion" },
+      completed: { bg: "#E7F6EC", fg: "#166534", icon: "checkmark-done-circle", label: "Completed" },
     };
     const s = map[v] || map.created;
     return (
@@ -434,7 +480,7 @@ export default function ClientMyQuoteDetail() {
           style={{ marginRight: 6 }}
         />
         <ThemedText style={{ color: s.fg, fontWeight: "700" }}>
-          {v.charAt(0).toUpperCase() + v.slice(1)}
+          {s.label || v.charAt(0).toUpperCase() + v.slice(1)}
         </ThemedText>
       </View>
     );
@@ -506,7 +552,6 @@ export default function ClientMyQuoteDetail() {
         onPress={handlePress}
         style={[
           styles.appointmentCard,
-          isNext && styles.appointmentCardNext,
           isProposed && styles.appointmentCardProposed,
         ]}
       >
@@ -744,14 +789,211 @@ export default function ClientMyQuoteDetail() {
             {/* Declined banner only (removed "accepted" banner as requested) */}
             {status === "declined" && <DeclinedPanel />}
 
+            {/* Client Completion Flow UI - Progress Indicator */}
+            {status === "awaiting_completion" && (
+              <View style={styles.completionCard}>
+                <View style={styles.progressRow}>
+                  <View style={styles.progressDot} />
+                  <View style={styles.progressLine} />
+                  <View style={[styles.progressDot, styles.progressDotEmpty]} />
+                </View>
+                <Spacer size={16} />
+                <ThemedText style={styles.completionTitle}>
+                  {tradeName || "The tradesperson"} has marked this job as complete
+                </ThemedText>
+                <ThemedText style={styles.completionSubtitle}>
+                  Please confirm if the work has been completed to your satisfaction.
+                </ThemedText>
+                <Spacer size={20} />
+                <Pressable
+                  style={styles.confirmCompleteBtn}
+                  onPress={handleClientConfirmCompletion}
+                  disabled={clientConfirmBusy}
+                >
+                  {clientConfirmBusy ? (
+                    <ThemedText style={styles.confirmCompleteBtnText}>Confirming...</ThemedText>
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+                      <ThemedText style={styles.confirmCompleteBtnText}>Confirm complete</ThemedText>
+                    </>
+                  )}
+                </Pressable>
+                <Pressable
+                  style={styles.reportIssueBtn}
+                  onPress={() => {
+                    if (quote?.request_id) {
+                      router.push({
+                        pathname: "/(dashboard)/messages/[id]",
+                        params: {
+                          id: String(quote.request_id),
+                          name: tradeName || "",
+                          quoteId: String(quote.id || id),
+                          returnTo: `/myquotes/${id}`,
+                        },
+                      });
+                    }
+                  }}
+                >
+                  <ThemedText style={styles.reportIssueBtnText}>Report an issue</ThemedText>
+                </Pressable>
+              </View>
+            )}
+
+            {status === "completed" && (
+              <View style={styles.completedCard}>
+                <View style={styles.completedCheckCircle}>
+                  <Ionicons name="checkmark" size={32} color="#10B981" />
+                </View>
+                <Spacer size={12} />
+                <ThemedText style={styles.completedTitle}>Job complete!</ThemedText>
+                <ThemedText style={styles.completedSubtitle}>
+                  You confirmed the work{quote?.completion_confirmed_at ? ` on ${new Date(quote.completion_confirmed_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""}
+                </ThemedText>
+              </View>
+            )}
+
+            {/* Quote breakdown */}
+            <Pressable
+              style={styles.collapsibleHeader}
+              onPress={() => setQuoteBreakdownExpanded(!quoteBreakdownExpanded)}
+            >
+              <ThemedText style={styles.sectionHeaderText}>Quote breakdown</ThemedText>
+              <Ionicons
+                name={quoteBreakdownExpanded ? "chevron-up" : "chevron-down"}
+                size={20}
+                color="#6B7280"
+              />
+            </Pressable>
+            {quoteBreakdownExpanded && (
+            <View style={styles.card}>
+              {/* Meta information */}
+              {issuedAt && (
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Issued</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>
+                      {issuedAt.toLocaleDateString(undefined, {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                      })}
+                    </ThemedText>
+                  </View>
+                </View>
+              )}
+
+              {!!validUntil && (
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="time-outline" size={18} color="#6B7280" />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Valid until</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>
+                      {validUntil.toLocaleDateString(undefined, {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                      })}
+                    </ThemedText>
+                  </View>
+                </View>
+              )}
+
+              {/* Line items */}
+              {items.length > 0 && (
+                <>
+                  <View style={styles.divider} />
+                  <ThemedText style={styles.breakdownSectionLabel}>Line items</ThemedText>
+                  <Spacer height={12} />
+
+                  {items.map((item, i) => {
+                    const qty = Number(item?.qty ?? 0);
+                    const price = Number(item?.unit_price ?? 0);
+                    const line = Number.isFinite(qty * price)
+                      ? formatNumber(qty * price)
+                      : "0.00";
+                    return (
+                      <View key={`li-${i}`} style={styles.lineItemRow}>
+                        <View style={styles.lineItemNumberBadge}>
+                          <ThemedText style={styles.lineItemNumberText}>{i + 1}</ThemedText>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <ThemedText style={styles.lineItemName}>
+                            {item?.name || "Item"}
+                          </ThemedText>
+                          {!!item?.description && (
+                            <ThemedText style={styles.lineItemDescription}>
+                              {item.description}
+                            </ThemedText>
+                          )}
+                          <ThemedText style={styles.lineItemMeta}>
+                            Qty: {qty} • {currency} {formatNumber(price)} each
+                          </ThemedText>
+                        </View>
+                        <ThemedText style={styles.lineItemTotal}>
+                          {currency} {line}
+                        </ThemedText>
+                      </View>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* 3) Totals */}
+              <View style={[styles.divider, { marginTop: 12 }]} />
+              <ThemedText style={styles.breakdownSectionLabel}>Summary</ThemedText>
+              <Spacer height={12} />
+
+              {!!subtotal && (
+                <View style={styles.totalRow}>
+                  <ThemedText style={styles.totalLabel}>
+                    {includesVat ? "Subtotal (excl. VAT)" : "Subtotal"}
+                  </ThemedText>
+                  <ThemedText style={styles.totalValue}>
+                    {currency} {formatNumber(subtotal)}
+                  </ThemedText>
+                </View>
+              )}
+
+              {!!taxTotal && (
+                <View style={styles.totalRow}>
+                  <ThemedText style={styles.totalLabel}>VAT</ThemedText>
+                  <ThemedText style={styles.totalValue}>
+                    {currency} {formatNumber(taxTotal)}
+                  </ThemedText>
+                </View>
+              )}
+
+              <View style={[styles.totalRow, styles.totalRowFinal]}>
+                <ThemedText style={styles.totalLabelFinal}>Total</ThemedText>
+                <ThemedText style={styles.totalValueFinal}>
+                  {currency} {formatNumber(grand)}
+                </ThemedText>
+              </View>
+              {includesVat && (
+                <ThemedText style={styles.totalNote}>Includes VAT</ThemedText>
+              )}
+            </View>
+            )}
+
             {/* Your request (summary + photos) */}
             {req && (
               <>
-                <View style={styles.sectionHeaderRow}>
-                  <ThemedText style={styles.sectionHeaderText}>
-                    Your request
-                  </ThemedText>
-                </View>
+                <Pressable
+                  style={styles.collapsibleHeader}
+                  onPress={() => setYourRequestExpanded(!yourRequestExpanded)}
+                >
+                  <ThemedText style={styles.sectionHeaderText}>Your request</ThemedText>
+                  <Ionicons
+                    name={yourRequestExpanded ? "chevron-up" : "chevron-down"}
+                    size={20}
+                    color="#6B7280"
+                  />
+                </Pressable>
+                {yourRequestExpanded && (
                 <View style={styles.card}>
                   {/* Title */}
                   <ThemedText style={styles.requestTitle}>
@@ -877,214 +1119,26 @@ export default function ClientMyQuoteDetail() {
                     </View>
                   )}
                 </View>
+                )}
               </>
             )}
-
-            {/* Quote breakdown */}
-            <View style={styles.sectionHeaderRow}>
-              <ThemedText style={styles.sectionHeaderText}>
-                Quote breakdown
-              </ThemedText>
-            </View>
-            <View style={styles.card}>
-              {/* Meta information */}
-              {issuedAt && (
-                <View style={styles.requestDetailRow}>
-                  <Ionicons name="calendar-outline" size={18} color="#6B7280" />
-                  <View style={styles.requestDetailContent}>
-                    <ThemedText style={styles.requestDetailLabel}>Issued</ThemedText>
-                    <ThemedText style={styles.requestDetailValue}>
-                      {issuedAt.toLocaleDateString(undefined, {
-                        weekday: 'short',
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric'
-                      })}
-                    </ThemedText>
-                  </View>
-                </View>
-              )}
-
-              {!!validUntil && (
-                <View style={styles.requestDetailRow}>
-                  <Ionicons name="time-outline" size={18} color="#6B7280" />
-                  <View style={styles.requestDetailContent}>
-                    <ThemedText style={styles.requestDetailLabel}>Valid until</ThemedText>
-                    <ThemedText style={styles.requestDetailValue}>
-                      {validUntil.toLocaleDateString(undefined, {
-                        weekday: 'short',
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric'
-                      })}
-                    </ThemedText>
-                  </View>
-                </View>
-              )}
-
-              {/* Line items */}
-              {items.length > 0 && (
-                <>
-                  <View style={styles.divider} />
-                  <ThemedText style={styles.breakdownSectionLabel}>Line items</ThemedText>
-                  <Spacer height={12} />
-
-                  {items.map((item, i) => {
-                    const qty = Number(item?.qty ?? 0);
-                    const price = Number(item?.unit_price ?? 0);
-                    const line = Number.isFinite(qty * price)
-                      ? formatNumber(qty * price)
-                      : "0.00";
-                    return (
-                      <View key={`li-${i}`} style={styles.lineItemRow}>
-                        <View style={styles.lineItemNumberBadge}>
-                          <ThemedText style={styles.lineItemNumberText}>{i + 1}</ThemedText>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <ThemedText style={styles.lineItemName}>
-                            {item?.name || "Item"}
-                          </ThemedText>
-                          {!!item?.description && (
-                            <ThemedText style={styles.lineItemDescription}>
-                              {item.description}
-                            </ThemedText>
-                          )}
-                          <ThemedText style={styles.lineItemMeta}>
-                            Qty: {qty} • {currency} {formatNumber(price)} each
-                          </ThemedText>
-                        </View>
-                        <ThemedText style={styles.lineItemTotal}>
-                          {currency} {line}
-                        </ThemedText>
-                      </View>
-                    );
-                  })}
-                </>
-              )}
-
-              {/* 3) Totals */}
-              <View style={[styles.divider, { marginTop: 12 }]} />
-              <ThemedText style={styles.breakdownSectionLabel}>Summary</ThemedText>
-              <Spacer height={12} />
-
-              {!!subtotal && (
-                <View style={styles.totalRow}>
-                  <ThemedText style={styles.totalLabel}>
-                    {includesVat ? "Subtotal (excl. VAT)" : "Subtotal"}
-                  </ThemedText>
-                  <ThemedText style={styles.totalValue}>
-                    {currency} {formatNumber(subtotal)}
-                  </ThemedText>
-                </View>
-              )}
-
-              {!!taxTotal && (
-                <View style={styles.totalRow}>
-                  <ThemedText style={styles.totalLabel}>VAT</ThemedText>
-                  <ThemedText style={styles.totalValue}>
-                    {currency} {formatNumber(taxTotal)}
-                  </ThemedText>
-                </View>
-              )}
-
-              <View style={[styles.totalRow, styles.totalRowFinal]}>
-                <ThemedText style={styles.totalLabelFinal}>Total</ThemedText>
-                <ThemedText style={styles.totalValueFinal}>
-                  {currency} {formatNumber(grand)}
-                </ThemedText>
-              </View>
-              {includesVat && (
-                <ThemedText style={styles.totalNote}>Includes VAT</ThemedText>
-              )}
-            </View>
-
-            {/* Review / decision */}
-            {status !== "accepted" && status !== "declined" ? (
-              <>
-                <View style={styles.sectionHeaderRow}>
-                  <ThemedText style={styles.sectionHeaderText}>
-                    Review
-                  </ThemedText>
-                </View>
-                <View style={styles.card}>
-                  <ThemedText style={styles.decisionTitle}>
-                    Your decision
-                  </ThemedText>
-                  <ThemedText variant="muted" style={styles.decisionSubtitle}>
-                    Happy with this quote?
-                  </ThemedText>
-
-                  {/* Accept button - green fill */}
-                  <Pressable
-                    disabled={!canAccept || busy}
-                    onPress={() => confirmAndDecide("accepted")}
-                    style={[
-                      styles.decisionBtn,
-                      styles.decisionBtnAccept,
-                      (!canAccept || busy) && styles.decisionBtnDisabled,
-                    ]}
-                    accessibilityLabel="Accept quote"
-                  >
-                    <ThemedText style={styles.decisionBtnAcceptText}>
-                      Accept quote
-                    </ThemedText>
-                  </Pressable>
-
-                  {/* Decline button - gray outline */}
-                  <Pressable
-                    disabled={!canDecline || busy}
-                    onPress={() => confirmAndDecide("declined")}
-                    style={[
-                      styles.decisionBtn,
-                      styles.decisionBtnDecline,
-                      (!canDecline || busy) && styles.decisionBtnDisabled,
-                    ]}
-                    accessibilityLabel="Decline quote"
-                  >
-                    <ThemedText style={styles.decisionBtnDeclineText}>
-                      Decline
-                    </ThemedText>
-                  </Pressable>
-
-                  {/* Message trade button - purple fill (CTA) */}
-                  <Pressable
-                    onPress={() => {
-                      if (!quote?.request_id) {
-                        Alert.alert(
-                          "Message unavailable",
-                          "This quote is not linked to a request yet."
-                        );
-                        return;
-                      }
-                      router.push({
-                        pathname: "/(dashboard)/messages/[id]",
-                        params: {
-                          id: String(quote.request_id),
-                          name: tradeName || "",
-                          quoteId: String(quote.id || id),
-                          returnTo: `/myquotes/${id}`,
-                        },
-                      });
-                    }}
-                    style={[styles.decisionBtn, styles.decisionBtnMessage]}
-                    accessibilityLabel={`Message ${tradeName}`}
-                  >
-                    <ThemedText style={styles.decisionBtnMessageText}>
-                      {`Message ${tradeName}`}
-                    </ThemedText>
-                  </Pressable>
-                </View>
-              </>
-            ) : null}
 
             {/* Appointments Section - Multiple Appointments Support */}
             {appointments.length > 0 && (
               <>
-                <View style={styles.sectionHeaderRow}>
-                  <ThemedText style={styles.sectionHeaderText}>
-                    Appointments
-                  </ThemedText>
-                </View>
+                <Pressable
+                  style={styles.collapsibleHeader}
+                  onPress={() => setAppointmentsExpanded(!appointmentsExpanded)}
+                >
+                  <ThemedText style={styles.sectionHeaderText}>Appointments</ThemedText>
+                  <Ionicons
+                    name={appointmentsExpanded ? "chevron-up" : "chevron-down"}
+                    size={20}
+                    color="#6B7280"
+                  />
+                </Pressable>
+                {appointmentsExpanded && (
+                <>
 
                 {/* Upcoming Appointments - no "NEXT" label */}
                 {categorizedAppointments.next.length > 0 && (
@@ -1132,9 +1186,36 @@ export default function ClientMyQuoteDetail() {
                     ))}
                   </>
                 )}
+                </>
+                )}
               </>
             )}
+            {/* Message Button at Bottom */}
+            <Pressable
+              style={styles.messageBottomBtn}
+              onPress={() => {
+                if (!quote?.request_id) {
+                  Alert.alert("Message unavailable", "This quote is not linked to a request yet.");
+                  return;
+                }
+                router.push({
+                  pathname: "/(dashboard)/messages/[id]",
+                  params: {
+                    id: String(quote.request_id),
+                    name: tradeName || "",
+                    quoteId: String(quote.id || id),
+                    returnTo: `/myquotes/${id}`,
+                  },
+                });
+              }}
+            >
+              <Ionicons name="chatbubble-outline" size={20} color="#FFFFFF" />
+              <ThemedText style={styles.messageBottomBtnText}>
+                Message {tradeName}
+              </ThemedText>
+            </Pressable>
 
+            <Spacer size={20} />
           </ScrollView>
         </>
       )}
@@ -1298,6 +1379,31 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
     color: "#111827",
+  },
+  // Collapsible section header
+  collapsibleHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 24,
+    marginBottom: 12,
+    paddingVertical: 4,
+  },
+  // Message button at bottom
+  messageBottomBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: PRIMARY,
+    borderRadius: 12,
+    paddingVertical: 16,
+    marginTop: 8,
+  },
+  messageBottomBtnText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
   },
 
   // Request summary (NEW STYLES)
@@ -1751,5 +1857,159 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: PRIMARY,
+  },
+
+  // Client Completion Flow Styles
+  completionCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  progressDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#10B981",
+  },
+  progressDotEmpty: {
+    backgroundColor: "#E5E7EB",
+    borderWidth: 2,
+    borderColor: "#10B981",
+  },
+  progressLine: {
+    width: 40,
+    height: 2,
+    backgroundColor: "#10B981",
+    marginHorizontal: 8,
+  },
+  completionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  completionSubtitle: {
+    fontSize: 15,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  confirmCompleteBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#10B981",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    width: "100%",
+    marginBottom: 12,
+  },
+  confirmCompleteBtnText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  reportIssueBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+  },
+  reportIssueBtnText: {
+    color: "#6B7280",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+
+  // Completed state
+  completedCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  completedCheckCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#D1FAE5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  completedTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    textAlign: "center",
+  },
+  completedSubtitle: {
+    fontSize: 15,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  reviewPromptCard: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 16,
+    width: "100%",
+  },
+  reviewPromptTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  reviewPromptSubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  leaveReviewBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: PRIMARY,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    width: "100%",
+    marginBottom: 12,
+  },
+  leaveReviewBtnText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  maybeLaterBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+  },
+  maybeLaterBtnText: {
+    color: "#6B7280",
+    fontSize: 15,
+    fontWeight: "500",
   },
 });
