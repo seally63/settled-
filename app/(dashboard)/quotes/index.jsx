@@ -567,11 +567,22 @@ export default function TradesmanProjects() {
           type: "quote",
           displayStatus: status,
         });
+      } else if (status === "awaiting_completion") {
+        // Trade marked complete, waiting for client confirmation
+        activeQuotes.push({
+          ...item,
+          type: "quote",
+          displayStatus: "awaiting_completion",
+          hasAcceptedQuote: true,
+          acceptedQuoteId: item.id,
+        });
       } else if (status === "completed") {
         completed.push({
           ...item,
           type: "quote",
           displayStatus: "completed",
+          hasAcceptedQuote: true,
+          acceptedQuoteId: item.id,
         });
       } else {
         // Draft or other
