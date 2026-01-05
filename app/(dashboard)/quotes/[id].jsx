@@ -636,6 +636,8 @@ export default function QuoteDetails() {
   // Collapsible sections state for trades
   const [showPastAppointments, setShowPastAppointments] = useState(false);
   const [showClientRequest, setShowClientRequest] = useState(false);
+  const [quoteBreakdownExpanded, setQuoteBreakdownExpanded] = useState(true);
+  const [appointmentsExpanded, setAppointmentsExpanded] = useState(true);
 
   // Auto-expand past appointments if there are no upcoming ones (so user sees something)
   useEffect(() => {
@@ -1385,11 +1387,30 @@ export default function QuoteDetails() {
           </View>
 
           {/* Appointments Section - with + Add button */}
-          {/* Hide appointments for awaiting_completion/completed - job is done */}
-          {(appointments.length > 0 || isAccepted) && status !== "awaiting_completion" && status !== "completed" && (
+          {(appointments.length > 0 || isAccepted) && (
             <View>
-              <View style={styles.sectionHeaderRow}>
+              <Pressable
+                style={styles.sectionHeaderRow}
+                onPress={() => setAppointmentsExpanded(!appointmentsExpanded)}
+              >
                 <ThemedText style={styles.sectionHeaderText}>Appointments</ThemedText>
+                <View style={styles.collapsibleToggle}>
+                  <ThemedText style={styles.collapsibleToggleText}>
+                    {appointmentsExpanded ? "Hide" : "Show"}
+                  </ThemedText>
+                  <Ionicons
+                    name={appointmentsExpanded ? "chevron-up" : "chevron-down"}
+                    size={16}
+                    color="#6B7280"
+                  />
+                </View>
+              </Pressable>
+
+              {appointmentsExpanded && (
+              <>
+              {/* Add button - only show when not in completion states */}
+              {status !== "awaiting_completion" && status !== "completed" && (
+              <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 8 }}>
                 <Pressable
                   style={styles.addAppointmentTextBtn}
                   onPress={openSchedulePage}
@@ -1399,6 +1420,7 @@ export default function QuoteDetails() {
                   <ThemedText style={styles.addAppointmentTextBtnLabel}>Add</ThemedText>
                 </Pressable>
               </View>
+              )}
 
               {/* Upcoming Appointments - each as its own card */}
               {upcomingAppointments.length > 0 && (
@@ -1528,14 +1550,30 @@ export default function QuoteDetails() {
                   )}
                 </View>
               )}
+              </>
+              )}
             </View>
           )}
 
-          {/* Quote breakdown section */}
-          <View style={styles.sectionHeaderRow}>
+          {/* Quote breakdown section - Collapsible */}
+          <Pressable
+            style={styles.sectionHeaderRow}
+            onPress={() => setQuoteBreakdownExpanded(!quoteBreakdownExpanded)}
+          >
             <ThemedText style={styles.sectionHeaderText}>Quote breakdown</ThemedText>
-          </View>
+            <View style={styles.collapsibleToggle}>
+              <ThemedText style={styles.collapsibleToggleText}>
+                {quoteBreakdownExpanded ? "Hide" : "Show"}
+              </ThemedText>
+              <Ionicons
+                name={quoteBreakdownExpanded ? "chevron-up" : "chevron-down"}
+                size={16}
+                color="#6B7280"
+              />
+            </View>
+          </Pressable>
 
+          {quoteBreakdownExpanded && (
           <View style={styles.card}>
             {/* Meta information */}
             {issuedAt && (
@@ -1652,6 +1690,7 @@ export default function QuoteDetails() {
               <ThemedText style={styles.totalNote}>Includes VAT</ThemedText>
             )}
           </View>
+          )}
 
           {/* Client request - Collapsible (collapsed by default) */}
           {request && (
@@ -4055,24 +4094,25 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: PRIMARY,
+    backgroundColor: "#10B981",
   },
   awaitingProgressDotEmpty: {
-    backgroundColor: "transparent",
+    backgroundColor: "#E5E7EB",
     borderWidth: 2,
-    borderColor: "#D1D5DB",
+    borderColor: "#10B981",
   },
   awaitingProgressLine: {
-    width: 60,
+    width: 40,
     height: 2,
-    backgroundColor: "#D1D5DB",
-    marginHorizontal: 4,
+    backgroundColor: "#10B981",
+    marginHorizontal: 8,
   },
   awaitingTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1E40AF",
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
     textAlign: "center",
+    marginBottom: 8,
   },
   awaitingMeta: {
     fontSize: 13,
