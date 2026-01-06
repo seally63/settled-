@@ -22,7 +22,7 @@ function getInitials(name) {
 }
 
 // Avatar component
-function Avatar({ name, photoUrl, size = 56 }) {
+function Avatar({ name, photoUrl, size = 48 }) {
   const initials = getInitials(name);
   const colors = ["#6849a7", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
   const colorIndex = name ? name.charCodeAt(0) % colors.length : 0;
@@ -67,7 +67,8 @@ export default function CompletionSuccess() {
 
   const quoteId = params.quoteId;
   const tradeName = params.tradeName || "Trade";
-  const tradePhotoUrl = params.tradePhotoUrl;
+  const tradePhotoUrl = params.tradePhotoUrl || "";
+  const jobTitle = params.jobTitle || "";
 
   // Navigate to leave review screen
   const leaveReview = () => {
@@ -77,6 +78,8 @@ export default function CompletionSuccess() {
         quoteId,
         revieweeName: tradeName,
         revieweeType: "trade",
+        tradePhotoUrl: tradePhotoUrl,
+        jobTitle: jobTitle,
       },
     });
   };
@@ -88,54 +91,55 @@ export default function CompletionSuccess() {
 
   return (
     <ThemedView style={styles.container}>
-      {/* Header with back button */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={() => router.replace("/(dashboard)/myquotes")} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color="#111827" />
-        </Pressable>
-      </View>
+      {/* No header - clean success screen */}
+      <View style={[styles.topSpacer, { paddingTop: insets.top + 24 }]} />
 
       <View style={styles.content}>
-        {/* Success Icon */}
+        {/* Success Icon - smaller */}
         <View style={styles.successIconContainer}>
-          <Ionicons name="checkmark" size={48} color={GREEN} />
+          <Ionicons name="checkmark" size={36} color={GREEN} />
         </View>
 
-        <Spacer size={12} />
+        <Spacer size={16} />
 
         <ThemedText style={styles.title}>Job complete</ThemedText>
         <ThemedText style={styles.subtitle}>
           Thanks for confirming. This job is now closed.
         </ThemedText>
 
-        <Spacer size={20} />
+        <Spacer size={24} />
 
         {/* Review Card */}
         <View style={styles.reviewCard}>
-          <Avatar name={tradeName} photoUrl={tradePhotoUrl} size={56} />
-          <Spacer size={6} />
-          <ThemedText style={styles.tradeName}>{tradeName}</ThemedText>
+          <Avatar name={tradeName} photoUrl={tradePhotoUrl} size={48} />
           <Spacer size={12} />
+          <ThemedText style={styles.tradeName}>{tradeName}</ThemedText>
+          <Spacer size={16} />
           <ThemedText style={styles.reviewPrompt}>
             How was your experience?
           </ThemedText>
+          <Spacer size={4} />
           <ThemedText style={styles.reviewSubtext}>
             Help others find great tradespeople.
           </ThemedText>
         </View>
 
-        <Spacer size={16} />
+        <Spacer size={20} />
 
         {/* Review Button */}
         <Pressable style={styles.reviewBtn} onPress={leaveReview}>
           <ThemedText style={styles.reviewBtnText}>Leave a review</ThemedText>
         </Pressable>
 
+        <Spacer size={16} />
+
         {/* Maybe Later */}
         <Pressable style={styles.laterBtn} onPress={maybeLater}>
           <ThemedText style={styles.laterBtnText}>Maybe later</ThemedText>
         </Pressable>
       </View>
+
+      <View style={{ height: insets.bottom + 24 }} />
     </ThemedView>
   );
 }
@@ -143,11 +147,10 @@ export default function CompletionSuccess() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingBottom: 12,
+  topSpacer: {
+    // Just for safe area padding
   },
   content: {
     flex: 1,
@@ -156,38 +159,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   successIconContainer: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: "#DCFCE7",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 4,
-    borderColor: "#BBF7D0",
   },
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "700",
     color: "#111827",
     textAlign: "center",
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: "#6B7280",
     textAlign: "center",
-    marginTop: 8,
+    marginTop: 6,
   },
   reviewCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    padding: 24,
+    padding: 20,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#E5E7EB",
     width: "100%",
   },
   tradeName: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "600",
     color: "#111827",
   },
@@ -201,7 +202,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#6B7280",
     textAlign: "center",
-    marginTop: 4,
   },
   reviewBtn: {
     backgroundColor: PRIMARY,
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   laterBtn: {
-    paddingVertical: 8,
+    paddingVertical: 12,
     alignItems: "center",
   },
   laterBtnText: {

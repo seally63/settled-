@@ -649,10 +649,24 @@ export default function ClientProjects() {
     // Group quotes by request_id
     const quotesByRequest = {};
 
+    // Build a set of request IDs that already have an accepted quote (or post-acceptance states)
+    // These requests should NOT show pending quotes anymore
+    const acceptedStatuses = ["accepted", "awaiting_completion", "completed"];
+    const requestsWithAcceptedQuote = new Set();
+    decidedQuotes.forEach((q) => {
+      const status = String(q.status || "").toLowerCase();
+      if (acceptedStatuses.includes(status) && q.request_id) {
+        requestsWithAcceptedQuote.add(q.request_id);
+      }
+    });
+
     // Group decideQuotes (pending quotes) by request
     // Filter out drafts - clients should not see draft quotes
+    // Filter out quotes for requests that already have an accepted quote
     // IMPORTANT: Deduplicate by quote_id first to prevent duplicate counting
-    const visibleDecideQuotes = decideQuotes.filter(q => q.status !== "draft");
+    const visibleDecideQuotes = decideQuotes.filter(q =>
+      q.status !== "draft" && !requestsWithAcceptedQuote.has(q.request_id)
+    );
     const seenQuoteIds = new Set();
     const uniqueDecideQuotes = visibleDecideQuotes.filter(q => {
       if (!q.quote_id || seenQuoteIds.has(q.quote_id)) return false;
@@ -771,6 +785,11 @@ export default function ClientProjects() {
       const reqId = r.request_id;
       const status = String(r.decision_status || "").toLowerCase();
       if (!reqId) return;
+
+      // Skip if this request already has an accepted quote (client already chose a trade)
+      if (requestsWithAcceptedQuote.has(reqId)) {
+        return;
+      }
 
       // Skip if this trade already has a decided quote for this request
       if (decidedTradesByRequest[reqId]?.has(r.trade_id)) {
@@ -911,7 +930,11 @@ export default function ClientProjects() {
 
     // Process open requests (no responses yet)
     // Also check for appointments by request_id (survey appointments before quote)
+    // Skip requests that already have an accepted quote
     requests.forEach((req) => {
+      if (requestsWithAcceptedQuote.has(req.id)) {
+        return;
+      }
       // Find appointments for this request (survey visits before quote exists)
       const requestAppointments = appointments.filter((a) => a.request_id === req.id);
       const now = new Date();
@@ -1462,13 +1485,13 @@ export default function ClientProjects() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   // Profile-style header
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   headerTitle: {
     fontSize: 28,

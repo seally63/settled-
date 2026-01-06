@@ -439,7 +439,7 @@ export default function TradeAppointmentsScreen() {
 
   return (
     <ThemedView
-      style={{ flex: 1, backgroundColor: Colors.light.background }}
+      style={{ flex: 1, backgroundColor: "#FFFFFF" }}
     >
       {/* Header */}
       <View
@@ -510,8 +510,7 @@ export default function TradeAppointmentsScreen() {
 const styles = StyleSheet.create({
   headerWrap: {
     paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(0,0,0,0.08)",
+    backgroundColor: "#FFFFFF",
   },
   headerRow: {
     flexDirection: "row",

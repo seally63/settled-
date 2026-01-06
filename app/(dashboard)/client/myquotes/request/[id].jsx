@@ -357,12 +357,13 @@ export default function ClientRequestDetails() {
         setAppointments([]);
       }
 
-      // Load quotes for this request
+      // Load quotes for this request (exclude drafts - clients should not see them)
       try {
         const { data: quotesData, error: quotesErr } = await supabase
           .from("tradify_native_app_db")
           .select("id, trade_id, project_title, grand_total, currency, status, created_at")
           .eq("request_id", id)
+          .neq("status", "draft")
           .order("created_at", { ascending: false });
 
         if (!quotesErr && quotesData && quotesData.length > 0) {
@@ -969,10 +970,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "stretch",
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   header: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 20,
     paddingBottom: 12,
   },
@@ -1348,10 +1349,10 @@ const styles = StyleSheet.create({
   emptyStateCard: {
     marginTop: 8,
     marginHorizontal: 16,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "rgba(0,0,0,0.15)",
     borderStyle: "dashed",
     padding: 24,
     alignItems: "center",

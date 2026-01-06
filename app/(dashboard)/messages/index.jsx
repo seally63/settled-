@@ -217,13 +217,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "stretch",
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   // Profile-style header
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   headerTitle: {
     fontSize: 28,

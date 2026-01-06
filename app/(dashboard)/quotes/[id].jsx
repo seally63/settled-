@@ -454,7 +454,9 @@ export default function QuoteDetails() {
             { p_quote_id: row?.id }
           );
           if (!mounted) return;
-          if (!reviewErr && reviewData) {
+          // Check if reviewData is actually a valid review (has a rating)
+          // RPC may return empty array/object/null when no review exists
+          if (!reviewErr && reviewData && reviewData.rating) {
             setTradeReview(reviewData);
           } else {
             setTradeReview(null);
@@ -674,7 +676,7 @@ export default function QuoteDetails() {
   const [showPastAppointments, setShowPastAppointments] = useState(false);
   const [showClientRequest, setShowClientRequest] = useState(false);
   const [quoteBreakdownExpanded, setQuoteBreakdownExpanded] = useState(true);
-  const [appointmentsExpanded, setAppointmentsExpanded] = useState(true);
+  const [appointmentsExpanded, setAppointmentsExpanded] = useState(false);
 
   // Auto-expand past appointments if there are no upcoming ones (so user sees something)
   useEffect(() => {
@@ -1733,9 +1735,12 @@ export default function QuoteDetails() {
                 <ThemedText style={styles.heroInfoValue}>
                   £{formatNumber(grandTotal)}
                 </ThemedText>
+                <ThemedText style={styles.heroInfoSub}>
+                  {includesVat ? "Includes VAT" : "No VAT added"}
+                </ThemedText>
               </View>
               {issuedAt && (
-                <View style={styles.heroInfoItem}>
+                <View style={[styles.heroInfoItem, { alignItems: "flex-end" }]}>
                   <ThemedText style={styles.heroInfoLabel}>Issued</ThemedText>
                   <ThemedText style={styles.heroInfoValue}>
                     {new Date(issuedAt).toLocaleDateString('en-GB', {
@@ -1748,6 +1753,160 @@ export default function QuoteDetails() {
               )}
             </View>
           </View>
+
+          {/* Awaiting Completion Card - shown after hero, before sections */}
+          {status === "awaiting_completion" && (
+            <View style={styles.awaitingCompletionCard}>
+              <Ionicons name="hourglass-outline" size={28} color="#F59E0B" />
+              <Spacer size={8} />
+              <ThemedText style={styles.awaitingTitle}>
+                Awaiting confirmation
+              </ThemedText>
+              <ThemedText style={styles.awaitingMeta}>
+                You marked this job complete on{" "}
+                {quote?.marked_complete_at
+                  ? new Date(quote.marked_complete_at).toLocaleDateString(undefined, {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })
+                  : "recently"}
+              </ThemedText>
+              <Spacer size={2} />
+              <ThemedText style={styles.awaitingSubtext}>
+                Waiting for {displayName ? displayName.split(" ")[0] : "the client"} to confirm.
+              </ThemedText>
+              <Spacer size={16} />
+              <Pressable
+                style={styles.messageClientBtn}
+                onPress={() => {
+                  router.push({
+                    pathname: "/(dashboard)/messages/conversation",
+                    params: {
+                      recipientId: quote?.client_id,
+                      name: displayName || "Client",
+                    },
+                  });
+                }}
+              >
+                <ThemedText style={styles.messageClientBtnText}>
+                  Message {displayName ? displayName.split(" ")[0] : "Client"}
+                </ThemedText>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Job Complete Card - shown after hero for completed jobs */}
+          {status === "completed" && (
+            <View style={styles.completedCard}>
+              <View style={styles.completedCheckCircle}>
+                <Ionicons name="checkmark" size={32} color="#10B981" />
+              </View>
+              <Spacer size={12} />
+              <ThemedText style={styles.completedTitle}>Job complete</ThemedText>
+              {quote?.completion_confirmed_at && (
+                <ThemedText style={styles.completedMeta}>
+                  {displayName ? displayName.split(" ")[0] : "Client"} confirmed{" "}
+                  {new Date(quote.completion_confirmed_at).toLocaleDateString(undefined, {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </ThemedText>
+              )}
+            </View>
+          )}
+
+          {/* Review Prompt Card - Only show if no review left yet */}
+          {status === "completed" && (!tradeReview || !tradeReview.rating) && (
+            <View style={styles.reviewPromptCard}>
+              {/* Client Avatar + Name */}
+              <View style={styles.reviewTradeRow}>
+                <View style={styles.reviewTradeAvatarPlaceholder}>
+                  <ThemedText style={styles.reviewTradeAvatarText}>
+                    {getInitials(displayName || "Client")}
+                  </ThemedText>
+                </View>
+                <ThemedText style={styles.reviewTradeName}>{displayName || "Client"}</ThemedText>
+              </View>
+              <Spacer size={16} />
+              <ThemedText style={styles.reviewPromptTitle}>
+                How was working with {displayName ? displayName.split(" ")[0] : "the client"}?
+              </ThemedText>
+              <ThemedText style={styles.reviewPromptSubtitle}>
+                Your review helps build trust in the community.
+              </ThemedText>
+              <Spacer size={16} />
+              <Pressable
+                style={styles.leaveReviewBtn}
+                onPress={() => {
+                  router.push({
+                    pathname: "/(dashboard)/quotes/leave-review",
+                    params: {
+                      quoteId: quote?.id,
+                      revieweeName: displayName || "Client",
+                      revieweeType: "client",
+                      jobTitle: request?.suggested_title || quote?.project_title || "",
+                    },
+                  });
+                }}
+              >
+                <ThemedText style={styles.leaveReviewBtnText}>Leave a review</ThemedText>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Trade's Review Display - Show if trade has left a review */}
+          {status === "completed" && tradeReview && tradeReview.rating && (
+            <View style={styles.reviewDisplayCard}>
+              <ThemedText style={styles.reviewDisplayTitle}>Your review</ThemedText>
+              <Spacer size={12} />
+              {/* Star rating */}
+              <View style={styles.reviewStarsRow}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Ionicons
+                    key={star}
+                    name={star <= tradeReview.rating ? "star" : "star-outline"}
+                    size={24}
+                    color="#F59E0B"
+                  />
+                ))}
+              </View>
+              {tradeReview.content && (
+                <>
+                  <Spacer size={12} />
+                  <ThemedText style={styles.reviewDisplayContent}>
+                    "{tradeReview.content}"
+                  </ThemedText>
+                </>
+              )}
+              {/* Review Photos */}
+              {tradeReview.photos && tradeReview.photos.length > 0 && (
+                <>
+                  <Spacer size={12} />
+                  <View style={styles.reviewPhotosRow}>
+                    {tradeReview.photos.map((photoUrl, idx) => (
+                      <Image
+                        key={idx}
+                        source={{ uri: photoUrl }}
+                        style={styles.reviewPhoto}
+                      />
+                    ))}
+                  </View>
+                </>
+              )}
+              <Spacer size={12} />
+              <ThemedText style={styles.reviewDisplayDate}>
+                {tradeReview.created_at
+                  ? `Posted ${new Date(tradeReview.created_at).toLocaleDateString(undefined, {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}`
+                  : ""}
+              </ThemedText>
+            </View>
+          )}
 
           {/* Section Divider */}
           <View style={styles.sectionDivider} />
@@ -2289,32 +2448,6 @@ export default function QuoteDetails() {
 
           <Spacer size={20} />
 
-          {/* Status-based content for completion flow */}
-          {status === "awaiting_completion" && (
-            <View style={styles.awaitingCompletionCard}>
-              <Ionicons name="hourglass-outline" size={32} color="#F59E0B" />
-              <Spacer size={12} />
-              <ThemedText style={styles.awaitingTitle}>
-                Awaiting confirmation
-              </ThemedText>
-              <Spacer size={8} />
-              <ThemedText style={styles.awaitingMeta}>
-                You marked this job complete on{" "}
-                {quote?.marked_complete_at
-                  ? new Date(quote.marked_complete_at).toLocaleDateString(undefined, {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })
-                  : "recently"}
-              </ThemedText>
-              <Spacer size={4} />
-              <ThemedText style={styles.awaitingSubtext}>
-                Waiting for {displayName ? displayName.split(" ")[0] : "the client"} to confirm.
-              </ThemedText>
-            </View>
-          )}
-
           {/* Issue Reported - Trade View */}
           {status === "issue_reported" && (
             <View style={styles.issueReportedCard}>
@@ -2394,100 +2527,6 @@ export default function QuoteDetails() {
             </View>
           )}
 
-          {status === "completed" && (
-            <View style={styles.completedCard}>
-              <View style={styles.completedCheckCircle}>
-                <Ionicons name="checkmark" size={32} color="#10B981" />
-              </View>
-              <Spacer size={12} />
-              <ThemedText style={styles.completedTitle}>Job complete</ThemedText>
-              {quote?.completion_confirmed_at && (
-                <ThemedText style={styles.completedMeta}>
-                  {displayName ? displayName.split(" ")[0] : "Client"} confirmed{" "}
-                  {new Date(quote.completion_confirmed_at).toLocaleDateString(undefined, {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                  })}
-                </ThemedText>
-              )}
-            </View>
-          )}
-
-          {/* Review Prompt Card - Only show if no review left yet */}
-          {status === "completed" && !tradeReview && (
-            <View style={styles.reviewPromptCardStandalone}>
-              {/* Star rating display */}
-              <View style={styles.reviewStarsRow}>
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <Ionicons
-                    key={star}
-                    name="star-outline"
-                    size={28}
-                    color="#F59E0B"
-                  />
-                ))}
-              </View>
-              <Spacer size={12} />
-              <ThemedText style={styles.reviewPromptTitle}>
-                How was working with {displayName ? displayName.split(" ")[0] : "the client"}?
-              </ThemedText>
-              <ThemedText style={styles.reviewPromptSubtitle}>
-                Your review helps build trust in the community.
-              </ThemedText>
-              <Spacer size={16} />
-              <Pressable
-                style={styles.leaveReviewBtn}
-                onPress={() => {
-                  router.push({
-                    pathname: "/(dashboard)/quotes/leave-review",
-                    params: {
-                      quoteId: quote?.id,
-                      revieweeName: displayName || "Client",
-                      revieweeType: "client",
-                    },
-                  });
-                }}
-              >
-                <ThemedText style={styles.leaveReviewBtnText}>Leave a review</ThemedText>
-              </Pressable>
-            </View>
-          )}
-
-          {/* Trade's Review Display - Show if trade has left a review */}
-          {status === "completed" && tradeReview && (
-            <View style={styles.reviewDisplayCard}>
-              <ThemedText style={styles.reviewDisplayTitle}>Your review</ThemedText>
-              <Spacer size={8} />
-              {/* Star rating */}
-              <View style={styles.reviewStarsRow}>
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <Ionicons
-                    key={star}
-                    name={star <= tradeReview.rating ? "star" : "star-outline"}
-                    size={20}
-                    color="#F59E0B"
-                  />
-                ))}
-              </View>
-              <Spacer size={8} />
-              {tradeReview.content && (
-                <ThemedText style={styles.reviewDisplayContent}>
-                  "{tradeReview.content}"
-                </ThemedText>
-              )}
-              <Spacer size={8} />
-              <ThemedText style={styles.reviewDisplayDate}>
-                Posted{" "}
-                {new Date(tradeReview.created_at).toLocaleDateString(undefined, {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                })}
-              </ThemedText>
-            </View>
-          )}
-
           {/* Action Buttons - Only show for accepted status (not awaiting/completed/issue_reported) */}
           {status !== "awaiting_completion" && status !== "completed" && status !== "issue_reported" && (
             <View style={styles.actionButtonsContainer}>
@@ -2501,33 +2540,6 @@ export default function QuoteDetails() {
               )}
 
               {/* Message client button */}
-              <Pressable
-                style={styles.messageClientBtn}
-                onPress={() => {
-                  const reqId = quote?.request_id || quote?.requestId || request?.id;
-                  if (reqId) {
-                    router.push({
-                      pathname: "/(dashboard)/messages/[id]",
-                      params: {
-                        id: String(reqId),
-                        name: displayName || "",
-                        quoteId: quote?.id ? String(quote.id) : "",
-                        returnTo: `/quotes/${quote?.id}`,
-                      },
-                    });
-                  }
-                }}
-              >
-                <ThemedText style={styles.messageClientBtnText}>
-                  Message {displayName ? displayName.split(" ")[0] : "client"}
-                </ThemedText>
-              </Pressable>
-            </View>
-          )}
-
-          {/* Message button for awaiting_completion status */}
-          {status === "awaiting_completion" && (
-            <View style={styles.actionButtonsContainer}>
               <Pressable
                 style={styles.messageClientBtn}
                 onPress={() => {
@@ -3790,14 +3802,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "stretch",
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
 
   // separate container for scheduling page
   scheduleContainer: {
     flex: 1,
     alignItems: "stretch",
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     paddingTop: Platform.OS === "ios" ? 60 : 20,
   },
 
@@ -3805,9 +3817,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: "#F9FAFB",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
     zIndex: 10,
   },
   headerRow: {
@@ -4681,6 +4691,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#111827",
   },
+  heroInfoSub: {
+    marginTop: 2,
+    fontSize: 12,
+    color: "#6B7280",
+  },
 
   // Appointment subheader
   appointmentSubheader: {
@@ -5019,13 +5034,11 @@ const styles = StyleSheet.create({
   awaitingCompletionCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    padding: 24,
+    padding: 20,
+    marginTop: 16,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
   awaitingProgressRow: {
     flexDirection: "row",
@@ -5054,58 +5067,65 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#111827",
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: 4,
   },
   awaitingMeta: {
     fontSize: 13,
     color: "#6B7280",
-    marginTop: 8,
+    textAlign: "center",
   },
 
   completedCard: {
-    backgroundColor: "#F0FDF4",
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     padding: 24,
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#BBF7D0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   completedCheckCircle: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: "#DCFCE7",
+    backgroundColor: "#D1FAE5",
     alignItems: "center",
     justifyContent: "center",
   },
   completedTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#166534",
+    color: "#111827",
   },
   completedMeta: {
-    fontSize: 14,
+    fontSize: 15,
     color: "#6B7280",
-    marginTop: 4,
+    textAlign: "center",
+    lineHeight: 22,
   },
   reviewPromptCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
     alignItems: "center",
-    width: "100%",
   },
   reviewPromptTitle: {
     fontSize: 16,
     fontWeight: "600",
     color: "#111827",
     textAlign: "center",
+    marginBottom: 4,
   },
   reviewPromptSubtitle: {
     fontSize: 14,
     color: "#6B7280",
-    marginTop: 4,
     textAlign: "center",
+    lineHeight: 20,
   },
   leaveReviewBtn: {
     backgroundColor: PRIMARY,
@@ -5509,6 +5529,21 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     textAlign: "center",
   },
+  messageClientBtn: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    width: "100%",
+    alignItems: "center",
+  },
+  messageClientBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
 
   // =============================================
   // REVIEW STYLES
@@ -5549,5 +5584,48 @@ const styles = StyleSheet.create({
   reviewDisplayDate: {
     fontSize: 13,
     color: "#9CA3AF",
+  },
+  reviewTradeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  reviewTradeAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  reviewTradeAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewTradeAvatarText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  reviewTradeName: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  reviewStarsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  reviewPhotosRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  reviewPhoto: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
   },
 });

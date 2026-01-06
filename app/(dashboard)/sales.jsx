@@ -129,7 +129,7 @@ function SalesBody() {
   );
 
   return (
-    <ThemedView style={{ flex: 1, backgroundColor: Colors.light.background }}>
+    <ThemedView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
       <StatusBar style="light" backgroundColor={Colors.primary} />
 
       {/* Header — matches profile.jsx */}

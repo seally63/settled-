@@ -189,7 +189,7 @@ export default function ReportIssue() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   header: {
     flexDirection: "row",
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingBottom: 16,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   headerTitle: {
     fontSize: 18,

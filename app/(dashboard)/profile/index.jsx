@@ -134,7 +134,7 @@ export default function MyProfileScreen() {
 
   if (roleLoading || loadingData) {
     return (
-      <ThemedView style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F9FAFB", paddingTop: insets.top }}>
+      <ThemedView style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF", paddingTop: insets.top }}>
         <StatusBar style="dark" />
         <ActivityIndicator />
       </ThemedView>
@@ -148,7 +148,7 @@ export default function MyProfileScreen() {
   const identity = isTrades ? (trade || selfProfile || {}) : (selfProfile || {});
 
   return (
-    <ThemedView style={{ flex: 1, backgroundColor: "#F9FAFB", paddingTop: insets.top }}>
+    <ThemedView style={{ flex: 1, backgroundColor: "#FFFFFF", paddingTop: insets.top }}>
       <StatusBar style="dark" />
       {/* Header */}
       <View style={styles.header}>

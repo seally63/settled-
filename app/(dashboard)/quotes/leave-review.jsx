@@ -10,10 +10,12 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as ImagePicker from "expo-image-picker";
 
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
@@ -24,6 +26,14 @@ import { supabase } from "../../../lib/supabase";
 const PRIMARY = Colors?.light?.tint || "#6849a7";
 const STAR_COLOR = "#F59E0B";
 
+const RATING_LABELS = {
+  1: "Terrible",
+  2: "Poor",
+  3: "Okay",
+  4: "Great",
+  5: "Excellent",
+};
+
 export default function LeaveReview() {
   const params = useLocalSearchParams();
   const router = useRouter();
@@ -32,10 +42,97 @@ export default function LeaveReview() {
   const quoteId = params.quoteId;
   const revieweeName = params.revieweeName || "Client";
   const revieweeType = params.revieweeType || "client"; // "trade" or "client"
+  const clientPhotoUrl = params.clientPhotoUrl || "";
+  const jobTitle = params.jobTitle || "";
 
   const [rating, setRating] = useState(0);
   const [reviewText, setReviewText] = useState("");
+  const [photos, setPhotos] = useState([]); // Array of { uri, uploading }
   const [busy, setBusy] = useState(false);
+
+  // Get initials for avatar placeholder
+  const getInitials = (name) => {
+    if (!name) return "?";
+    return name.substring(0, 2).toUpperCase();
+  };
+
+  // Pick images from gallery
+  const pickImages = async () => {
+    if (photos.length >= 5) {
+      Alert.alert("Limit reached", "You can add up to 5 photos.");
+      return;
+    }
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission required", "Please allow access to your photos.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      selectionLimit: 5 - photos.length,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets) {
+      const newPhotos = result.assets.map((asset) => ({
+        uri: asset.uri,
+        uploading: false,
+      }));
+      setPhotos((prev) => [...prev, ...newPhotos].slice(0, 5));
+    }
+  };
+
+  // Remove a photo
+  const removePhoto = (index) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Upload photos to storage and return URLs
+  const uploadPhotos = async () => {
+    const uploadedUrls = [];
+
+    for (const photo of photos) {
+      try {
+        const filename = `review_${quoteId}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        const path = `reviews/${filename}`;
+
+        // Fetch the image as blob
+        const response = await fetch(photo.uri);
+        const blob = await response.blob();
+
+        // Convert blob to ArrayBuffer for upload
+        const arrayBuffer = await new Response(blob).arrayBuffer();
+
+        const { data, error } = await supabase.storage
+          .from("review-photos")
+          .upload(path, arrayBuffer, {
+            contentType: "image/jpeg",
+            upsert: false,
+          });
+
+        if (error) {
+          console.error("Photo upload error:", error);
+          continue;
+        }
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from("review-photos")
+          .getPublicUrl(path);
+
+        if (urlData?.publicUrl) {
+          uploadedUrls.push(urlData.publicUrl);
+        }
+      } catch (err) {
+        console.error("Error uploading photo:", err);
+      }
+    }
+
+    return uploadedUrls;
+  };
 
   // Submit review
   const submitReview = async () => {
@@ -47,28 +144,27 @@ export default function LeaveReview() {
     try {
       setBusy(true);
 
+      // Upload photos first (if any)
+      let photoUrls = [];
+      if (photos.length > 0) {
+        photoUrls = await uploadPhotos();
+      }
+
       const { error } = await supabase.rpc("rpc_submit_review", {
         p_quote_id: quoteId,
         p_rating: rating,
         p_content: reviewText.trim() || null,
         p_reviewee_type: revieweeType,
+        p_photos: photoUrls,
       });
 
       if (error) throw error;
 
-      Alert.alert(
-        "Thank you!",
-        "Your review has been submitted.",
-        [
-          {
-            text: "OK",
-            onPress: () => {
-              // Go back to the quote overview
-              router.back();
-            },
-          },
-        ]
-      );
+      // Navigate to success screen
+      router.replace({
+        pathname: "/(dashboard)/quotes/review-success",
+        params: { returnTo: "quotes" },
+      });
     } catch (err) {
       console.error("Error submitting review:", err);
       Alert.alert("Error", err.message || "Could not submit review.");
@@ -82,10 +178,10 @@ export default function LeaveReview() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="close" size={28} color="#6B7280" />
+          <Ionicons name="arrow-back" size={24} color="#111827" />
         </Pressable>
         <ThemedText style={styles.headerTitle}>Leave a review</ThemedText>
-        <View style={{ width: 28 }} />
+        <View style={{ width: 24 }} />
       </View>
 
       <KeyboardAvoidingView
@@ -97,6 +193,25 @@ export default function LeaveReview() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Client Card */}
+          <View style={styles.revieweeCard}>
+            {clientPhotoUrl ? (
+              <Image source={{ uri: clientPhotoUrl }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <ThemedText style={styles.avatarText}>
+                  {getInitials(revieweeName)}
+                </ThemedText>
+              </View>
+            )}
+            <ThemedText style={styles.revieweeName}>{revieweeName}</ThemedText>
+            {jobTitle ? (
+              <ThemedText style={styles.jobTitle}>{jobTitle}</ThemedText>
+            ) : null}
+          </View>
+
+          <Spacer size={24} />
+
           {/* Rating Question */}
           <ThemedText style={styles.questionText}>
             How was working with {revieweeName}?
@@ -123,29 +238,19 @@ export default function LeaveReview() {
 
           {rating > 0 && (
             <ThemedText style={styles.ratingLabel}>
-              {rating === 1 && "Poor"}
-              {rating === 2 && "Fair"}
-              {rating === 3 && "Good"}
-              {rating === 4 && "Very good"}
-              {rating === 5 && "Excellent"}
+              {RATING_LABELS[rating]}
             </ThemedText>
           )}
 
           <Spacer size={32} />
 
           {/* Review Text */}
-          <ThemedText style={styles.inputLabel}>
-            Write a review (optional)
-          </ThemedText>
+          <ThemedText style={styles.inputLabel}>Write a review</ThemedText>
           <TextInput
             style={styles.textInput}
             value={reviewText}
             onChangeText={setReviewText}
-            placeholder={
-              revieweeType === "client"
-                ? "Great client, clear communication and paid on time..."
-                : "Share your experience working with this tradesperson..."
-            }
+            placeholder="Tell others about your experience..."
             placeholderTextColor="#9CA3AF"
             multiline
             numberOfLines={5}
@@ -153,13 +258,35 @@ export default function LeaveReview() {
             editable={!busy}
           />
 
-          <Spacer size={8} />
+          <Spacer size={24} />
 
-          <ThemedText style={styles.publicNote}>
-            Your review will be public and help build trust in the community.
+          {/* Photo Upload */}
+          <ThemedText style={styles.inputLabel}>Add photos (optional)</ThemedText>
+          <Spacer size={8} />
+          <View style={styles.photosContainer}>
+            {photos.map((photo, index) => (
+              <View key={index} style={styles.photoWrapper}>
+                <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
+                <Pressable
+                  style={styles.removePhotoBtn}
+                  onPress={() => removePhoto(index)}
+                >
+                  <Ionicons name="close-circle" size={24} color="#EF4444" />
+                </Pressable>
+              </View>
+            ))}
+            {photos.length < 5 && (
+              <Pressable style={styles.addPhotoBtn} onPress={pickImages}>
+                <Ionicons name="add" size={32} color="#6B7280" />
+                <ThemedText style={styles.addPhotoText}>Add</ThemedText>
+              </Pressable>
+            )}
+          </View>
+          <ThemedText style={styles.photoCountText}>
+            {photos.length > 0 ? `${photos.length} of 5 photos` : "Up to 5 photos"}
           </ThemedText>
 
-          <Spacer size={24} />
+          <Spacer size={32} />
 
           {/* Submit Button */}
           <Pressable
@@ -180,7 +307,7 @@ export default function LeaveReview() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   header: {
     flexDirection: "row",
@@ -188,7 +315,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingBottom: 16,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   headerTitle: {
     fontSize: 18,
@@ -197,10 +324,48 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 8,
+  },
+  revieweeCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 20,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    marginBottom: 12,
+  },
+  avatarPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  avatarText: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  revieweeName: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  jobTitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 4,
   },
   questionText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "600",
     color: "#111827",
     textAlign: "center",
@@ -216,9 +381,10 @@ const styles = StyleSheet.create({
   },
   ratingLabel: {
     fontSize: 16,
+    fontWeight: "500",
     color: "#6B7280",
     textAlign: "center",
-    marginTop: 8,
+    marginTop: 12,
   },
   inputLabel: {
     fontSize: 16,
@@ -234,12 +400,48 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
     fontSize: 15,
     color: "#111827",
-    minHeight: 140,
+    minHeight: 120,
   },
-  publicNote: {
+  photosContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  photoWrapper: {
+    position: "relative",
+  },
+  photoPreview: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+  },
+  removePhotoBtn: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+  },
+  addPhotoBtn: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "#E5E7EB",
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F9FAFB",
+  },
+  addPhotoText: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  photoCountText: {
     fontSize: 13,
     color: "#6B7280",
-    fontStyle: "italic",
+    marginTop: 8,
   },
   submitBtn: {
     backgroundColor: PRIMARY,

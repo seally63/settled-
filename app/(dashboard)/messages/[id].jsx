@@ -726,7 +726,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: {
     flex: 1,
-    backgroundColor: Colors?.light?.background || "#F8FAFC",
+    backgroundColor: "#FFFFFF",
     // manual safe-area for the notch; no bottom padding so no blob
     paddingTop: Platform.OS === "ios" ? 56 : 0,
   },
@@ -736,9 +736,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 10,
-    backgroundColor: Colors?.light?.background || "#F8FAFC",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(148,163,184,0.4)",
+    backgroundColor: "#FFFFFF",
   },
   topBarCenter: {
     flex: 1,
@@ -888,8 +886,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#CBD5E1",
-    backgroundColor: "#F8FAFC",
+    borderColor: "rgba(0,0,0,0.15)",
+    backgroundColor: "#FFFFFF",
     fontSize: 14,
   },
   sendBtn: {

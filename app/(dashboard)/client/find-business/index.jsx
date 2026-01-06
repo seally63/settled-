@@ -154,7 +154,7 @@ export default function FindBusinessIndex() {
   );
 
   return (
-    <ThemedView style={{ flex: 1, backgroundColor: Colors.light.background }}>
+    <ThemedView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
       <StatusBar style="light" backgroundColor={Colors.primary} />
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <ThemedText style={styles.headerTitle}>Find a business</ThemedText>
