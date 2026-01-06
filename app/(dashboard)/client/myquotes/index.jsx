@@ -188,11 +188,16 @@ function StatusBadge({ type }) {
 
     // ACTION NEEDED for appointments (Orange)
     CONFIRM_VISIT: { icon: "calendar-outline", color: "#F59E0B", bg: "#FEF3C7", text: "Confirm Visit" },
+    // Trade marked job as complete - client needs to confirm
+    AWAITING_CONFIRMATION: { icon: "checkmark-circle", color: "#F59E0B", bg: "#FEF3C7", text: "Confirm Complete" },
+    // Issue resolution pending - client needs to confirm issue is resolved
+    ISSUE_RESOLVED_PENDING: { icon: "checkmark-circle", color: "#F59E0B", bg: "#FEF3C7", text: "Confirm" },
 
     // COMPLETED (Gray)
     COMPLETED: { icon: "checkmark-done", color: "#6B7280", bg: "#F3F4F6", text: "Completed" },
 
-    // NEGATIVE (Red) - declined, expired, no response
+    // NEGATIVE (Red) - declined, expired, no response, issue reported
+    ISSUE_REPORTED: { icon: "alert-circle", color: "#EF4444", bg: "#FEE2E2", text: "Issue" },
     DECLINED: { icon: "close-circle", color: "#EF4444", bg: "#FEE2E2", text: "Declined" },
     DECLINED_BY_YOU: { icon: "close", color: "#EF4444", bg: "#FEE2E2", text: "Declined by You" },
     EXPIRED: { icon: "ban", color: "#EF4444", bg: "#FEE2E2", text: "Expired" },
@@ -364,7 +369,7 @@ function ProjectCard({ item, onPress, statusType, onMessage, onRespond }) {
                     id: String(item.requestId),
                     name: singleTrade ? item.trades[0].name : "",
                     quoteId: item.quoteId ? String(item.quoteId) : "",
-                    returnTo: "/myquotes",
+                    returnTo: "/(dashboard)/myquotes",
                   },
                 });
               }
@@ -381,7 +386,7 @@ function ProjectCard({ item, onPress, statusType, onMessage, onRespond }) {
               if (isActiveJob && needsConfirmation && item.appointmentId) {
                 // Active jobs: Navigate to appointment response screen
                 router.push({
-                  pathname: "/myquotes/appointment-response",
+                  pathname: "/(dashboard)/myquotes/appointment-response",
                   params: {
                     appointmentId: String(item.appointmentId),
                     quoteId: item.quoteId ? String(item.quoteId) : "",
@@ -390,7 +395,7 @@ function ProjectCard({ item, onPress, statusType, onMessage, onRespond }) {
                 });
               } else if (isRequestOrPreparing && item.requestId) {
                 // Requests/preparing: Always go to Your Request page
-                router.push(`/myquotes/request/${item.requestId}`);
+                router.push(`/(dashboard)/myquotes/request/${item.requestId}`);
               } else {
                 // Navigate to request or quote details
                 onPress?.();
@@ -646,8 +651,15 @@ export default function ClientProjects() {
 
     // Group decideQuotes (pending quotes) by request
     // Filter out drafts - clients should not see draft quotes
+    // IMPORTANT: Deduplicate by quote_id first to prevent duplicate counting
     const visibleDecideQuotes = decideQuotes.filter(q => q.status !== "draft");
-    visibleDecideQuotes.forEach((q) => {
+    const seenQuoteIds = new Set();
+    const uniqueDecideQuotes = visibleDecideQuotes.filter(q => {
+      if (!q.quote_id || seenQuoteIds.has(q.quote_id)) return false;
+      seenQuoteIds.add(q.quote_id);
+      return true;
+    });
+    uniqueDecideQuotes.forEach((q) => {
       const reqId = q.request_id;
       if (!reqId) return;
       if (!quotesByRequest[reqId]) {
@@ -1064,6 +1076,60 @@ export default function ClientProjects() {
             amount: q.grand_total,
           });
         }
+      } else if (status === "issue_reported") {
+        // Client reported an issue, waiting for trade to respond
+        if (!activeByRequest[reqId]) {
+          activeByRequest[reqId] = {
+            requestId: reqId,
+            jobTitle: q.request_suggested_title || q.project_title || "Active job",
+            location: q.postcode || null,
+            tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
+            trades: [],
+            quotesCount: 0,
+            quoteId: q.quote_id,
+            isIssueReported: true,
+          };
+        }
+        activeByRequest[reqId].quotesCount++;
+        activeByRequest[reqId].isIssueReported = true;
+        const existingTrade = activeByRequest[reqId].trades.find(t => t.id === q.trade_id);
+        if (!existingTrade) {
+          activeByRequest[reqId].trades.push({
+            id: q.trade_id,
+            name: q.trade_business_name || "Trade",
+            photoUrl: q.trade_photo_url || null,
+            hasQuote: true,
+            quoteId: q.quote_id,
+            amount: q.grand_total,
+          });
+        }
+      } else if (status === "issue_resolved_pending") {
+        // Trade marked issue as resolved, waiting for client to confirm
+        if (!activeByRequest[reqId]) {
+          activeByRequest[reqId] = {
+            requestId: reqId,
+            jobTitle: q.request_suggested_title || q.project_title || "Active job",
+            location: q.postcode || null,
+            tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
+            trades: [],
+            quotesCount: 0,
+            quoteId: q.quote_id,
+            isIssueResolvedPending: true,
+          };
+        }
+        activeByRequest[reqId].quotesCount++;
+        activeByRequest[reqId].isIssueResolvedPending = true;
+        const existingTrade = activeByRequest[reqId].trades.find(t => t.id === q.trade_id);
+        if (!existingTrade) {
+          activeByRequest[reqId].trades.push({
+            id: q.trade_id,
+            name: q.trade_business_name || "Trade",
+            photoUrl: q.trade_photo_url || null,
+            hasQuote: true,
+            quoteId: q.quote_id,
+            amount: q.grand_total,
+          });
+        }
       } else if (status === "completed") {
         // Job fully completed
         completedProjects.push({
@@ -1140,6 +1206,20 @@ export default function ClientProjects() {
         statusType = "AWAITING_CONFIRMATION";
         statusDescription = "Trade marked complete";
         helperText = "Confirm the work is done";
+      }
+
+      // Override status for issue reported (client reported an issue)
+      if (group.isIssueReported) {
+        statusType = "ISSUE_REPORTED";
+        statusDescription = "Issue reported";
+        helperText = "Waiting for trade to respond";
+      }
+
+      // Override status for issue resolved pending (trade marked issue as resolved)
+      if (group.isIssueResolvedPending) {
+        statusType = "ISSUE_RESOLVED_PENDING";
+        statusDescription = "Issue addressed";
+        helperText = "Confirm the issue is resolved";
       }
       // Calculate price from trades
       const totalPrice = group.trades.reduce((sum, t) => sum + (t.amount || 0), 0);
@@ -1252,16 +1332,9 @@ export default function ClientProjects() {
                 item={project}
                 statusType={project.statusType}
                 onPress={() => {
-                  // If multiple quotes OR multiple trades -> go to quote comparison list
-                  if ((project.quotesCount && project.quotesCount > 1) || (project.trades && project.trades.length > 1)) {
-                    router.push(`/myquotes/quotes/${project.requestId}`);
-                  } else if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
-                    // Single trade with single quote -> go to quote detail
-                    router.push(`/myquotes/${project.trades[0].quoteId}`);
-                  } else {
-                    // No trades or request view
-                    router.push(`/myquotes/request/${project.requestId}`);
-                  }
+                  // For pending quotes, always go to request page to see all quotes
+                  // Client needs to see Your Request + all Quotes received before deciding
+                  router.push(`/(dashboard)/myquotes/request/${project.requestId}`);
                 }}
               />
             ))}
@@ -1283,13 +1356,9 @@ export default function ClientProjects() {
                 item={project}
                 statusType={project.statusType}
                 onPress={() => {
-                  if ((project.quotesCount && project.quotesCount > 1) || (project.trades && project.trades.length > 1)) {
-                    router.push(`/myquotes/quotes/${project.requestId}`);
-                  } else if (project.trades && project.trades.length === 1 && project.trades[0].quoteId) {
-                    router.push(`/myquotes/${project.trades[0].quoteId}`);
-                  } else {
-                    router.push(`/myquotes/request/${project.requestId}`);
-                  }
+                  // For waiting/pending quotes, always go to request page
+                  // Client needs to see Your Request + any Quotes received
+                  router.push(`/(dashboard)/myquotes/request/${project.requestId}`);
                 }}
               />
             ))}
@@ -1313,13 +1382,14 @@ export default function ClientProjects() {
                 onPress={() => {
                   // Active jobs - go directly to Quote Overview
                   const quoteId = project.quoteId || (project.trades && project.trades[0]?.quoteId);
+                  const tradesCount = project.trades?.length || 0;
                   if (quoteId) {
-                    router.push(`/myquotes/${quoteId}`);
-                  } else if ((project.quotesCount && project.quotesCount > 1) || (project.trades && project.trades.length > 1)) {
-                    router.push(`/myquotes/quotes/${project.requestId}`);
+                    router.push(`/(dashboard)/myquotes/${quoteId}`);
+                  } else if (tradesCount > 1) {
+                    router.push(`/(dashboard)/myquotes/quotes/${project.requestId}`);
                   } else {
                     // Fallback to request page
-                    router.push(`/myquotes/request/${project.requestId}`);
+                    router.push(`/(dashboard)/myquotes/request/${project.requestId}`);
                   }
                 }}
               />
@@ -1345,7 +1415,7 @@ export default function ClientProjects() {
                   // Completed projects - go to Quote Overview
                   const quoteId = project.quoteId || (project.trades && project.trades[0]?.quoteId);
                   if (quoteId) {
-                    router.push(`/myquotes/${quoteId}`);
+                    router.push(`/(dashboard)/myquotes/${quoteId}`);
                   }
                 }}
               />

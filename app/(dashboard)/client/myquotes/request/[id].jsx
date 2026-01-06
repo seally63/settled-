@@ -125,6 +125,9 @@ export default function ClientRequestDetails() {
   const [appointments, setAppointments] = useState([]);
   const [apptBusy, setApptBusy] = useState(false);
 
+  // Quotes received for this request
+  const [quotes, setQuotes] = useState([]);
+
   const [viewer, setViewer] = useState({ open: false, index: 0 });
 
   const closeViewer = useCallback(() => {
@@ -353,6 +356,47 @@ export default function ClientRequestDetails() {
         console.warn("appointments/load error:", apptErr?.message || apptErr);
         setAppointments([]);
       }
+
+      // Load quotes for this request
+      try {
+        const { data: quotesData, error: quotesErr } = await supabase
+          .from("tradify_native_app_db")
+          .select("id, trade_id, project_title, grand_total, currency, status, created_at")
+          .eq("request_id", id)
+          .order("created_at", { ascending: false });
+
+        if (!quotesErr && quotesData && quotesData.length > 0) {
+          // Fetch trade names for each quote
+          const tradeIds = [...new Set(quotesData.map(q => q.trade_id).filter(Boolean))];
+          let tradeNames = {};
+
+          if (tradeIds.length > 0) {
+            const { data: tradeProfiles } = await supabase
+              .from("profiles")
+              .select("id, business_name, full_name")
+              .in("id", tradeIds);
+
+            if (tradeProfiles) {
+              tradeProfiles.forEach(p => {
+                tradeNames[p.id] = p.business_name || p.full_name || "Trade";
+              });
+            }
+          }
+
+          // Attach trade names to quotes
+          const quotesWithNames = quotesData.map(q => ({
+            ...q,
+            tradeName: tradeNames[q.trade_id] || "Trade",
+          }));
+
+          setQuotes(quotesWithNames);
+        } else {
+          setQuotes([]);
+        }
+      } catch (quotesErr) {
+        console.warn("quotes/load error:", quotesErr?.message || quotesErr);
+        setQuotes([]);
+      }
     } catch (e) {
       setErr(e?.message || String(e));
       setAttachments([]);
@@ -485,7 +529,7 @@ export default function ClientRequestDetails() {
           <ThemedText style={styles.headerTitle}>Your Request</ThemedText>
           <Pressable
             onPress={() =>
-              router.canGoBack?.() ? router.back() : router.replace("/myquotes")
+              router.canGoBack?.() ? router.back() : router.replace("/(dashboard)/myquotes")
             }
             hitSlop={10}
             style={styles.closeButton}
@@ -533,100 +577,185 @@ export default function ClientRequestDetails() {
             )}
           </View>
 
-          {/* Appointments Section - shown if any appointments exist */}
-          {appointments.length > 0 && (
-            <>
-              <View style={styles.sectionHeaderRow}>
-                <ThemedText style={styles.sectionHeaderTitle}>Appointments</ThemedText>
-              </View>
+          {/* Appointments Section - always shown */}
+          <View style={styles.sectionHeaderRow}>
+            <ThemedText style={styles.sectionHeaderTitle}>Appointments</ThemedText>
+          </View>
 
-              {appointments.map((appt) => {
-                const scheduledDate = new Date(appt.scheduled_at);
-                const isProposed = appt.status === "proposed";
-                const isConfirmed = appt.status === "confirmed";
-                const isDeclined = appt.status === "declined";
+          {appointments.length > 0 ? (
+            appointments.map((appt) => {
+              const scheduledDate = new Date(appt.scheduled_at);
+              const isProposed = appt.status === "proposed";
+              const isConfirmed = appt.status === "confirmed";
+              const isDeclined = appt.status === "declined";
 
-                return (
-                  <View key={appt.id} style={styles.appointmentCard}>
-                    {/* Trade name - shown for open requests with multiple trades */}
-                    {appt.tradeName && (
-                      <View style={styles.appointmentCardTradeRow}>
-                        <Ionicons name="person-circle-outline" size={16} color="#6849a7" />
-                        <ThemedText style={styles.appointmentCardTradeName}>
-                          {appt.tradeName}
-                        </ThemedText>
-                      </View>
-                    )}
-
-                    {/* Appointment name prominent */}
-                    <ThemedText style={styles.appointmentCardTitle}>
-                      {appt.title || "Survey Visit"}
-                    </ThemedText>
-
-                    {/* Date/time on one line */}
-                    <View style={styles.appointmentCardRow}>
-                      <Ionicons name="calendar-outline" size={16} color="#6B7280" />
-                      <ThemedText style={styles.appointmentCardText}>
-                        {scheduledDate.toLocaleDateString(undefined, {
-                          weekday: "short",
-                          day: "numeric",
-                          month: "short",
-                        })}, {scheduledDate.toLocaleTimeString(undefined, {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+              return (
+                <View key={appt.id} style={styles.appointmentCard}>
+                  {/* Trade name - shown for open requests with multiple trades */}
+                  {appt.tradeName && (
+                    <View style={styles.appointmentCardTradeRow}>
+                      <Ionicons name="person-circle-outline" size={16} color="#6849a7" />
+                      <ThemedText style={styles.appointmentCardTradeName}>
+                        {appt.tradeName}
                       </ThemedText>
                     </View>
+                  )}
 
-                    {/* Location on separate line */}
-                    {appt.location && (
-                      <View style={styles.appointmentCardRow}>
-                        <Ionicons name="location-outline" size={16} color="#6B7280" />
-                        <ThemedText style={styles.appointmentCardText}>
-                          {appt.location}
-                        </ThemedText>
+                  {/* Appointment name prominent */}
+                  <ThemedText style={styles.appointmentCardTitle}>
+                    {appt.title || "Survey Visit"}
+                  </ThemedText>
+
+                  {/* Date/time on one line */}
+                  <View style={styles.appointmentCardRow}>
+                    <Ionicons name="calendar-outline" size={16} color="#6B7280" />
+                    <ThemedText style={styles.appointmentCardText}>
+                      {scheduledDate.toLocaleDateString(undefined, {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                      })}, {scheduledDate.toLocaleTimeString(undefined, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </ThemedText>
+                  </View>
+
+                  {/* Location on separate line */}
+                  {appt.location && (
+                    <View style={styles.appointmentCardRow}>
+                      <Ionicons name="location-outline" size={16} color="#6B7280" />
+                      <ThemedText style={styles.appointmentCardText}>
+                        {appt.location}
+                      </ThemedText>
+                    </View>
+                  )}
+
+                  {/* Accept/Decline buttons for proposed appointments */}
+                  {isProposed && (
+                    <View style={styles.appointmentCardActions}>
+                      <Pressable
+                        onPress={() => handleDeclineAppointment(appt.id)}
+                        style={styles.appointmentDeclineBtn}
+                        disabled={apptBusy}
+                      >
+                        <ThemedText style={styles.appointmentDeclineBtnText}>Decline</ThemedText>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => handleConfirmAppointment(appt.id)}
+                        style={styles.appointmentAcceptBtn}
+                        disabled={apptBusy}
+                      >
+                        <ThemedText style={styles.appointmentAcceptBtnText}>Accept</ThemedText>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* Confirmed status */}
+                  {isConfirmed && (
+                    <View style={styles.appointmentCardStatus}>
+                      <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                      <ThemedText style={styles.appointmentCardStatusText}>Confirmed</ThemedText>
+                    </View>
+                  )}
+
+                  {/* Declined status */}
+                  {isDeclined && (
+                    <View style={styles.appointmentCardStatus}>
+                      <Ionicons name="close-circle" size={16} color="#EF4444" />
+                      <ThemedText style={[styles.appointmentCardStatusText, { color: "#EF4444" }]}>Declined</ThemedText>
+                    </View>
+                  )}
+                </View>
+              );
+            })
+          ) : (
+            <View style={styles.emptyStateCard}>
+              <Ionicons name="calendar-outline" size={24} color="#9CA3AF" />
+              <ThemedText style={styles.emptyStateText}>No appointments yet</ThemedText>
+            </View>
+          )}
+
+          {/* Quotes Section - always shown */}
+          <View style={styles.sectionHeaderRow}>
+            <ThemedText style={styles.sectionHeaderTitle}>Quotes</ThemedText>
+            {quotes.length > 0 && (
+              <ThemedText style={styles.sectionHeaderCount}>{quotes.length} received</ThemedText>
+            )}
+          </View>
+
+          {quotes.length > 0 ? (
+            quotes.map((quote) => {
+              const quoteStatus = (quote.status || "").toLowerCase();
+              const isAccepted = quoteStatus === "accepted";
+              const isDeclined = quoteStatus === "declined";
+              const isPending = !isAccepted && !isDeclined;
+
+              return (
+                <Pressable
+                  key={quote.id}
+                  style={[
+                    styles.quoteCard,
+                    isAccepted && styles.quoteCardAccepted,
+                    isDeclined && styles.quoteCardDeclined,
+                  ]}
+                  onPress={() => {
+                    router.push({
+                      pathname: `/(dashboard)/myquotes/${quote.id}`,
+                      params: { returnTo: `/(dashboard)/myquotes/request/${id}` },
+                    });
+                  }}
+                >
+                  {/* Trade name */}
+                  <View style={styles.quoteCardHeader}>
+                    <View style={styles.quoteCardTradeRow}>
+                      <Ionicons name="person-circle-outline" size={20} color="#6849a7" />
+                      <ThemedText style={styles.quoteCardTradeName}>
+                        {quote.tradeName}
+                      </ThemedText>
+                    </View>
+                    {isAccepted && (
+                      <View style={styles.quoteStatusBadgeAccepted}>
+                        <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+                        <ThemedText style={styles.quoteStatusTextAccepted}>Accepted</ThemedText>
                       </View>
                     )}
-
-                    {/* Accept/Decline buttons for proposed appointments */}
-                    {isProposed && (
-                      <View style={styles.appointmentCardActions}>
-                        <Pressable
-                          onPress={() => handleDeclineAppointment(appt.id)}
-                          style={styles.appointmentDeclineBtn}
-                          disabled={apptBusy}
-                        >
-                          <ThemedText style={styles.appointmentDeclineBtnText}>Decline</ThemedText>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => handleConfirmAppointment(appt.id)}
-                          style={styles.appointmentAcceptBtn}
-                          disabled={apptBusy}
-                        >
-                          <ThemedText style={styles.appointmentAcceptBtnText}>Accept</ThemedText>
-                        </Pressable>
-                      </View>
-                    )}
-
-                    {/* Confirmed status */}
-                    {isConfirmed && (
-                      <View style={styles.appointmentCardStatus}>
-                        <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                        <ThemedText style={styles.appointmentCardStatusText}>Confirmed</ThemedText>
-                      </View>
-                    )}
-
-                    {/* Declined status */}
                     {isDeclined && (
-                      <View style={styles.appointmentCardStatus}>
-                        <Ionicons name="close-circle" size={16} color="#EF4444" />
-                        <ThemedText style={[styles.appointmentCardStatusText, { color: "#EF4444" }]}>Declined</ThemedText>
+                      <View style={styles.quoteStatusBadgeDeclined}>
+                        <Ionicons name="close-circle" size={14} color="#EF4444" />
+                        <ThemedText style={styles.quoteStatusTextDeclined}>Declined</ThemedText>
+                      </View>
+                    )}
+                    {isPending && (
+                      <View style={styles.quoteStatusBadgePending}>
+                        <Ionicons name="time-outline" size={14} color="#F59E0B" />
+                        <ThemedText style={styles.quoteStatusTextPending}>Review</ThemedText>
                       </View>
                     )}
                   </View>
-                );
-              })}
-            </>
+
+                  {/* Quote amount */}
+                  <View style={styles.quoteCardAmountRow}>
+                    <ThemedText style={styles.quoteCardAmount}>
+                      {quote.currency || "GBP"} {Number(quote.grand_total || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </ThemedText>
+                    <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+                  </View>
+
+                  {/* Project title if available */}
+                  {quote.project_title && (
+                    <ThemedText style={styles.quoteCardProject} numberOfLines={1}>
+                      {quote.project_title}
+                    </ThemedText>
+                  )}
+                </Pressable>
+              );
+            })
+          ) : (
+            <View style={styles.emptyStateCard}>
+              <Ionicons name="document-text-outline" size={24} color="#9CA3AF" />
+              <ThemedText style={styles.emptyStateText}>No quotes yet</ThemedText>
+            </View>
           )}
 
           {/* Service Details Card */}
@@ -1109,5 +1238,129 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#6849a7",
+  },
+
+  // Quote card styles
+  sectionHeaderCount: {
+    fontSize: 14,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  quoteCard: {
+    marginTop: 8,
+    marginHorizontal: 16,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  quoteCardAccepted: {
+    borderColor: "#10B981",
+    backgroundColor: "#F0FDF4",
+  },
+  quoteCardDeclined: {
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F9FAFB",
+    opacity: 0.7,
+  },
+  quoteCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  quoteCardTradeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flex: 1,
+  },
+  quoteCardTradeName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  quoteStatusBadgeAccepted: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#D1FAE5",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  quoteStatusTextAccepted: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#10B981",
+  },
+  quoteStatusBadgeDeclined: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FEE2E2",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  quoteStatusTextDeclined: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#EF4444",
+  },
+  quoteStatusBadgePending: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  quoteStatusTextPending: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#F59E0B",
+  },
+  quoteCardAmountRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  quoteCardAmount: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  quoteCardProject: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 8,
+  },
+
+  // Empty state styles
+  emptyStateCard: {
+    marginTop: 8,
+    marginHorizontal: 16,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderStyle: "dashed",
+    padding: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    textAlign: "center",
   },
 });
