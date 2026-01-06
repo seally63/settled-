@@ -118,6 +118,9 @@ export default function Create() {
   const [vatEnabled, setVatEnabled] = useState(true);
   const [vatRate, setVatRate] = useState(DEFAULT_VAT_RATE);
 
+  // Sending state for loading overlay
+  const [sending, setSending] = useState(false);
+
   const totals = useMemo(
     () => computeTotals(items, vatEnabled, vatRate),
     [items, vatEnabled, vatRate]
@@ -378,6 +381,8 @@ export default function Create() {
 
   // ---- Submit handlers ----
   const handleSend = async () => {
+    if (sending) return; // Prevent double-tap
+
     const derivedTitle = buildProjectTitle();
     if (!derivedTitle.trim() || derivedTitle === "Untitled quote") {
       Alert.alert("Missing project", "Please enter the project name.");
@@ -399,6 +404,7 @@ export default function Create() {
     };
 
     try {
+      setSending(true);
       if (isEditing && quoteId) {
         // Update existing draft and send
         await updateQuote(quoteId, payload);
@@ -409,6 +415,8 @@ export default function Create() {
       router.replace("/quotes");
     } catch (e) {
       Alert.alert("Save failed", e?.message || "Failed to save quote.");
+    } finally {
+      setSending(false);
     }
   };
 
@@ -742,11 +750,21 @@ export default function Create() {
 
               <Spacer size={24} />
 
-              <Pressable onPress={handleSend} style={styles.primaryBtn}>
-                <Text style={styles.primaryBtnText}>Send quote</Text>
+              <Pressable
+                onPress={handleSend}
+                style={[styles.primaryBtn, sending && styles.btnDisabled]}
+                disabled={sending}
+              >
+                <Text style={styles.primaryBtnText}>
+                  {sending ? "Sending..." : "Send quote"}
+                </Text>
               </Pressable>
 
-              <Pressable onPress={handleSaveAsDraft} style={styles.secondaryBtn}>
+              <Pressable
+                onPress={handleSaveAsDraft}
+                style={[styles.secondaryBtn, sending && styles.btnDisabled]}
+                disabled={sending}
+              >
                 <Text style={styles.secondaryBtnText}>Save draft</Text>
               </Pressable>
             </>
@@ -1177,6 +1195,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#374151",
+  },
+  btnDisabled: {
+    opacity: 0.6,
   },
 
   // Keyboard toolbar - attached to keyboard for numeric inputs

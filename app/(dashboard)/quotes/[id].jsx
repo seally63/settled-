@@ -134,6 +134,8 @@ export default function QuoteDetails() {
   const { fetchQuoteById } = useQuotes();
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const fetchQuote = () => setRefreshKey((k) => k + 1);
   const [userRole, setUserRole] = useState(null);
   const [tradeBusiness, setTradeBusiness] = useState(null);
 
@@ -182,6 +184,25 @@ export default function QuoteDetails() {
   const [completeBusy, setCompleteBusy] = useState(false);
   const [showPaymentMethodPicker, setShowPaymentMethodPicker] = useState(false);
   const [clientConfirmBusy, setClientConfirmBusy] = useState(false);
+
+  // Issue Resolved bottom sheet state (Trade side)
+  const [showIssueResolvedSheet, setShowIssueResolvedSheet] = useState(false);
+  const [issueResolution, setIssueResolution] = useState("");
+  const [issueResolveBusy, setIssueResolveBusy] = useState(false);
+
+  // Review state
+  const [tradeReview, setTradeReview] = useState(null); // Review left by trade about client
+  const [clientReview, setClientReview] = useState(null); // Review left by client about trade
+
+  // Reschedule state
+  const [showRescheduleSheet, setShowRescheduleSheet] = useState(false);
+  const [rescheduleAppointment, setRescheduleAppointment] = useState(null); // The appointment being rescheduled
+  const [rescheduleDate, setRescheduleDate] = useState(null);
+  const [rescheduleTime, setRescheduleTime] = useState(null);
+  const [rescheduleReason, setRescheduleReason] = useState("");
+  const [rescheduleBusy, setRescheduleBusy] = useState(false);
+  const [reschedulePickerVisible, setReschedulePickerVisible] = useState(false);
+  const [reschedulePickerMode, setReschedulePickerMode] = useState("date"); // "date" | "time"
 
   // Payment method options
   const PAYMENT_METHODS = [
@@ -425,6 +446,22 @@ export default function QuoteDetails() {
             setOtherName(fallbackName);
           }
         }
+
+        // 6) Load trade's review for this quote (if any)
+        try {
+          const { data: reviewData, error: reviewErr } = await supabase.rpc(
+            "rpc_get_my_review_for_quote",
+            { p_quote_id: row?.id }
+          );
+          if (!mounted) return;
+          if (!reviewErr && reviewData) {
+            setTradeReview(reviewData);
+          } else {
+            setTradeReview(null);
+          }
+        } catch (e) {
+          if (mounted) setTradeReview(null);
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -433,7 +470,7 @@ export default function QuoteDetails() {
     return () => {
       mounted = false;
     };
-  }, [params.id, fetchQuoteById, userRole]);
+  }, [params.id, fetchQuoteById, userRole, refreshKey]);
 
   // Auto-open scheduling page if navigated with openSchedule=true
   useEffect(() => {
@@ -972,6 +1009,311 @@ export default function QuoteDetails() {
     );
   };
 
+  // ============ RESCHEDULE FUNCTIONS ============
+
+  // Check if an appointment can be rescheduled
+  const canRescheduleAppointment = (appt) => {
+    if (!appt) return { allowed: false, reason: "" };
+
+    // Can't reschedule if already at max reschedules (2)
+    if ((appt.reschedule_count || 0) >= 2) {
+      return { allowed: false, reason: `Rescheduled ${appt.reschedule_count} times` };
+    }
+
+    // Can't reschedule if there's a pending reschedule request
+    if (appt.status === "reschedule_pending") {
+      return { allowed: false, reason: "Pending reschedule" };
+    }
+
+    // Can't reschedule within 24 hours
+    const scheduledAt = new Date(appt.scheduled_at);
+    const hoursUntil = (scheduledAt - new Date()) / (1000 * 60 * 60);
+    if (hoursUntil < 24) {
+      return { allowed: false, reason: "Can't reschedule within 24 hours" };
+    }
+
+    // Only confirmed or proposed appointments can be rescheduled
+    if (!["confirmed", "proposed", "scheduled"].includes(appt.status)) {
+      return { allowed: false, reason: "" };
+    }
+
+    return { allowed: true, reason: "" };
+  };
+
+  // Check if this user requested the reschedule (to show accept/decline buttons to the OTHER party)
+  const isRescheduleRequestedByMe = (appt) => {
+    return appt?.reschedule_requested_by === user?.id;
+  };
+
+  // Open reschedule sheet
+  const openRescheduleSheet = (appt) => {
+    setRescheduleAppointment(appt);
+    setRescheduleDate(null);
+    setRescheduleTime(null);
+    setRescheduleReason("");
+    setShowRescheduleSheet(true);
+  };
+
+  // Close reschedule sheet
+  const closeRescheduleSheet = () => {
+    if (rescheduleBusy) return;
+    setShowRescheduleSheet(false);
+    setRescheduleAppointment(null);
+    setReschedulePickerVisible(false);
+  };
+
+  // Handle reschedule date picker
+  const handleRescheduleDatePress = () => {
+    const base = rescheduleDate || new Date();
+    setReschedulePickerMode("date");
+    setReschedulePickerVisible(true);
+  };
+
+  // Handle reschedule time picker
+  const handleRescheduleTimePress = () => {
+    if (!rescheduleDate) {
+      Alert.alert("Select date first", "Please pick a date before the time.");
+      return;
+    }
+    setReschedulePickerMode("time");
+    setReschedulePickerVisible(true);
+  };
+
+  // Handle reschedule picker confirm
+  const handleReschedulePickerConfirm = (picked) => {
+    if (!picked) {
+      setReschedulePickerVisible(false);
+      return;
+    }
+
+    if (reschedulePickerMode === "date") {
+      setRescheduleDate(picked);
+      setReschedulePickerVisible(false);
+      // Auto-prompt time
+      setTimeout(() => {
+        setReschedulePickerMode("time");
+        setReschedulePickerVisible(true);
+      }, 300);
+    } else {
+      // Merge date and time
+      const date = rescheduleDate || new Date();
+      const merged = new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        picked.getHours(),
+        picked.getMinutes(),
+        0,
+        0
+      );
+      setRescheduleTime(merged);
+      setReschedulePickerVisible(false);
+    }
+  };
+
+  // Submit reschedule request
+  const handleSubmitReschedule = async () => {
+    if (rescheduleBusy || !rescheduleAppointment) return;
+
+    if (!rescheduleDate) {
+      Alert.alert("Missing date", "Please select a new date for the appointment.");
+      return;
+    }
+
+    if (!rescheduleTime) {
+      Alert.alert("Missing time", "Please select a new time for the appointment.");
+      return;
+    }
+
+    // Combine date and time
+    const newScheduledAt = new Date(
+      rescheduleDate.getFullYear(),
+      rescheduleDate.getMonth(),
+      rescheduleDate.getDate(),
+      rescheduleTime.getHours(),
+      rescheduleTime.getMinutes(),
+      0,
+      0
+    );
+
+    if (newScheduledAt <= new Date()) {
+      Alert.alert("Invalid time", "New appointment time must be in the future.");
+      return;
+    }
+
+    try {
+      setRescheduleBusy(true);
+
+      const { data, error } = await supabase.rpc("rpc_request_appointment_reschedule", {
+        p_appointment_id: rescheduleAppointment.id,
+        p_new_scheduled_at: newScheduledAt.toISOString(),
+        p_reason: rescheduleReason.trim() || null,
+      });
+
+      if (error) {
+        Alert.alert("Error", error.message || "Could not request reschedule");
+        return;
+      }
+
+      if (data && !data.success) {
+        Alert.alert("Cannot reschedule", data.error || "Something went wrong");
+        return;
+      }
+
+      Alert.alert(
+        "Reschedule requested",
+        `${displayName || "The client"} will need to confirm the new time.`
+      );
+
+      // Reload appointments
+      await reloadAppointments();
+      closeRescheduleSheet();
+    } catch (e) {
+      Alert.alert("Error", e?.message || "Something went wrong");
+    } finally {
+      setRescheduleBusy(false);
+    }
+  };
+
+  // Accept reschedule request
+  const handleAcceptReschedule = async (appt) => {
+    if (apptBusy) return;
+
+    Alert.alert(
+      "Accept new time?",
+      `Accept the appointment for ${new Date(appt.proposed_scheduled_at).toLocaleString()}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Accept",
+          style: "default",
+          onPress: async () => {
+            try {
+              setApptBusy(true);
+
+              const { data, error } = await supabase.rpc("rpc_accept_appointment_reschedule", {
+                p_appointment_id: appt.id,
+              });
+
+              if (error) {
+                Alert.alert("Error", error.message || "Could not accept reschedule");
+                return;
+              }
+
+              if (data && !data.success) {
+                Alert.alert("Error", data.error || "Something went wrong");
+                return;
+              }
+
+              Alert.alert("Reschedule accepted", "The appointment has been updated to the new time.");
+              await reloadAppointments();
+            } catch (e) {
+              Alert.alert("Error", e?.message || "Something went wrong");
+            } finally {
+              setApptBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Decline reschedule request
+  const handleDeclineReschedule = async (appt) => {
+    if (apptBusy) return;
+
+    Alert.alert(
+      "Decline reschedule?",
+      "The appointment will keep its original time.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Decline",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setApptBusy(true);
+
+              const { data, error } = await supabase.rpc("rpc_decline_appointment_reschedule", {
+                p_appointment_id: appt.id,
+              });
+
+              if (error) {
+                Alert.alert("Error", error.message || "Could not decline reschedule");
+                return;
+              }
+
+              if (data && !data.success) {
+                Alert.alert("Error", data.error || "Something went wrong");
+                return;
+              }
+
+              Alert.alert("Reschedule declined", "The appointment remains at its original time.");
+              await reloadAppointments();
+            } catch (e) {
+              Alert.alert("Error", e?.message || "Something went wrong");
+            } finally {
+              setApptBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Helper to reload appointments
+  const reloadAppointments = async () => {
+    const reqId = quote?.request_id || quote?.requestId || request?.id;
+    const quoteId = quote?.id;
+    if (!reqId && !quoteId) return;
+
+    try {
+      let finalAppointments = [];
+
+      const { data: allAppts, error: apptErr } = await supabase.rpc(
+        "rpc_trade_list_appointments",
+        { p_only_upcoming: false }
+      );
+
+      if (!apptErr && allAppts && allAppts.length > 0) {
+        const filtered = (Array.isArray(allAppts) ? allAppts : [])
+          .filter((a) => a.request_id === reqId || a.quote_id === quoteId);
+
+        finalAppointments = filtered.map((a) => ({
+          id: a.id,
+          request_id: a.request_id,
+          quote_id: a.quote_id,
+          scheduled_at: a.scheduled_at,
+          title: a.title || "Appointment",
+          status: a.status,
+          location: a.location,
+          reschedule_count: a.reschedule_count,
+          reschedule_requested_by: a.reschedule_requested_by,
+          proposed_scheduled_at: a.proposed_scheduled_at,
+          reschedule_reason: a.reschedule_reason,
+          original_scheduled_at: a.original_scheduled_at,
+        }));
+      } else {
+        // Fallback: direct query
+        const { data: directAppts } = await supabase
+          .from("appointments")
+          .select("*")
+          .or(`request_id.eq.${reqId},quote_id.eq.${quoteId}`)
+          .order("scheduled_at", { ascending: true });
+
+        if (directAppts) {
+          finalAppointments = directAppts;
+        }
+      }
+
+      setAppointments(finalAppointments);
+    } catch (e) {
+      console.warn("Failed to reload appointments:", e?.message || e);
+    }
+  };
+
+  // ============ END RESCHEDULE FUNCTIONS ============
+
   // Open mark complete sheet with pre-filled amount
   const openMarkCompleteSheet = () => {
     setPaymentAmount(String(grandTotal || ""));
@@ -1351,7 +1693,28 @@ export default function QuoteDetails() {
                 )}
               </View>
 
-              {isAccepted && (
+              {status === "completed" ? (
+                <View style={styles.statusChipCompleted}>
+                  <Ionicons name="checkmark-done-circle" size={16} color="#10B981" />
+                  <ThemedText style={styles.statusChipCompletedText}>
+                    Completed
+                  </ThemedText>
+                </View>
+              ) : status === "issue_reported" ? (
+                <View style={styles.statusChipIssue}>
+                  <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                  <ThemedText style={styles.statusChipIssueText}>
+                    Issue
+                  </ThemedText>
+                </View>
+              ) : status === "awaiting_completion" ? (
+                <View style={styles.statusChipAwaitingCompletion}>
+                  <Ionicons name="hourglass" size={16} color="#F59E0B" />
+                  <ThemedText style={styles.statusChipAwaitingText}>
+                    Awaiting
+                  </ThemedText>
+                </View>
+              ) : isAccepted && (
                 <View style={styles.statusChipAccepted}>
                   <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
                   <ThemedText style={styles.statusChipAcceptedText}>
@@ -1386,191 +1749,20 @@ export default function QuoteDetails() {
             </View>
           </View>
 
-          {/* Appointments Section - with + Add button */}
-          {(appointments.length > 0 || isAccepted) && (
-            <View>
-              <Pressable
-                style={styles.sectionHeaderRow}
-                onPress={() => setAppointmentsExpanded(!appointmentsExpanded)}
-              >
-                <ThemedText style={styles.sectionHeaderText}>Appointments</ThemedText>
-                <View style={styles.collapsibleToggle}>
-                  <ThemedText style={styles.collapsibleToggleText}>
-                    {appointmentsExpanded ? "Hide" : "Show"}
-                  </ThemedText>
-                  <Ionicons
-                    name={appointmentsExpanded ? "chevron-up" : "chevron-down"}
-                    size={16}
-                    color="#6B7280"
-                  />
-                </View>
-              </Pressable>
-
-              {appointmentsExpanded && (
-              <>
-              {/* Add button - only show when not in completion states */}
-              {status !== "awaiting_completion" && status !== "completed" && (
-              <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 8 }}>
-                <Pressable
-                  style={styles.addAppointmentTextBtn}
-                  onPress={openSchedulePage}
-                  hitSlop={8}
-                >
-                  <Ionicons name="add" size={18} color={PRIMARY} />
-                  <ThemedText style={styles.addAppointmentTextBtnLabel}>Add</ThemedText>
-                </Pressable>
-              </View>
-              )}
-
-              {/* Upcoming Appointments - each as its own card */}
-              {upcomingAppointments.length > 0 && (
-                <View>
-                  <ThemedText style={styles.appointmentSubheaderStandalone}>Upcoming</ThemedText>
-                  {upcomingAppointments.map((appt, idx) => {
-                    const scheduledDate = new Date(appt.scheduled_at);
-                    const isConfirmed = appt.status === "confirmed";
-                    const isProposed = appt.status === "proposed";
-
-                    return (
-                      <View key={appt.id ?? `upcoming-${idx}`} style={styles.appointmentSingleCard}>
-                        <Ionicons
-                          name="calendar"
-                          size={20}
-                          color="#6B7280"
-                        />
-                        <View style={{ flex: 1 }}>
-                          <View style={styles.tradeAppointmentTitleRow}>
-                            <ThemedText style={styles.tradeAppointmentTitle}>
-                              {appt.title || "Appointment"}
-                            </ThemedText>
-                            <View style={[
-                              styles.tradeAppointmentBadge,
-                              { backgroundColor: isConfirmed ? "#D1FAE5" : "#FEF3C7" }
-                            ]}>
-                              <Ionicons
-                                name={isConfirmed ? "checkmark-circle" : "hourglass"}
-                                size={12}
-                                color={isConfirmed ? "#10B981" : "#F59E0B"}
-                              />
-                              <ThemedText style={[
-                                styles.tradeAppointmentBadgeText,
-                                { color: isConfirmed ? "#10B981" : "#F59E0B" }
-                              ]}>
-                                {isConfirmed ? "Confirmed" : isProposed ? "Awaiting confirmation" : "Pending"}
-                              </ThemedText>
-                            </View>
-                          </View>
-                          <ThemedText style={styles.tradeAppointmentDateTime}>
-                            {scheduledDate.toLocaleDateString(undefined, {
-                              weekday: "short",
-                              day: "numeric",
-                              month: "short",
-                            })}, {scheduledDate.toLocaleTimeString(undefined, {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </ThemedText>
-                          {appt.location && (
-                            <ThemedText style={styles.tradeAppointmentLocation}>
-                              {appt.location}
-                            </ThemedText>
-                          )}
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-
-              {/* No appointments state */}
-              {upcomingAppointments.length === 0 && pastAppointments.length === 0 && (
-                <View style={styles.card}>
-                  <View style={styles.emptyAppointments}>
-                    <Ionicons name="calendar-outline" size={32} color="#D1D5DB" />
-                    <ThemedText style={styles.emptyAppointmentsText}>No appointments yet</ThemedText>
-                    <Pressable style={styles.scheduleVisitBtn} onPress={openSchedulePage}>
-                      <ThemedText style={styles.scheduleVisitBtnText}>Schedule a visit</ThemedText>
-                    </Pressable>
-                  </View>
-                </View>
-              )}
-
-              {/* Past Appointments - Collapsible header, each appointment as own card */}
-              {pastAppointments.length > 0 && (
-                <View>
-                  <Pressable
-                    style={styles.pastAppointmentsHeader}
-                    onPress={() => setShowPastAppointments(!showPastAppointments)}
-                  >
-                    <ThemedText style={styles.appointmentSubheaderStandalone}>Past</ThemedText>
-                    <View style={styles.collapsibleToggle}>
-                      <ThemedText style={styles.collapsibleToggleText}>
-                        {showPastAppointments ? "Hide" : "Show"}
-                      </ThemedText>
-                      <Ionicons
-                        name={showPastAppointments ? "chevron-up" : "chevron-down"}
-                        size={16}
-                        color="#6B7280"
-                      />
-                    </View>
-                  </Pressable>
-
-                  {showPastAppointments && (
-                    <View>
-                      {pastAppointments.map((appt, idx) => {
-                        const scheduledDate = new Date(appt.scheduled_at);
-                        return (
-                          <View key={appt.id ?? `past-${idx}`} style={styles.appointmentSingleCardPast}>
-                            <Ionicons name="calendar" size={20} color="#9CA3AF" />
-                            <View style={{ flex: 1 }}>
-                              <View style={styles.tradeAppointmentTitleRow}>
-                                <ThemedText style={[styles.tradeAppointmentTitle, { color: "#6B7280" }]}>
-                                  {appt.title || "Appointment"}
-                                </ThemedText>
-                                <Ionicons name="checkmark" size={18} color="#9CA3AF" />
-                              </View>
-                              <ThemedText style={[styles.tradeAppointmentDateTime, { color: "#9CA3AF" }]}>
-                                {scheduledDate.toLocaleDateString(undefined, {
-                                  weekday: "short",
-                                  day: "numeric",
-                                  month: "short",
-                                })}, {scheduledDate.toLocaleTimeString(undefined, {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                              </ThemedText>
-                              <ThemedText style={styles.tradeAppointmentCompleted}>
-                                Completed
-                              </ThemedText>
-                            </View>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  )}
-                </View>
-              )}
-              </>
-              )}
-            </View>
-          )}
+          {/* Section Divider */}
+          <View style={styles.sectionDivider} />
 
           {/* Quote breakdown section - Collapsible */}
           <Pressable
-            style={styles.sectionHeaderRow}
+            style={styles.collapsibleHeader}
             onPress={() => setQuoteBreakdownExpanded(!quoteBreakdownExpanded)}
           >
             <ThemedText style={styles.sectionHeaderText}>Quote breakdown</ThemedText>
-            <View style={styles.collapsibleToggle}>
-              <ThemedText style={styles.collapsibleToggleText}>
-                {quoteBreakdownExpanded ? "Hide" : "Show"}
-              </ThemedText>
-              <Ionicons
-                name={quoteBreakdownExpanded ? "chevron-up" : "chevron-down"}
-                size={16}
-                color="#6B7280"
-              />
-            </View>
+            <Ionicons
+              name={quoteBreakdownExpanded ? "chevron-up" : "chevron-down"}
+              size={20}
+              color="#6B7280"
+            />
           </Pressable>
 
           {quoteBreakdownExpanded && (
@@ -1692,25 +1884,23 @@ export default function QuoteDetails() {
           </View>
           )}
 
+          {/* Section Divider */}
+          <View style={styles.sectionDivider} />
+
           {/* Client request - Collapsible (collapsed by default) */}
           {request && (
             <>
-              <View style={styles.sectionHeaderRow}>
+              <Pressable
+                style={styles.collapsibleHeader}
+                onPress={() => setShowClientRequest(!showClientRequest)}
+              >
                 <ThemedText style={styles.sectionHeaderText}>Client request</ThemedText>
-                <Pressable
-                  style={styles.collapsibleToggle}
-                  onPress={() => setShowClientRequest(!showClientRequest)}
-                >
-                  <ThemedText style={styles.collapsibleToggleText}>
-                    {showClientRequest ? "Hide" : "Show"}
-                  </ThemedText>
-                  <Ionicons
-                    name={showClientRequest ? "chevron-up" : "chevron-down"}
-                    size={16}
-                    color="#6B7280"
-                  />
-                </Pressable>
-              </View>
+                <Ionicons
+                  name={showClientRequest ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  color="#6B7280"
+                />
+              </Pressable>
 
               {showClientRequest && (
                 <View style={styles.card}>
@@ -1835,28 +2025,372 @@ export default function QuoteDetails() {
             </>
           )}
 
+          {/* Section Divider - only show if appointments section will be visible */}
+          {(appointments.length > 0 || isAccepted) && <View style={styles.sectionDivider} />}
+
+          {/* Appointments Section - with + Add button */}
+          {(appointments.length > 0 || isAccepted) && (
+            <View>
+              <Pressable
+                style={styles.collapsibleHeader}
+                onPress={() => setAppointmentsExpanded(!appointmentsExpanded)}
+              >
+                <ThemedText style={styles.sectionHeaderText}>Appointments</ThemedText>
+                <Ionicons
+                  name={appointmentsExpanded ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  color="#6B7280"
+                />
+              </Pressable>
+
+              {appointmentsExpanded && (
+              <>
+              {/* Add button - only show when not in completion states */}
+              {status !== "awaiting_completion" && status !== "completed" && (
+              <View style={{ flexDirection: "row", justifyContent: "flex-end", marginBottom: 8 }}>
+                <Pressable
+                  style={styles.addAppointmentTextBtn}
+                  onPress={openSchedulePage}
+                  hitSlop={8}
+                >
+                  <Ionicons name="add" size={18} color={PRIMARY} />
+                  <ThemedText style={styles.addAppointmentTextBtnLabel}>Add</ThemedText>
+                </Pressable>
+              </View>
+              )}
+
+              {/* Upcoming Appointments - each as its own card */}
+              {upcomingAppointments.length > 0 && (
+                <View>
+                  <ThemedText style={styles.appointmentSubheaderStandalone}>Upcoming</ThemedText>
+                  {upcomingAppointments.map((appt, idx) => {
+                    const scheduledDate = new Date(appt.scheduled_at);
+                    const isConfirmed = appt.status === "confirmed";
+                    const isProposed = appt.status === "proposed";
+                    const isReschedulePending = appt.status === "reschedule_pending";
+                    const rescheduleInfo = canRescheduleAppointment(appt);
+                    const iRequestedReschedule = isRescheduleRequestedByMe(appt);
+
+                    // Determine badge color and text
+                    let badgeBg = "#FEF3C7";
+                    let badgeColor = "#F59E0B";
+                    let badgeIcon = "hourglass";
+                    let badgeText = "Pending";
+
+                    if (isReschedulePending) {
+                      badgeBg = "#FEF3C7";
+                      badgeColor = "#F59E0B";
+                      badgeIcon = "refresh";
+                      badgeText = "Reschedule";
+                    } else if (isConfirmed) {
+                      badgeBg = "#D1FAE5";
+                      badgeColor = "#10B981";
+                      badgeIcon = "checkmark-circle";
+                      badgeText = "Confirmed";
+                    } else if (isProposed) {
+                      badgeText = "Awaiting confirmation";
+                    }
+
+                    return (
+                      <View key={appt.id ?? `upcoming-${idx}`} style={styles.appointmentSingleCard}>
+                        <Ionicons
+                          name="calendar"
+                          size={20}
+                          color="#6B7280"
+                        />
+                        <View style={{ flex: 1 }}>
+                          <View style={styles.tradeAppointmentTitleRow}>
+                            <ThemedText style={styles.tradeAppointmentTitle}>
+                              {appt.title || "Appointment"}
+                            </ThemedText>
+                            <View style={[
+                              styles.tradeAppointmentBadge,
+                              { backgroundColor: badgeBg }
+                            ]}>
+                              <Ionicons
+                                name={badgeIcon}
+                                size={12}
+                                color={badgeColor}
+                              />
+                              <ThemedText style={[
+                                styles.tradeAppointmentBadgeText,
+                                { color: badgeColor }
+                              ]}>
+                                {badgeText}
+                              </ThemedText>
+                            </View>
+                          </View>
+
+                          {/* Show reschedule pending info */}
+                          {isReschedulePending && (
+                            <>
+                              <ThemedText style={styles.rescheduleWasTime}>
+                                Was: {new Date(appt.original_scheduled_at || appt.scheduled_at).toLocaleDateString(undefined, {
+                                  weekday: "short",
+                                  day: "numeric",
+                                  month: "short",
+                                })}, {new Date(appt.original_scheduled_at || appt.scheduled_at).toLocaleTimeString(undefined, {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </ThemedText>
+                              <ThemedText style={styles.rescheduleNewTime}>
+                                New: {new Date(appt.proposed_scheduled_at).toLocaleDateString(undefined, {
+                                  weekday: "short",
+                                  day: "numeric",
+                                  month: "short",
+                                })}, {new Date(appt.proposed_scheduled_at).toLocaleTimeString(undefined, {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </ThemedText>
+                              {appt.reschedule_reason && (
+                                <ThemedText style={styles.rescheduleReason}>
+                                  "{appt.reschedule_reason}"
+                                </ThemedText>
+                              )}
+                            </>
+                          )}
+
+                          {/* Normal time display when not reschedule pending */}
+                          {!isReschedulePending && (
+                            <ThemedText style={styles.tradeAppointmentDateTime}>
+                              {scheduledDate.toLocaleDateString(undefined, {
+                                weekday: "short",
+                                day: "numeric",
+                                month: "short",
+                              })}, {scheduledDate.toLocaleTimeString(undefined, {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </ThemedText>
+                          )}
+
+                          {appt.location && !isReschedulePending && (
+                            <ThemedText style={styles.tradeAppointmentLocation}>
+                              {appt.location}
+                            </ThemedText>
+                          )}
+
+                          {/* Reschedule actions */}
+                          {isReschedulePending && !iRequestedReschedule && (
+                            <View style={styles.rescheduleActions}>
+                              <Pressable
+                                style={styles.rescheduleDeclineBtn}
+                                onPress={() => handleDeclineReschedule(appt)}
+                                disabled={apptBusy}
+                              >
+                                <ThemedText style={styles.rescheduleDeclineBtnText}>Decline</ThemedText>
+                              </Pressable>
+                              <Pressable
+                                style={styles.rescheduleAcceptBtn}
+                                onPress={() => handleAcceptReschedule(appt)}
+                                disabled={apptBusy}
+                              >
+                                <ThemedText style={styles.rescheduleAcceptBtnText}>Accept</ThemedText>
+                              </Pressable>
+                            </View>
+                          )}
+
+                          {/* Show "waiting for response" if I requested reschedule */}
+                          {isReschedulePending && iRequestedReschedule && (
+                            <ThemedText style={styles.rescheduleWaitingText}>
+                              Waiting for {displayName?.split(" ")[0] || "client"} to respond
+                            </ThemedText>
+                          )}
+
+                          {/* Reschedule link - show if allowed */}
+                          {!isReschedulePending && rescheduleInfo.allowed && (
+                            <Pressable onPress={() => openRescheduleSheet(appt)} hitSlop={8}>
+                              <ThemedText style={styles.rescheduleLink}>Reschedule</ThemedText>
+                            </Pressable>
+                          )}
+
+                          {/* Show reason why can't reschedule */}
+                          {!isReschedulePending && !rescheduleInfo.allowed && rescheduleInfo.reason && (
+                            <ThemedText style={styles.rescheduleDisabledText}>
+                              {rescheduleInfo.reason}
+                            </ThemedText>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* No appointments state */}
+              {upcomingAppointments.length === 0 && pastAppointments.length === 0 && (
+                <View style={styles.card}>
+                  <View style={styles.emptyAppointments}>
+                    <Ionicons name="calendar-outline" size={32} color="#D1D5DB" />
+                    <ThemedText style={styles.emptyAppointmentsText}>No appointments yet</ThemedText>
+                    <Pressable style={styles.scheduleVisitBtn} onPress={openSchedulePage}>
+                      <ThemedText style={styles.scheduleVisitBtnText}>Schedule a visit</ThemedText>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+
+              {/* Past Appointments - Collapsible header, each appointment as own card */}
+              {pastAppointments.length > 0 && (
+                <View>
+                  <Pressable
+                    style={styles.pastAppointmentsHeader}
+                    onPress={() => setShowPastAppointments(!showPastAppointments)}
+                  >
+                    <ThemedText style={styles.appointmentSubheaderStandalone}>Past</ThemedText>
+                    <Ionicons
+                      name={showPastAppointments ? "chevron-up" : "chevron-down"}
+                      size={20}
+                      color="#6B7280"
+                    />
+                  </Pressable>
+
+                  {showPastAppointments && (
+                    <View>
+                      {pastAppointments.map((appt, idx) => {
+                        const scheduledDate = new Date(appt.scheduled_at);
+                        return (
+                          <View key={appt.id ?? `past-${idx}`} style={styles.appointmentSingleCardPast}>
+                            <Ionicons name="calendar" size={20} color="#9CA3AF" />
+                            <View style={{ flex: 1 }}>
+                              <View style={styles.tradeAppointmentTitleRow}>
+                                <ThemedText style={[styles.tradeAppointmentTitle, { color: "#6B7280" }]}>
+                                  {appt.title || "Appointment"}
+                                </ThemedText>
+                                <Ionicons name="checkmark" size={18} color="#9CA3AF" />
+                              </View>
+                              <ThemedText style={[styles.tradeAppointmentDateTime, { color: "#9CA3AF" }]}>
+                                {scheduledDate.toLocaleDateString(undefined, {
+                                  weekday: "short",
+                                  day: "numeric",
+                                  month: "short",
+                                })}, {scheduledDate.toLocaleTimeString(undefined, {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </ThemedText>
+                              <ThemedText style={styles.tradeAppointmentCompleted}>
+                                Completed
+                              </ThemedText>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+              )}
+              </>
+              )}
+            </View>
+          )}
+
           <Spacer size={20} />
 
           {/* Status-based content for completion flow */}
           {status === "awaiting_completion" && (
             <View style={styles.awaitingCompletionCard}>
-              <View style={styles.awaitingProgressRow}>
-                <View style={styles.awaitingProgressDot} />
-                <View style={styles.awaitingProgressLine} />
-                <View style={[styles.awaitingProgressDot, styles.awaitingProgressDotEmpty]} />
-              </View>
-              <Spacer size={16} />
+              <Ionicons name="hourglass-outline" size={32} color="#F59E0B" />
+              <Spacer size={12} />
               <ThemedText style={styles.awaitingTitle}>
-                Waiting for {displayName ? displayName.split(" ")[0] : "client"} to confirm completion
+                Awaiting confirmation
               </ThemedText>
-              {quote?.marked_complete_at && (
-                <ThemedText style={styles.awaitingMeta}>
-                  Marked complete {new Date(quote.marked_complete_at).toLocaleDateString(undefined, {
-                    day: "numeric",
-                    month: "short",
-                  })}
+              <Spacer size={8} />
+              <ThemedText style={styles.awaitingMeta}>
+                You marked this job complete on{" "}
+                {quote?.marked_complete_at
+                  ? new Date(quote.marked_complete_at).toLocaleDateString(undefined, {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })
+                  : "recently"}
+              </ThemedText>
+              <Spacer size={4} />
+              <ThemedText style={styles.awaitingSubtext}>
+                Waiting for {displayName ? displayName.split(" ")[0] : "the client"} to confirm.
+              </ThemedText>
+            </View>
+          )}
+
+          {/* Issue Reported - Trade View */}
+          {status === "issue_reported" && (
+            <View style={styles.issueReportedCard}>
+              <Ionicons name="warning" size={32} color="#EF4444" />
+              <Spacer size={12} />
+              <ThemedText style={styles.issueReportedTitle}>
+                Issue reported
+              </ThemedText>
+              <Spacer size={8} />
+              <ThemedText style={styles.issueReportedMeta}>
+                {displayName ? displayName.split(" ")[0] : "Client"} reported a problem with this job
+                {quote?.issue_reported_at
+                  ? ` on ${new Date(quote.issue_reported_at).toLocaleDateString(undefined, {
+                      day: "numeric",
+                      month: "short",
+                    })}`
+                  : ""}
+              </ThemedText>
+
+              {/* Issue Details Box */}
+              <View style={styles.issueDetailsBox}>
+                <ThemedText style={styles.issueDetailsLabel}>REASON</ThemedText>
+                <ThemedText style={styles.issueDetailsReason}>
+                  {quote?.issue_reason === "work_not_finished"
+                    ? "Work isn't finished"
+                    : quote?.issue_reason === "quality_issue"
+                    ? "Quality isn't right"
+                    : quote?.issue_reason === "price_changed"
+                    ? "Price changed"
+                    : quote?.issue_reason || "Issue with the work"}
                 </ThemedText>
-              )}
+                {quote?.issue_details && (
+                  <ThemedText style={styles.issueDetailsText}>
+                    "{quote.issue_details}"
+                  </ThemedText>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* What would you like to do? - for issue_reported status */}
+          {status === "issue_reported" && (
+            <View style={styles.issueActionsContainer}>
+              <ThemedText style={styles.issueActionsTitle}>
+                What would you like to do?
+              </ThemedText>
+              <Spacer size={12} />
+              <Pressable
+                style={styles.resolveWithClientBtn}
+                onPress={() => {
+                  const reqId = quote?.request_id || quote?.requestId || request?.id;
+                  if (reqId) {
+                    router.push({
+                      pathname: "/(dashboard)/messages/[id]",
+                      params: {
+                        id: String(reqId),
+                        name: displayName || "",
+                        quoteId: quote?.id ? String(quote.id) : "",
+                        returnTo: `/quotes/${quote?.id}`,
+                      },
+                    });
+                  }
+                }}
+              >
+                <ThemedText style={styles.resolveWithClientBtnText}>
+                  Resolve with {displayName ? displayName.split(" ")[0] : "client"}
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                style={styles.issueResolvedBtn}
+                onPress={() => setShowIssueResolvedSheet(true)}
+              >
+                <ThemedText style={styles.issueResolvedBtnText}>
+                  Issue resolved
+                </ThemedText>
+              </Pressable>
             </View>
           )}
 
@@ -1869,7 +2403,7 @@ export default function QuoteDetails() {
               <ThemedText style={styles.completedTitle}>Job complete</ThemedText>
               {quote?.completion_confirmed_at && (
                 <ThemedText style={styles.completedMeta}>
-                  {displayName ? displayName.split(" ")[0] : "Client"} confirmed on{" "}
+                  {displayName ? displayName.split(" ")[0] : "Client"} confirmed{" "}
                   {new Date(quote.completion_confirmed_at).toLocaleDateString(undefined, {
                     day: "numeric",
                     month: "short",
@@ -1877,40 +2411,85 @@ export default function QuoteDetails() {
                   })}
                 </ThemedText>
               )}
-              <Spacer size={20} />
-              <View style={styles.reviewPromptCard}>
-                <ThemedText style={styles.reviewPromptTitle}>
-                  How was working with {displayName ? displayName.split(" ")[0] : "the client"}?
-                </ThemedText>
-                <ThemedText style={styles.reviewPromptSubtitle}>
-                  Your review helps build trust in the community.
-                </ThemedText>
+            </View>
+          )}
+
+          {/* Review Prompt Card - Only show if no review left yet */}
+          {status === "completed" && !tradeReview && (
+            <View style={styles.reviewPromptCardStandalone}>
+              {/* Star rating display */}
+              <View style={styles.reviewStarsRow}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Ionicons
+                    key={star}
+                    name="star-outline"
+                    size={28}
+                    color="#F59E0B"
+                  />
+                ))}
               </View>
+              <Spacer size={12} />
+              <ThemedText style={styles.reviewPromptTitle}>
+                How was working with {displayName ? displayName.split(" ")[0] : "the client"}?
+              </ThemedText>
+              <ThemedText style={styles.reviewPromptSubtitle}>
+                Your review helps build trust in the community.
+              </ThemedText>
               <Spacer size={16} />
               <Pressable
                 style={styles.leaveReviewBtn}
                 onPress={() => {
-                  Alert.alert(
-                    "Leave a review",
-                    "Review feature coming soon!"
-                  );
+                  router.push({
+                    pathname: "/(dashboard)/quotes/leave-review",
+                    params: {
+                      quoteId: quote?.id,
+                      revieweeName: displayName || "Client",
+                      revieweeType: "client",
+                    },
+                  });
                 }}
               >
                 <ThemedText style={styles.leaveReviewBtnText}>Leave a review</ThemedText>
               </Pressable>
-              <Pressable
-                style={styles.maybeLaterBtn}
-                onPress={() => {
-                  // Just dismiss, do nothing
-                }}
-              >
-                <ThemedText style={styles.maybeLaterBtnText}>Maybe later</ThemedText>
-              </Pressable>
             </View>
           )}
 
-          {/* Action Buttons - Only show for accepted status (not awaiting/completed) */}
-          {status !== "awaiting_completion" && status !== "completed" && (
+          {/* Trade's Review Display - Show if trade has left a review */}
+          {status === "completed" && tradeReview && (
+            <View style={styles.reviewDisplayCard}>
+              <ThemedText style={styles.reviewDisplayTitle}>Your review</ThemedText>
+              <Spacer size={8} />
+              {/* Star rating */}
+              <View style={styles.reviewStarsRow}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Ionicons
+                    key={star}
+                    name={star <= tradeReview.rating ? "star" : "star-outline"}
+                    size={20}
+                    color="#F59E0B"
+                  />
+                ))}
+              </View>
+              <Spacer size={8} />
+              {tradeReview.content && (
+                <ThemedText style={styles.reviewDisplayContent}>
+                  "{tradeReview.content}"
+                </ThemedText>
+              )}
+              <Spacer size={8} />
+              <ThemedText style={styles.reviewDisplayDate}>
+                Posted{" "}
+                {new Date(tradeReview.created_at).toLocaleDateString(undefined, {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </ThemedText>
+            </View>
+          )}
+
+          {/* Action Buttons - Only show for accepted status (not awaiting/completed/issue_reported) */}
+          {status !== "awaiting_completion" && status !== "completed" && status !== "issue_reported" && (
             <View style={styles.actionButtonsContainer}>
               {isAccepted && (
                 <Pressable
@@ -2132,6 +2711,257 @@ export default function QuoteDetails() {
               </View>
             </Pressable>
           </Modal>
+        </Modal>
+
+        {/* Issue Resolved Bottom Sheet - Trade marks issue as resolved */}
+        <Modal
+          visible={showIssueResolvedSheet}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setShowIssueResolvedSheet(false)}
+        >
+          <View style={styles.sheetModalContainer}>
+            {/* Backdrop - tap to close */}
+            <Pressable
+              style={styles.sheetBackdropArea}
+              onPress={() => setShowIssueResolvedSheet(false)}
+            />
+
+            {/* Sheet content */}
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              style={styles.sheetKeyboardView}
+            >
+              <View style={[styles.sheetContent, { paddingBottom: insets.bottom + 20 }]}>
+                {/* Handle */}
+                <View style={styles.sheetHandle} />
+
+                <ScrollView
+                  contentContainerStyle={styles.sheetScrollContent}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
+                  <ThemedText style={styles.sheetTitle}>Confirm issue resolved</ThemedText>
+                  <ThemedText style={styles.sheetSubtitle}>
+                    Let {displayName ? displayName.split(" ")[0] : "the client"} know you've addressed the issue. They'll be asked to confirm.
+                  </ThemedText>
+
+                  <Spacer size={24} />
+
+                  <ThemedText style={styles.sheetFieldLabel}>What did you do?</ThemedText>
+                  <TextInput
+                    style={styles.sheetNotesInput}
+                    value={issueResolution}
+                    onChangeText={setIssueResolution}
+                    placeholder="e.g., Finished grouting in the corner as requested..."
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                    numberOfLines={4}
+                    textAlignVertical="top"
+                    editable={!issueResolveBusy}
+                  />
+
+                  <Spacer size={24} />
+
+                  {/* Submit button */}
+                  <Pressable
+                    style={[
+                      styles.sheetConfirmBtn,
+                      { opacity: issueResolveBusy || !issueResolution.trim() ? 0.7 : 1 },
+                    ]}
+                    onPress={async () => {
+                      if (!issueResolution.trim()) return;
+                      setIssueResolveBusy(true);
+                      try {
+                        const { error } = await supabase.rpc("rpc_trade_resolve_issue", {
+                          p_quote_id: quote.id,
+                          p_resolution: issueResolution.trim(),
+                        });
+
+                        if (error) throw error;
+
+                        Alert.alert(
+                          "Resolution Sent",
+                          "The client has been notified and can now confirm the job is complete."
+                        );
+                        setShowIssueResolvedSheet(false);
+                        setIssueResolution("");
+                        // Refresh quote data
+                        fetchQuote();
+                      } catch (err) {
+                        Alert.alert("Error", err.message || "Failed to submit resolution");
+                      } finally {
+                        setIssueResolveBusy(false);
+                      }
+                    }}
+                    disabled={issueResolveBusy || !issueResolution.trim()}
+                  >
+                    <ThemedText style={styles.sheetConfirmBtnText}>
+                      {issueResolveBusy ? "Submitting..." : "Submit"}
+                    </ThemedText>
+                  </Pressable>
+
+                  {/* Cancel */}
+                  <Pressable
+                    style={styles.sheetCancelBtn}
+                    onPress={() => {
+                      setShowIssueResolvedSheet(false);
+                      setIssueResolution("");
+                    }}
+                    disabled={issueResolveBusy}
+                  >
+                    <ThemedText style={styles.sheetCancelBtnText}>Cancel</ThemedText>
+                  </Pressable>
+                </ScrollView>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
+
+        {/* Reschedule Bottom Sheet */}
+        <Modal
+          visible={showRescheduleSheet}
+          animationType="slide"
+          transparent
+          onRequestClose={closeRescheduleSheet}
+        >
+          <View style={styles.sheetModalContainer}>
+            {/* Backdrop - tap to close */}
+            <Pressable
+              style={styles.sheetBackdropArea}
+              onPress={closeRescheduleSheet}
+            />
+
+            {/* Sheet content */}
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              style={styles.sheetKeyboardView}
+            >
+              <View style={[styles.sheetContent, { paddingBottom: insets.bottom + 20 }]}>
+                {/* Handle */}
+                <View style={styles.sheetHandle} />
+
+                <ScrollView
+                  contentContainerStyle={styles.sheetScrollContent}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
+                  <ThemedText style={styles.sheetTitle}>Reschedule appointment</ThemedText>
+
+                  {rescheduleAppointment && (
+                    <ThemedText style={styles.rescheduleCurrentTime}>
+                      Current: {new Date(rescheduleAppointment.scheduled_at).toLocaleDateString(undefined, {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                      })}, {new Date(rescheduleAppointment.scheduled_at).toLocaleTimeString(undefined, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </ThemedText>
+                  )}
+
+                  <Spacer size={24} />
+
+                  {/* New date picker */}
+                  <ThemedText style={styles.sheetFieldLabel}>New date</ThemedText>
+                  <Pressable
+                    style={styles.reschedulePickerRow}
+                    onPress={handleRescheduleDatePress}
+                  >
+                    <ThemedText style={[
+                      styles.reschedulePickerText,
+                      !rescheduleDate && { color: "#9CA3AF" }
+                    ]}>
+                      {rescheduleDate
+                        ? rescheduleDate.toLocaleDateString(undefined, {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })
+                        : "Select date"}
+                    </ThemedText>
+                    <Ionicons name="calendar-outline" size={20} color="#6B7280" />
+                  </Pressable>
+
+                  <Spacer size={16} />
+
+                  {/* New time picker */}
+                  <ThemedText style={styles.sheetFieldLabel}>New time</ThemedText>
+                  <Pressable
+                    style={styles.reschedulePickerRow}
+                    onPress={handleRescheduleTimePress}
+                  >
+                    <ThemedText style={[
+                      styles.reschedulePickerText,
+                      !rescheduleTime && { color: "#9CA3AF" }
+                    ]}>
+                      {rescheduleTime
+                        ? rescheduleTime.toLocaleTimeString(undefined, {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "Select time"}
+                    </ThemedText>
+                    <Ionicons name="time-outline" size={20} color="#6B7280" />
+                  </Pressable>
+
+                  <Spacer size={16} />
+
+                  {/* Reason (optional) */}
+                  <ThemedText style={styles.sheetFieldLabel}>Reason (optional)</ThemedText>
+                  <TextInput
+                    style={styles.rescheduleReasonInput}
+                    value={rescheduleReason}
+                    onChangeText={setRescheduleReason}
+                    placeholder="e.g., Schedule conflict"
+                    placeholderTextColor="#9CA3AF"
+                    editable={!rescheduleBusy}
+                  />
+
+                  <Spacer size={24} />
+
+                  {/* Submit button */}
+                  <Pressable
+                    style={[
+                      styles.sheetConfirmBtn,
+                      { opacity: rescheduleBusy || !rescheduleDate || !rescheduleTime ? 0.7 : 1 },
+                    ]}
+                    onPress={handleSubmitReschedule}
+                    disabled={rescheduleBusy || !rescheduleDate || !rescheduleTime}
+                  >
+                    <ThemedText style={styles.sheetConfirmBtnText}>
+                      {rescheduleBusy ? "Requesting..." : "Request reschedule"}
+                    </ThemedText>
+                  </Pressable>
+
+                  {/* Cancel */}
+                  <Pressable
+                    style={styles.sheetCancelBtn}
+                    onPress={closeRescheduleSheet}
+                    disabled={rescheduleBusy}
+                  >
+                    <ThemedText style={styles.sheetCancelBtnText}>Cancel</ThemedText>
+                  </Pressable>
+
+                  <ThemedText style={styles.rescheduleHelperText}>
+                    {displayName?.split(" ")[0] || "The client"} will need to confirm the new time.
+                  </ThemedText>
+                </ScrollView>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+
+          {/* Date/Time Picker for reschedule */}
+          <CustomDateTimePicker
+            visible={reschedulePickerVisible}
+            mode={reschedulePickerMode}
+            value={reschedulePickerMode === "date" ? (rescheduleDate || new Date()) : (rescheduleTime || new Date())}
+            onConfirm={handleReschedulePickerConfirm}
+            onCancel={() => setReschedulePickerVisible(false)}
+            minimumDate={new Date()}
+          />
         </Modal>
 
         {/* Image viewer */}
@@ -3959,11 +4789,123 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
+  // Reschedule styles
+  rescheduleLink: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 8,
+  },
+  rescheduleDisabledText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    marginTop: 8,
+  },
+  rescheduleWasTime: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    textDecorationLine: "line-through",
+    marginTop: 2,
+  },
+  rescheduleNewTime: {
+    fontSize: 14,
+    color: "#10B981",
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  rescheduleReason: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontStyle: "italic",
+    marginTop: 4,
+  },
+  rescheduleActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 12,
+  },
+  rescheduleDeclineBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  rescheduleDeclineBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  rescheduleAcceptBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: "#10B981",
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  rescheduleAcceptBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  rescheduleWaitingText: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontStyle: "italic",
+    marginTop: 8,
+  },
+  rescheduleCurrentTime: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 4,
+  },
+  reschedulePickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  reschedulePickerText: {
+    fontSize: 15,
+    color: "#111827",
+  },
+  rescheduleReasonInput: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+    color: "#111827",
+  },
+  rescheduleHelperText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    textAlign: "center",
+    marginTop: 16,
+  },
+
+  // Section divider
+  sectionDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginTop: 8,
+  },
+
   // Collapsible section styles
   collapsibleHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginTop: 24,
+    marginBottom: 12,
   },
   collapsibleToggle: {
     flexDirection: "row",
@@ -4458,5 +5400,154 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     textAlign: "center",
     marginTop: 4,
+  },
+
+  // =============================================
+  // ISSUE REPORTED STYLES (Trade View)
+  // =============================================
+  statusChipIssue: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEE2E2",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  statusChipIssueText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#EF4444",
+  },
+  issueReportedCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+  issueReportedTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#DC2626",
+  },
+  issueReportedMeta: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    marginTop: 4,
+  },
+  issueDetailsBox: {
+    marginTop: 16,
+    padding: 16,
+    backgroundColor: "#FEF2F2",
+    borderRadius: 12,
+    width: "100%",
+  },
+  issueDetailsLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#991B1B",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  issueDetailsReason: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 8,
+  },
+  issueDetailsText: {
+    fontSize: 14,
+    color: "#374151",
+    fontStyle: "italic",
+    lineHeight: 20,
+  },
+  issueActionsContainer: {
+    marginTop: 16,
+  },
+  issueActionsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  resolveWithClientBtn: {
+    backgroundColor: PRIMARY,
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resolveWithClientBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  issueResolvedBtn: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    paddingVertical: 16,
+    marginTop: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#10B981",
+  },
+  issueResolvedBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#10B981",
+  },
+
+  // =============================================
+  // AWAITING COMPLETION STYLES (Updated)
+  // =============================================
+  awaitingSubtext: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+  },
+
+  // =============================================
+  // REVIEW STYLES
+  // =============================================
+  reviewStarsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  reviewPromptCardStandalone: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 20,
+    alignItems: "center",
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  reviewDisplayCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  reviewDisplayTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  reviewDisplayContent: {
+    fontSize: 14,
+    color: "#374151",
+    fontStyle: "italic",
+    lineHeight: 20,
+  },
+  reviewDisplayDate: {
+    fontSize: 13,
+    color: "#9CA3AF",
   },
 });

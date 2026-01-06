@@ -165,9 +165,9 @@ export default function AppointmentResponse() {
             text: "OK",
             onPress: () => {
               if (quoteId) {
-                router.replace(`/myquotes/${quoteId}`);
+                router.replace(`/(dashboard)/myquotes/${quoteId}`);
               } else {
-                router.replace("/myquotes");
+                router.replace("/(dashboard)/myquotes");
               }
             },
           },
@@ -225,9 +225,9 @@ export default function AppointmentResponse() {
             text: "OK",
             onPress: () => {
               if (quoteId) {
-                router.replace(`/myquotes/${quoteId}`);
+                router.replace(`/(dashboard)/myquotes/${quoteId}`);
               } else {
-                router.replace("/myquotes");
+                router.replace("/(dashboard)/myquotes");
               }
             },
           },

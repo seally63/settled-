@@ -50,6 +50,11 @@ export default function MyQuotesClientOnly() {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="completion-response" />
+      <Stack.Screen name="completion-success" />
+      <Stack.Screen name="report-issue" />
+      <Stack.Screen name="leave-review" />
+      <Stack.Screen name="appointment-response" />
       <Stack.Screen name="[id]" />
       <Stack.Screen name="request" />
       <Stack.Screen name="quotes" />

@@ -28,7 +28,9 @@
       "Bash(node -e \"require(''./app/(dashboard)/quotes/schedule.jsx'')\")",
       "Bash(node -e:*)",
       "Bash(node temp_edit.js:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(git show:*)",
+      "Bash(npx expo export:*)"
     ],
     "deny": [],
     "ask": []
