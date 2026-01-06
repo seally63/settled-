@@ -118,7 +118,7 @@ export default function ClientMyQuoteDetail() {
   // Collapsible section states
   const [quoteBreakdownExpanded, setQuoteBreakdownExpanded] = useState(true);
   const [yourRequestExpanded, setYourRequestExpanded] = useState(false);
-  const [appointmentsExpanded, setAppointmentsExpanded] = useState(true);
+  const [appointmentsExpanded, setAppointmentsExpanded] = useState(false);
 
   // Full-screen image viewer state
   const [viewer, setViewer] = useState({ open: false, index: 0 });
@@ -238,6 +238,7 @@ export default function ClientMyQuoteDetail() {
           setTrade({
             id: rows[0].profile_id,
             business_name: rows[0].business_name,
+            photo_url: rows[0].photo_url || null,
           });
         } else {
           setTrade(null);
@@ -284,17 +285,17 @@ export default function ClientMyQuoteDetail() {
       allAppointments.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
 
       setAppointments(allAppointments);
-      // Auto-expand the next (first) appointment
-      if (allAppointments.length > 0) {
-        setExpandedAppointments(new Set([allAppointments[0].id]));
-      }
+      // Don't auto-expand any appointment - let user expand manually
+      setExpandedAppointments(new Set());
 
       // Load client's review for this quote (if any)
       const { data: reviewData, error: reviewErr } = await supabase.rpc(
         "rpc_get_my_review_for_quote",
         { p_quote_id: id }
       );
-      if (!reviewErr && reviewData) {
+      // Check if reviewData is actually a valid review (has a rating)
+      // RPC may return empty array/object/null when no review exists
+      if (!reviewErr && reviewData && reviewData.rating) {
         setClientReview(reviewData);
       } else {
         setClientReview(null);
@@ -1156,47 +1157,41 @@ export default function ClientMyQuoteDetail() {
             <View style={styles.heroCard}>
               <View style={styles.heroTopRow}>
                 <View style={{ flex: 1 }}>
-                  <ThemedText style={styles.tradeHeading}>
+                  <ThemedText style={styles.heroTradeName}>
                     {tradeName}
                   </ThemedText>
-                  <ThemedText style={styles.heroProject} variant="muted">
+                  <ThemedText style={styles.heroJobTitle}>
                     {heroSubtitle}
                   </ThemedText>
                 </View>
                 <StatusChip value={status} />
               </View>
 
-              <Spacer height={14} />
+              <Spacer size={16} />
 
-              <View style={styles.heroAmountRow}>
-                <View>
-                  <ThemedText style={styles.heroAmountLabel}>
-                    Total quote
-                  </ThemedText>
-                  <ThemedText style={styles.heroAmount}>
+              {/* Total and Issued date row */}
+              <View style={styles.heroInfoGrid}>
+                <View style={styles.heroInfoItem}>
+                  <ThemedText style={styles.heroInfoLabel}>Total quote</ThemedText>
+                  <ThemedText style={styles.heroInfoValue}>
                     {currency} {formatNumber(grand)}
                   </ThemedText>
-                  <ThemedText variant="muted" style={styles.heroSub}>
+                  <ThemedText style={styles.heroInfoSub}>
                     {includesVat ? "Includes VAT" : "No VAT added"}
                   </ThemedText>
                 </View>
-                <View style={{ alignItems: "flex-end" }}>
-                  {issuedAt && (
-                    <>
-                      <ThemedText style={styles.heroMetaLabel}>
-                        Issued
-                      </ThemedText>
-                      <ThemedText style={styles.heroMetaValue}>
-                        {issuedAt.toLocaleDateString()}
-                      </ThemedText>
-                    </>
-                  )}
-                  {validUntil && (
-                    <ThemedText variant="muted" style={styles.heroSub}>
-                      Valid until {validUntil.toLocaleDateString()}
+                {issuedAt && (
+                  <View style={[styles.heroInfoItem, { alignItems: "flex-end" }]}>
+                    <ThemedText style={styles.heroInfoLabel}>Issued</ThemedText>
+                    <ThemedText style={styles.heroInfoValue}>
+                      {issuedAt.toLocaleDateString('en-GB', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                      })}
                     </ThemedText>
-                  )}
-                </View>
+                  </View>
+                )}
               </View>
             </View>
 
@@ -1401,21 +1396,24 @@ export default function ClientMyQuoteDetail() {
                 </View>
 
                 {/* Review Prompt Card - Only show if no review left yet */}
-                {!clientReview && (
+                {(!clientReview || !clientReview.rating) && (
                   <View style={styles.reviewPromptCard}>
-                    <View style={styles.reviewStarsRow}>
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <Ionicons
-                          key={star}
-                          name="star-outline"
-                          size={28}
-                          color="#F59E0B"
-                        />
-                      ))}
+                    {/* Trade Avatar + Name */}
+                    <View style={styles.reviewTradeRow}>
+                      {trade?.photo_url ? (
+                        <Image source={{ uri: trade.photo_url }} style={styles.reviewTradeAvatar} />
+                      ) : (
+                        <View style={styles.reviewTradeAvatarPlaceholder}>
+                          <ThemedText style={styles.reviewTradeAvatarText}>
+                            {(tradeName || "T").substring(0, 2).toUpperCase()}
+                          </ThemedText>
+                        </View>
+                      )}
+                      <ThemedText style={styles.reviewTradeName}>{tradeName}</ThemedText>
                     </View>
-                    <Spacer size={12} />
+                    <Spacer size={16} />
                     <ThemedText style={styles.reviewPromptTitle}>
-                      Rate your experience with {tradeName || "the trade"}
+                      How was your experience?
                     </ThemedText>
                     <ThemedText style={styles.reviewPromptSubtitle}>
                       Help others find great tradespeople.
@@ -1430,6 +1428,8 @@ export default function ClientMyQuoteDetail() {
                             quoteId: quote?.id || id,
                             revieweeName: tradeName || "Trade",
                             revieweeType: "trade",
+                            tradePhotoUrl: trade?.photo_url || "",
+                            jobTitle: parsed?.title || "Job",
                           },
                         });
                       }}
@@ -1440,36 +1440,52 @@ export default function ClientMyQuoteDetail() {
                 )}
 
                 {/* Review Display - Show if client has left a review */}
-                {clientReview && (
+                {clientReview && clientReview.rating && (
                   <View style={styles.reviewDisplayCard}>
                     <ThemedText style={styles.reviewDisplayTitle}>Your review</ThemedText>
-                    <Spacer size={8} />
+                    <Spacer size={12} />
                     <View style={styles.reviewStarsRow}>
                       {[1, 2, 3, 4, 5].map((star) => (
                         <Ionicons
                           key={star}
-                          name={star <= clientReview.rating ? "star" : "star-outline"}
-                          size={20}
+                          name={star <= (clientReview.rating || 0) ? "star" : "star-outline"}
+                          size={24}
                           color="#F59E0B"
                         />
                       ))}
                     </View>
                     {clientReview.content && (
                       <>
-                        <Spacer size={8} />
+                        <Spacer size={12} />
                         <ThemedText style={styles.reviewDisplayContent}>
                           "{clientReview.content}"
                         </ThemedText>
                       </>
                     )}
-                    <Spacer size={8} />
+                    {/* Review Photos */}
+                    {clientReview.photos && clientReview.photos.length > 0 && (
+                      <>
+                        <Spacer size={12} />
+                        <View style={styles.reviewPhotosRow}>
+                          {clientReview.photos.map((photoUrl, idx) => (
+                            <Image
+                              key={idx}
+                              source={{ uri: photoUrl }}
+                              style={styles.reviewPhoto}
+                            />
+                          ))}
+                        </View>
+                      </>
+                    )}
+                    <Spacer size={12} />
                     <ThemedText style={styles.reviewDisplayDate}>
-                      Posted{" "}
-                      {new Date(clientReview.created_at).toLocaleDateString(undefined, {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
+                      {clientReview.created_at
+                        ? `Posted ${new Date(clientReview.created_at).toLocaleDateString(undefined, {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}`
+                        : ""}
                     </ThemedText>
                   </View>
                 )}
@@ -1983,16 +1999,14 @@ export default function ClientMyQuoteDetail() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
 
   // Profile-style header (sticky)
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: "#F9FAFB",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
     zIndex: 10,
   },
   headerRow: {
@@ -2012,11 +2026,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 8,
   },
-  tradeHeading: {
-    fontSize: 18,
-    fontWeight: "600",
-  },
-
   chip: {
     flexDirection: "row",
     alignItems: "center",
@@ -2026,51 +2035,58 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
 
-  // Hero card
+  // Hero card - cleaner design matching trade side
   heroCard: {
-    marginBottom: 16,
+    marginBottom: 8,
     padding: 16,
-    borderRadius: 16,
+    borderRadius: 20,
     backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.08)",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 16,
+    elevation: 4,
   },
   heroTopRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
-  heroProject: {
-    marginTop: 2,
-    fontSize: 13,
+  heroTradeName: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
   },
-  heroAmountRow: {
+  heroJobTitle: {
+    marginTop: 4,
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#374151",
+  },
+  heroInfoGrid: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-end",
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
   },
-  heroAmountLabel: {
+  heroInfoItem: {
+    flex: 1,
+  },
+  heroInfoLabel: {
     fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
     color: "#6B7280",
-    marginBottom: 2,
+    marginBottom: 4,
   },
-  heroAmount: {
-    fontSize: 22,
+  heroInfoValue: {
+    fontSize: 18,
     fontWeight: "700",
+    color: "#111827",
   },
-  heroSub: {
+  heroInfoSub: {
     marginTop: 2,
     fontSize: 12,
-  },
-  heroMetaLabel: {
-    fontSize: 12,
     color: "#6B7280",
-  },
-  heroMetaValue: {
-    fontSize: 14,
-    fontWeight: "600",
   },
 
   acceptedPanel: {
@@ -2598,10 +2614,10 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "rgba(0,0,0,0.08)",
   },
   appointmentActionText: {
     fontSize: 14,
@@ -2793,10 +2809,41 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   reviewPromptCard: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
-    padding: 16,
-    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+  },
+  reviewTradeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  reviewTradeAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  reviewTradeAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewTradeAvatarText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  reviewTradeName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
   },
   reviewPromptTitle: {
     fontSize: 16,
@@ -2821,7 +2868,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 24,
     width: "100%",
-    marginBottom: 12,
   },
   leaveReviewBtnText: {
     color: "#FFFFFF",
@@ -2958,7 +3004,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 6,
   },
   reviewDisplayCard: {
     backgroundColor: "#FFFFFF",
@@ -2975,11 +3021,22 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   reviewDisplayContent: {
-    fontSize: 14,
+    fontSize: 15,
     color: "#374151",
     fontStyle: "italic",
-    lineHeight: 20,
+    lineHeight: 22,
     textAlign: "center",
+  },
+  reviewPhotosRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "center",
+  },
+  reviewPhoto: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
   },
   reviewDisplayDate: {
     fontSize: 13,

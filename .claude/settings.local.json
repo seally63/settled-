@@ -30,7 +30,8 @@
       "Bash(node temp_edit.js:*)",
       "Bash(node:*)",
       "Bash(git show:*)",
-      "Bash(npx expo export:*)"
+      "Bash(npx expo export:*)",
+      "Bash(git merge-base:*)"
     ],
     "deny": [],
     "ask": []

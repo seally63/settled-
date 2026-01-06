@@ -16,7 +16,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useColorScheme } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -150,6 +150,25 @@ async function makeThumbnails(uris) {
   }
   return out;
 }
+
+// Helper to render icon from either Ionicons or MaterialCommunityIcons
+// Icons prefixed with "mci:" use MaterialCommunityIcons, otherwise Ionicons
+// Automatically converts filled icons to outline versions for consistency
+const ServiceIcon = ({ name, size, color }) => {
+  if (name && name.startsWith("mci:")) {
+    const iconName = name.replace("mci:", "");
+    return <MaterialCommunityIcons name={iconName} size={size} color={color} />;
+  }
+  // Convert filled icons to outline versions
+  let iconName = name || "help-outline";
+  // If icon doesn't already have -outline suffix and isn't already an outline icon
+  if (iconName && !iconName.endsWith("-outline") && !iconName.endsWith("-sharp")) {
+    // Try to use the outline version
+    const outlineName = `${iconName}-outline`;
+    iconName = outlineName;
+  }
+  return <Ionicons name={iconName} size={size} color={color} />;
+};
 
 export default function BusinessDetail() {
   const { id } = useLocalSearchParams();
@@ -616,15 +635,24 @@ export default function BusinessDetail() {
 
   // Sub header
   const SubHeader = ({ onBack, currentStep, totalSteps = 6 }) => {
-    const pct = `${(currentStep / totalSteps) * 100}%`;
+    // Create segmented progress bar
+    const segments = Array.from({ length: totalSteps }, (_, i) => i + 1);
     return (
-      <View style={[styles.subHeader, { paddingTop: insets.top, backgroundColor: theme.uiBackground, borderBottomColor: theme.iconColor }]}>
+      <View style={[styles.subHeader, { paddingTop: insets.top, backgroundColor: theme.uiBackground }]}>
         <Pressable onPress={onBack} style={styles.backButton} hitSlop={10}>
           <Ionicons name="chevron-back" size={24} color={theme.text} />
         </Pressable>
         <View style={styles.progressTrackContainer}>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: pct, backgroundColor: Colors.primary }]} />
+          <View style={styles.segmentedProgressBar}>
+            {segments.map((seg) => (
+              <View
+                key={seg}
+                style={[
+                  styles.progressSegment,
+                  seg <= currentStep ? styles.progressSegmentFilled : styles.progressSegmentEmpty,
+                ]}
+              />
+            ))}
           </View>
         </View>
       </View>
@@ -745,7 +773,7 @@ export default function BusinessDetail() {
             {categories.map((cat) => (
               <Pressable key={cat.id} style={styles.categoryCard} onPress={() => handleCategorySelect(cat)}>
                 <View style={styles.categoryIconWrap}>
-                  <Ionicons name={cat.icon} size={32} color={Colors.primary} />
+                  <ServiceIcon name={cat.icon} size={32} color="#374151" />
                 </View>
                 <ThemedText style={styles.categoryName}>{cat.name}</ThemedText>
               </Pressable>
@@ -773,7 +801,7 @@ export default function BusinessDetail() {
             {serviceTypes.map((type) => (
               <Pressable key={type.id} style={styles.serviceTypeCard} onPress={() => handleServiceTypeSelect(type)}>
                 <View style={styles.serviceTypeIcon}>
-                  <Ionicons name={type.icon} size={22} color={Colors.primary} />
+                  <ServiceIcon name={type.icon} size={22} color="#374151" />
                 </View>
                 <ThemedText style={styles.serviceTypeName}>{type.name}</ThemedText>
                 <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -1133,7 +1161,7 @@ export default function BusinessDetail() {
   );
 
   return (
-    <ThemedView style={{ flex: 1, backgroundColor: Colors.light.background }}>
+    <ThemedView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
       {step === 0 && (
         <>
           <StatusBar style="light" backgroundColor={Colors.primary} />
@@ -1170,11 +1198,13 @@ const styles = StyleSheet.create({
   backBtn: { position: "absolute", left: 12, bottom: 14 },
   headerTitle: { color: "#fff", fontSize: 18, fontWeight: "bold" },
 
-  subHeader: { paddingBottom: 12, paddingHorizontal: 20, borderBottomWidth: 1 },
+  subHeader: { paddingBottom: 16, paddingHorizontal: 20 },
   backButton: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
   progressTrackContainer: { marginTop: 12 },
-  progressTrack: { height: 3, borderRadius: 2, backgroundColor: "rgba(0,0,0,0.08)", overflow: "hidden" },
-  progressFill: { height: 3, borderRadius: 2 },
+  segmentedProgressBar: { flexDirection: "row", gap: 6 },
+  progressSegment: { flex: 1, height: 4, borderRadius: 2 },
+  progressSegmentFilled: { backgroundColor: Colors.primary },
+  progressSegmentEmpty: { backgroundColor: "rgba(0,0,0,0.08)" },
 
   questionHeader: { paddingHorizontal: 20, paddingVertical: 24 },
   questionTitle: { fontSize: 24, fontWeight: "bold", lineHeight: 30 },
@@ -1197,13 +1227,13 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  categoryIconWrap: { width: 60, height: 60, borderRadius: 30, backgroundColor: `${Colors.primary}15`, alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  categoryIconWrap: { width: 60, height: 60, borderRadius: 30, backgroundColor: "#F3F4F6", alignItems: "center", justifyContent: "center", marginBottom: 12 },
   categoryName: { fontSize: 15, fontWeight: "600", textAlign: "center" },
 
   // Service type list
   serviceTypeList: { paddingHorizontal: 20 },
   serviceTypeCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 12, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: "rgba(0,0,0,0.08)" },
-  serviceTypeIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: `${Colors.primary}15`, alignItems: "center", justifyContent: "center", marginRight: 14 },
+  serviceTypeIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#F3F4F6", alignItems: "center", justifyContent: "center", marginRight: 14 },
   serviceTypeName: { flex: 1, fontSize: 16, fontWeight: "500" },
 
   // Details form

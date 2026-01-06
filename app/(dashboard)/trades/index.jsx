@@ -293,7 +293,7 @@ export default function TradesmanHome() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   center: {
     flex: 1,

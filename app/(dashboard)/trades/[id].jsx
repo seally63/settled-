@@ -82,7 +82,7 @@ export default function TradeDetail() {
   }, [trade?.rating_avg, trade?.rating_count]);
 
   return (
-    <ThemedView style={{ flex: 1, backgroundColor: Colors.light.background }}>
+    <ThemedView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
       <StatusBar style="light" backgroundColor={Colors.primary} />
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <Pressable onPress={() => router.back()} hitSlop={8} style={{ position: "absolute", left: 12, bottom: 14 }}>

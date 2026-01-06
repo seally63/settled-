@@ -469,7 +469,7 @@ export default function AppointmentResponse() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   header: {
     flexDirection: "row",
@@ -477,9 +477,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingBottom: 16,
-    backgroundColor: "#F9FAFB",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
   },
   headerTitle: {
     fontSize: 18,

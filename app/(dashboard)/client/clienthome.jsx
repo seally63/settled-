@@ -13,7 +13,7 @@ import {
   Dimensions,
 } from "react-native";
 import { useState, useEffect } from "react";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -88,6 +88,25 @@ async function makeThumbnails(uris) {
   }
   return out;
 }
+
+// Helper to render icon from either Ionicons or MaterialCommunityIcons
+// Icons prefixed with "mci:" use MaterialCommunityIcons, otherwise Ionicons
+// Automatically converts filled icons to outline versions for consistency
+const ServiceIcon = ({ name, size, color }) => {
+  if (name && name.startsWith("mci:")) {
+    const iconName = name.replace("mci:", "");
+    return <MaterialCommunityIcons name={iconName} size={size} color={color} />;
+  }
+  // Convert filled icons to outline versions
+  let iconName = name || "help-outline";
+  // If icon doesn't already have -outline suffix and isn't already an outline icon
+  if (iconName && !iconName.endsWith("-outline") && !iconName.endsWith("-sharp")) {
+    // Try to use the outline version
+    const outlineName = `${iconName}-outline`;
+    iconName = outlineName;
+  }
+  return <Ionicons name={iconName} size={size} color={color} />;
+};
 
 export default function ClientHome() {
   const router = useRouter();
@@ -599,7 +618,8 @@ export default function ClientHome() {
 
   // ===== Headers =====
   const SubHeader = ({ onBack, currentStep, totalSteps = 6 }) => {
-    const pct = `${(currentStep / totalSteps) * 100}%`;
+    // Create segmented progress bar
+    const segments = Array.from({ length: totalSteps }, (_, i) => i + 1);
 
     return (
       <View style={[styles.subHeader, { paddingTop: insets.top }]}>
@@ -608,8 +628,16 @@ export default function ClientHome() {
         </Pressable>
 
         <View style={styles.progressTrackContainer}>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: pct, backgroundColor: Colors.primary }]} />
+          <View style={styles.segmentedProgressBar}>
+            {segments.map((seg) => (
+              <View
+                key={seg}
+                style={[
+                  styles.progressSegment,
+                  seg <= currentStep ? styles.progressSegmentFilled : styles.progressSegmentEmpty,
+                ]}
+              />
+            ))}
           </View>
         </View>
       </View>
@@ -684,7 +712,7 @@ export default function ClientHome() {
                 onPress={() => handleCategorySelect(cat)}
               >
                 <View style={styles.categoryIconWrap}>
-                  <Ionicons name={cat.icon} size={32} color={Colors.primary} />
+                  <ServiceIcon name={cat.icon} size={32} color="#374151" />
                 </View>
                 <ThemedText style={styles.categoryName}>{cat.name}</ThemedText>
               </Pressable>
@@ -727,7 +755,7 @@ export default function ClientHome() {
                 onPress={() => handleServiceTypeSelect(type)}
               >
                 <View style={styles.serviceTypeIcon}>
-                  <Ionicons name={type.icon} size={22} color={Colors.primary} />
+                  <ServiceIcon name={type.icon} size={22} color="#374151" />
                 </View>
                 <ThemedText style={styles.serviceTypeName}>{type.name}</ThemedText>
                 <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -1222,10 +1250,8 @@ const styles = StyleSheet.create({
 
   // Sub header with progress
   subHeader: {
-    paddingBottom: 12,
+    paddingBottom: 16,
     paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(0,0,0,0.08)",
     backgroundColor: "#fff",
   },
   backButton: {
@@ -1236,13 +1262,21 @@ const styles = StyleSheet.create({
   progressTrackContainer: {
     marginTop: 12,
   },
-  progressTrack: {
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: "rgba(0,0,0,0.08)",
-    overflow: "hidden",
+  segmentedProgressBar: {
+    flexDirection: "row",
+    gap: 6,
   },
-  progressFill: { height: 3, borderRadius: 2 },
+  progressSegment: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+  },
+  progressSegmentFilled: {
+    backgroundColor: Colors.primary,
+  },
+  progressSegmentEmpty: {
+    backgroundColor: "rgba(0,0,0,0.08)",
+  },
 
   // Question header
   questionHeader: { paddingHorizontal: 20, paddingVertical: 24 },
@@ -1280,7 +1314,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: `${Colors.primary}15`,
+    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
@@ -1309,7 +1343,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: `${Colors.primary}15`,
+    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,

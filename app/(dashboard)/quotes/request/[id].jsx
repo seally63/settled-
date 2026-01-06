@@ -1436,11 +1436,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "stretch",
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   // Header - Profile-style matching Quote Overview
   header: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 20,
     paddingBottom: 12,
   },
@@ -1778,8 +1778,10 @@ const styles = StyleSheet.create({
     color: "#111827",
   },
   draftQuoteItems: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.08)",
     padding: 12,
     gap: 8,
     marginBottom: 12,

@@ -252,7 +252,7 @@ function ProfileEditBody({ role }) {
   }
 
   return (
-    <ThemedView style={{ flex: 1, backgroundColor: Colors.light.background }}>
+    <ThemedView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
       <StatusBar style="light" backgroundColor={Colors.primary} />
       <View style={[styles.headerWrap, { paddingTop: insets.top, backgroundColor: Colors.primary }]}>
         <View style={styles.headerInner}>

@@ -507,7 +507,7 @@ export default function QuoteListScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   header: {
     flexDirection: "row",
@@ -516,8 +516,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 12,
     backgroundColor: "#FFFFFF",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
   },
   closeBtn: {
     width: 40,
@@ -650,7 +648,7 @@ const styles = StyleSheet.create({
   quotesList: {
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   quoteRow: {
     flexDirection: "row",

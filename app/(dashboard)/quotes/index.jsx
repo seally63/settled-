@@ -335,20 +335,33 @@ export default function TradesmanProjects() {
           (tt) => tt.request_id === requestId && tt.trade_id === myId
         );
 
-        // Sort quotes: drafts first (need action), then by date
+        // Sort quotes: prioritize active job states (completed, awaiting_completion, accepted) over drafts/sent
+        // These represent the actual state of the job, not pending work
         requestQuotes.sort((a, b) => {
           const aStatus = (a.status || "").toLowerCase();
           const bStatus = (b.status || "").toLowerCase();
-          // Priority order for chip: draft > sent > accepted > declined/expired
-          const priorityOrder = { draft: 0, sent: 1, created: 1, accepted: 2, declined: 3, expired: 3 };
-          const aPriority = priorityOrder[aStatus] ?? 2;
-          const bPriority = priorityOrder[bStatus] ?? 2;
+          // Priority order: completed/awaiting states first (they define the job state),
+          // then accepted (active job), then drafts/sent (need action)
+          const priorityOrder = {
+            completed: 0,
+            awaiting_completion: 1,
+            issue_reported: 2,
+            issue_resolved_pending: 3,
+            accepted: 4,
+            sent: 5,
+            created: 5,
+            draft: 6,
+            declined: 7,
+            expired: 7
+          };
+          const aPriority = priorityOrder[aStatus] ?? 5;
+          const bPriority = priorityOrder[bStatus] ?? 5;
           if (aPriority !== bPriority) return aPriority - bPriority;
           // Same priority - sort by date (newest first)
           return new Date(b.created_at) - new Date(a.created_at);
         });
 
-        // Use the most actionable quote for status calculations
+        // Use the most relevant quote for status calculations (prioritizes job state)
         const primaryQuote = requestQuotes[0];
         const primaryStatus = (primaryQuote.status || "").toLowerCase();
 
@@ -377,10 +390,12 @@ export default function TradesmanProjects() {
         // Get client contact info (privacy-aware)
         const contactInfo = clientContactByRequestId[requestId] || {};
         const clientFullName = contactInfo.name || clientNameByRequestId[requestId] || null;
-        // Contact is unlocked when any quote is accepted
-        const acceptedQuote = requestQuotes.find(q => (q.status || "").toLowerCase() === "accepted");
+        // Contact is unlocked when any quote is accepted (or in post-acceptance states)
+        const acceptedStatuses = ["accepted", "awaiting_completion", "completed"];
+        const acceptedQuote = requestQuotes.find(q => acceptedStatuses.includes((q.status || "").toLowerCase()));
         const hasAcceptedQuote = !!acceptedQuote;
         const acceptedQuoteId = acceptedQuote?.id || null;
+        const acceptedQuoteTotal = acceptedQuote?.grand_total || null;
         const contactUnlocked = contactInfo.contact_unlocked || hasAcceptedQuote;
 
         // Calculate price range if multiple quotes
@@ -413,6 +428,7 @@ export default function TradesmanProjects() {
           hasPriceRange,
           hasAcceptedQuote,
           acceptedQuoteId,
+          acceptedQuoteTotal,
           // Client contact info (privacy-aware)
           clientFullName,
           clientName: getClientDisplayName(clientFullName, contactUnlocked),
@@ -574,7 +590,9 @@ export default function TradesmanProjects() {
           type: "quote",
           displayStatus: "awaiting_completion",
           hasAcceptedQuote: true,
-          acceptedQuoteId: item.id,
+          // Use the already-calculated acceptedQuoteId if available, otherwise use item.id
+          acceptedQuoteId: item.acceptedQuoteId || item.id,
+          acceptedQuoteTotal: item.acceptedQuoteTotal || item.grand_total,
         });
       } else if (status === "completed") {
         completed.push({
@@ -582,7 +600,8 @@ export default function TradesmanProjects() {
           type: "quote",
           displayStatus: "completed",
           hasAcceptedQuote: true,
-          acceptedQuoteId: item.id,
+          acceptedQuoteId: item.acceptedQuoteId || item.id,
+          acceptedQuoteTotal: item.acceptedQuoteTotal || item.grand_total,
         });
       } else {
         // Draft or other
@@ -875,10 +894,16 @@ function ProjectCard({ project, onPress, onAction, onMessage, router }) {
                 <View style={styles.quoteSummaryHeader}>
                   <Ionicons name="document-text-outline" size={16} color="#6B7280" />
                   <ThemedText style={styles.quoteSummaryLabel}>
-                    {project.quoteCount} quotes {project.status === "draft" ? "drafted" : "sent"}
+                    {project.hasAcceptedQuote
+                      ? "Accepted quote"
+                      : `${project.quoteCount} quotes ${project.status === "draft" ? "drafted" : "sent"}`}
                   </ThemedText>
                 </View>
-                {project.minPrice != null && (
+                {project.hasAcceptedQuote && project.acceptedQuoteTotal != null ? (
+                  <ThemedText style={styles.quoteSummaryAmount}>
+                    £{formatNumber(project.acceptedQuoteTotal)}
+                  </ThemedText>
+                ) : project.minPrice != null && (
                   <ThemedText style={styles.quoteSummaryAmount}>
                     {project.hasPriceRange
                       ? `£${formatNumber(project.minPrice)} - £${formatNumber(project.maxPrice)}`
@@ -1384,7 +1409,7 @@ function Invoices({ data, router }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   center: {
     flex: 1,
@@ -1396,7 +1421,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
   },
   headerTitle: {
     fontSize: 28,
@@ -1537,8 +1562,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 8,
     paddingHorizontal: 12,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.08)",
   },
   amountLabel: {
     fontSize: 13,
@@ -1555,8 +1582,10 @@ const styles = StyleSheet.create({
   quoteSummaryBox: {
     paddingVertical: 10,
     paddingHorizontal: 12,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.08)",
   },
   quoteSummaryHeader: {
     flexDirection: "row",
