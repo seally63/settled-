@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
@@ -622,6 +623,7 @@ export default function TradesmanProjects() {
   if (loading) {
     return (
       <ThemedView style={styles.container}>
+        <StatusBar style="dark" backgroundColor="#FFFFFF" />
         <View style={styles.center}>
           <ActivityIndicator size="large" color={TINT} />
         </View>
@@ -631,6 +633,7 @@ export default function TradesmanProjects() {
 
   return (
     <ThemedView style={styles.container}>
+      <StatusBar style="dark" backgroundColor="#FFFFFF" />
       {/* Header - Profile style */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <ThemedText style={styles.headerTitle}>Projects</ThemedText>

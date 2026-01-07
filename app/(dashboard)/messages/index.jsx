@@ -13,6 +13,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 
 import { supabase } from "../../../lib/supabase";
 import { useUser } from "../../../hooks/useUser";
@@ -175,6 +176,7 @@ export default function MessagesIndex() {
 
   return (
     <ThemedView style={styles.container}>
+      <StatusBar style="dark" backgroundColor="#FFFFFF" />
       {/* Header - Profile-style */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <ThemedText style={styles.headerTitle}>Messages</ThemedText>
