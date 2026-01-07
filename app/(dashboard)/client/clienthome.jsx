@@ -91,21 +91,12 @@ async function makeThumbnails(uris) {
 
 // Helper to render icon from either Ionicons or MaterialCommunityIcons
 // Icons prefixed with "mci:" use MaterialCommunityIcons, otherwise Ionicons
-// Automatically converts filled icons to outline versions for consistency
 const ServiceIcon = ({ name, size, color }) => {
   if (name && name.startsWith("mci:")) {
     const iconName = name.replace("mci:", "");
     return <MaterialCommunityIcons name={iconName} size={size} color={color} />;
   }
-  // Convert filled icons to outline versions
-  let iconName = name || "help-outline";
-  // If icon doesn't already have -outline suffix and isn't already an outline icon
-  if (iconName && !iconName.endsWith("-outline") && !iconName.endsWith("-sharp")) {
-    // Try to use the outline version
-    const outlineName = `${iconName}-outline`;
-    iconName = outlineName;
-  }
-  return <Ionicons name={iconName} size={size} color={color} />;
+  return <Ionicons name={name || "help-outline"} size={size} color={color} />;
 };
 
 export default function ClientHome() {
@@ -689,6 +680,7 @@ export default function ClientHome() {
   // ===== Step 1: Category Selection (Grid) =====
   const CategoryStep = (
     <ThemedView style={styles.container} safe={false}>
+      <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => handleBack(0)} currentStep={1} />
       <ScrollView
         style={{ flex: 1 }}
@@ -727,6 +719,7 @@ export default function ClientHome() {
   // ===== Step 2: Service Type Selection (List) =====
   const ServiceTypeStep = (
     <ThemedView style={styles.container} safe={false}>
+      <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => handleBack(1)} currentStep={2} />
       <ScrollView
         style={{ flex: 1 }}
@@ -771,6 +764,7 @@ export default function ClientHome() {
   // ===== Step 3: Details Form =====
   const DetailsStep = (
     <ThemedView style={styles.container} safe={false}>
+      <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => handleBack(2)} currentStep={3} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
@@ -888,6 +882,7 @@ export default function ClientHome() {
   // ===== Step 4: Budget =====
   const BudgetStep = (
     <ThemedView style={styles.container} safe={false}>
+      <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => handleBack(3)} currentStep={4} totalSteps={6} />
       <ScrollView
         style={{ flex: 1 }}
@@ -951,6 +946,7 @@ export default function ClientHome() {
   // ===== Step 5: Photos & Timing =====
   const PhotosTimingStep = (
     <ThemedView style={styles.container} safe={false}>
+      <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => handleBack(4)} currentStep={5} totalSteps={6} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
@@ -1071,6 +1067,7 @@ export default function ClientHome() {
   // ===== Step 6: Review & Submit =====
   const ReviewStep = (
     <ThemedView style={styles.container} safe={false}>
+      <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => setStep(5)} currentStep={6} totalSteps={6} />
       <ScrollView
         style={{ flex: 1 }}

@@ -153,21 +153,12 @@ async function makeThumbnails(uris) {
 
 // Helper to render icon from either Ionicons or MaterialCommunityIcons
 // Icons prefixed with "mci:" use MaterialCommunityIcons, otherwise Ionicons
-// Automatically converts filled icons to outline versions for consistency
 const ServiceIcon = ({ name, size, color }) => {
   if (name && name.startsWith("mci:")) {
     const iconName = name.replace("mci:", "");
     return <MaterialCommunityIcons name={iconName} size={size} color={color} />;
   }
-  // Convert filled icons to outline versions
-  let iconName = name || "help-outline";
-  // If icon doesn't already have -outline suffix and isn't already an outline icon
-  if (iconName && !iconName.endsWith("-outline") && !iconName.endsWith("-sharp")) {
-    // Try to use the outline version
-    const outlineName = `${iconName}-outline`;
-    iconName = outlineName;
-  }
-  return <Ionicons name={iconName} size={size} color={color} />;
+  return <Ionicons name={name || "help-outline"} size={size} color={color} />;
 };
 
 export default function BusinessDetail() {
