@@ -8,6 +8,9 @@ export const Colors = {
   // Warning/error color
   warning: "#cc475a",
 
+  // Success color (for welcome screen checkmark)
+  success: "#10B981",
+
   dark: {
     text: "#d4d4d4",
     title: "#fff",

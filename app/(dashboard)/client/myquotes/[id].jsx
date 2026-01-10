@@ -238,6 +238,7 @@ export default function ClientMyQuoteDetail() {
           setTrade({
             id: rows[0].profile_id,
             business_name: rows[0].business_name,
+            full_name: rows[0].full_name,
             photo_url: rows[0].photo_url || null,
           });
         } else {
@@ -703,14 +704,33 @@ export default function ClientMyQuoteDetail() {
   const validUntil = quote?.valid_until ? new Date(quote.valid_until) : null;
 
   const items = Array.isArray(quote?.line_items) ? quote.line_items : [];
-  const tradeName = trade?.business_name || "Trade business";
+  const tradeName = trade?.business_name || trade?.full_name || "Tradesperson";
 
-  // Hero subtitle: prioritize suggested_title from request, then project_title
-  const heroSubtitle =
-    req?.suggested_title ||
-    quote?.project_title ||
-    quote?.project_name ||
-    "Project details";
+  // Hero subtitle: use category, service_type, postcode format
+  // Example: "Plumbing, Boiler Repair in EH48 3NN"
+  const buildHeroSubtitle = () => {
+    const category = req?.category || quote?.category;
+    const serviceType = req?.service_type || quote?.service_type;
+    const postcode = req?.postcode || quote?.postcode;
+
+    const parts = [];
+    if (category) parts.push(category);
+    if (serviceType && serviceType !== category) parts.push(serviceType);
+
+    if (parts.length > 0 && postcode) {
+      return `${parts.join(", ")} in ${postcode}`;
+    }
+    if (parts.length > 0) {
+      return parts.join(", ");
+    }
+    if (postcode) {
+      return `Job in ${postcode}`;
+    }
+    // Fallback to project_title if no category/service data
+    return quote?.project_title || quote?.project_name || "Project details";
+  };
+
+  const heroSubtitle = buildHeroSubtitle();
 
   // Helper functions for appointments
   const toggleAppointment = useCallback((appointmentId) => {
@@ -1423,13 +1443,13 @@ export default function ClientMyQuoteDetail() {
                       style={styles.leaveReviewBtn}
                       onPress={() => {
                         router.push({
-                          pathname: "/(dashboard)/myquotes/leave-review",
+                          pathname: "/(dashboard)/client/myquotes/leave-review",
                           params: {
                             quoteId: quote?.id || id,
-                            revieweeName: tradeName || "Trade",
+                            revieweeName: tradeName || "Tradesperson",
                             revieweeType: "trade",
                             tradePhotoUrl: trade?.photo_url || "",
-                            jobTitle: parsed?.title || "Job",
+                            jobTitle: heroSubtitle || "Job",
                           },
                         });
                       }}

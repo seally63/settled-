@@ -37,7 +37,7 @@ export default function ReportIssue() {
 
   const quoteId = params.quoteId;
   const requestId = params.requestId;
-  const tradeName = params.tradeName || "Trade";
+  const tradeName = params.tradeName || "Tradesperson";
 
   const [selectedReason, setSelectedReason] = useState(null);
   const [details, setDetails] = useState("");

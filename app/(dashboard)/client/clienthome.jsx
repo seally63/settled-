@@ -36,6 +36,7 @@ import {
   getPropertyTypes,
   getTimingOptions,
 } from "../../../lib/api/services";
+import { geocodeUKPostcode } from "../../../lib/api/places";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -404,6 +405,22 @@ export default function ClientHome() {
       // Normalize postcode to uppercase
       const normalizedPostcode = postcode.trim().toUpperCase();
 
+      // Geocode the postcode to get coordinates for trade matching
+      let locationLat = null;
+      let locationLon = null;
+      try {
+        const geocoded = await geocodeUKPostcode(normalizedPostcode);
+        if (geocoded) {
+          locationLat = geocoded.latitude;
+          locationLon = geocoded.longitude;
+        } else {
+          // Invalid postcode - warn but allow submission
+          console.log("Could not geocode postcode:", normalizedPostcode);
+        }
+      } catch (geoErr) {
+        console.log("Geocoding error:", geoErr?.message);
+      }
+
       // Build structured details
       const details = [
         `Category: ${selectedCategory.name}`,
@@ -421,7 +438,7 @@ export default function ClientHome() {
       // Build suggested title: "Category - Service" (no location for client view)
       const suggested_title = `${selectedCategory.name} - ${selectedServiceType.name}`;
 
-      // Create the request
+      // Create the request with location coordinates
       // Note: budget_band is stored as null until DB constraint is updated
       // Budget info is included in the details text for now
       const { data: created, error: reqError } = await supabase
@@ -436,6 +453,8 @@ export default function ClientHome() {
           property_type_id: selectedPropertyType?.id || null,
           timing_option_id: selectedTiming.id,
           postcode: normalizedPostcode,
+          location_lat: locationLat,
+          location_lon: locationLon,
           // budget_band temporarily null - run SQL to update constraint for new values
         })
         .select("id")

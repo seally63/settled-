@@ -19,12 +19,20 @@ import ThemedTextInput from "../../components/ThemedTextInput"
 // Demo accounts for quick testing
 const DEMO_ACCOUNTS = [
   {
+    id: 'ac295f71-2868-4794-8c01-13d9b0e87788',
+    email: 'ronan@test.settled.com',
+    password: 'test1234',
+    label: 'Trade 1',
+    icon: 'construct',
+    color: Colors.primary,
+  },
+  {
     id: '3daa9bcd-feb0-4a2e-8d09-cd5c2db1f63f',
     email: 'seally@ninja.dev',
     password: 'test1234',
-    label: 'Trade',
-    icon: 'construct',
-    color: '#7C3AED', // Purple for trade
+    label: 'Trade 2',
+    icon: 'hammer',
+    color: Colors.primary,
   },
   {
     id: 'f58b331c-c523-4ec3-aa1c-1e0d1300cb56',
@@ -32,7 +40,7 @@ const DEMO_ACCOUNTS = [
     password: 'test1234',
     label: 'Client',
     icon: 'person',
-    color: '#10B981', // Green for client
+    color: Colors.success,
   },
 ];
 

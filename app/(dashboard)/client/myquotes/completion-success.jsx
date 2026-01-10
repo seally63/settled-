@@ -4,6 +4,7 @@ import { StyleSheet, View, Pressable, Image } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
@@ -11,7 +12,7 @@ import Spacer from "../../../../components/Spacer";
 import { Colors } from "../../../../constants/Colors";
 
 const PRIMARY = Colors?.light?.tint || "#6849a7";
-const GREEN = "#16A34A";
+const GREEN = "#10B981";
 
 // Get initials from a name
 function getInitials(name) {
@@ -66,14 +67,16 @@ export default function CompletionSuccess() {
   const insets = useSafeAreaInsets();
 
   const quoteId = params.quoteId;
-  const tradeName = params.tradeName || "Trade";
+  const tradeName = params.tradeName || "Tradesperson";
+  const tradeFullName = params.tradeFullName || tradeName;
+  const businessName = params.businessName || "";
   const tradePhotoUrl = params.tradePhotoUrl || "";
   const jobTitle = params.jobTitle || "";
 
   // Navigate to leave review screen
   const leaveReview = () => {
     router.push({
-      pathname: "/(dashboard)/myquotes/leave-review",
+      pathname: "/(dashboard)/client/myquotes/leave-review",
       params: {
         quoteId,
         revieweeName: tradeName,
@@ -91,52 +94,61 @@ export default function CompletionSuccess() {
 
   return (
     <ThemedView style={styles.container}>
-      {/* No header - clean success screen */}
-      <View style={[styles.topSpacer, { paddingTop: insets.top + 24 }]} />
+      <StatusBar style="dark" />
 
       <View style={styles.content}>
-        {/* Success Icon - smaller */}
+        {/* Success Icon */}
         <View style={styles.successIconContainer}>
-          <Ionicons name="checkmark" size={36} color={GREEN} />
+          <Ionicons name="checkmark" size={32} color={GREEN} />
         </View>
 
-        <Spacer size={16} />
+        <Spacer height={20} />
 
         <ThemedText style={styles.title}>Job complete</ThemedText>
         <ThemedText style={styles.subtitle}>
           Thanks for confirming. This job is now closed.
         </ThemedText>
 
-        <Spacer size={24} />
+        <Spacer height={24} />
 
         {/* Review Card */}
         <View style={styles.reviewCard}>
-          <Avatar name={tradeName} photoUrl={tradePhotoUrl} size={48} />
-          <Spacer size={12} />
-          <ThemedText style={styles.tradeName}>{tradeName}</ThemedText>
-          <Spacer size={16} />
+          {/* Trade Info Row */}
+          <View style={styles.tradeInfoRow}>
+            <Avatar name={tradeName} photoUrl={tradePhotoUrl} size={48} />
+            <View style={styles.tradeTextContainer}>
+              <ThemedText style={styles.tradeName}>{tradeFullName}</ThemedText>
+              {businessName ? (
+                <ThemedText style={styles.businessName}>{businessName}</ThemedText>
+              ) : null}
+            </View>
+          </View>
+
+          {/* Divider */}
+          <View style={styles.divider} />
+
+          {/* Review Prompt */}
           <ThemedText style={styles.reviewPrompt}>
             How was your experience?
           </ThemedText>
-          <Spacer size={4} />
           <ThemedText style={styles.reviewSubtext}>
             Help others find great tradespeople.
           </ThemedText>
+
+          <Spacer height={16} />
+
+          {/* Review Button - inside card */}
+          <Pressable style={styles.reviewBtn} onPress={leaveReview}>
+            <ThemedText style={styles.reviewBtnText}>Leave a review</ThemedText>
+          </Pressable>
+
+          <Spacer height={12} />
+
+          {/* Maybe Later - inside card */}
+          <Pressable style={styles.laterBtn} onPress={maybeLater}>
+            <ThemedText style={styles.laterBtnText}>Maybe later</ThemedText>
+          </Pressable>
         </View>
-
-        <Spacer size={20} />
-
-        {/* Review Button */}
-        <Pressable style={styles.reviewBtn} onPress={leaveReview}>
-          <ThemedText style={styles.reviewBtnText}>Leave a review</ThemedText>
-        </Pressable>
-
-        <Spacer size={16} />
-
-        {/* Maybe Later */}
-        <Pressable style={styles.laterBtn} onPress={maybeLater}>
-          <ThemedText style={styles.laterBtnText}>Maybe later</ThemedText>
-        </Pressable>
       </View>
 
       <View style={{ height: insets.bottom + 24 }} />
@@ -149,9 +161,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
-  topSpacer: {
-    // Just for safe area padding
-  },
   content: {
     flex: 1,
     alignItems: "center",
@@ -159,55 +168,71 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   successIconContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: "#DCFCE7",
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#D1FAE5",
     alignItems: "center",
     justifyContent: "center",
   },
   title: {
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 24,
+    fontWeight: "600",
     color: "#111827",
     textAlign: "center",
   },
   subtitle: {
-    fontSize: 15,
+    fontSize: 14,
     color: "#6B7280",
     textAlign: "center",
-    marginTop: 6,
+    marginTop: 4,
+    lineHeight: 20,
   },
   reviewCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
     padding: 20,
-    alignItems: "center",
     borderWidth: 1,
     borderColor: "#E5E7EB",
     width: "100%",
   },
+  tradeInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  tradeTextContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
   tradeName: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "600",
     color: "#111827",
+  },
+  businessName: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: 16,
   },
   reviewPrompt: {
     fontSize: 16,
     fontWeight: "600",
     color: "#111827",
-    textAlign: "center",
   },
   reviewSubtext: {
     fontSize: 14,
     color: "#6B7280",
-    textAlign: "center",
+    marginTop: 4,
   },
   reviewBtn: {
     backgroundColor: PRIMARY,
     borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
+    paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
     width: "100%",
@@ -218,11 +243,11 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   laterBtn: {
-    paddingVertical: 12,
+    paddingVertical: 8,
     alignItems: "center",
   },
   laterBtnText: {
-    fontSize: 15,
-    color: "#6B7280",
+    fontSize: 14,
+    color: PRIMARY,
   },
 });

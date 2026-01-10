@@ -8,7 +8,7 @@ import ThemedText from '../../components/ThemedText'
 import Spacer from '../../components/Spacer'
 import { Colors } from '../../constants/Colors'
 
-const TINT = Colors?.light?.tint || "#6366F1"
+const TINT = Colors.primary
 
 export default function RoleSelectScreen() {
   const router = useRouter()
@@ -16,6 +16,13 @@ export default function RoleSelectScreen() {
   return (
     <ThemedView style={styles.container}>
       <View style={styles.content}>
+        {/* Logo placeholder */}
+        <View style={styles.logoContainer}>
+          <ThemedText style={styles.logoText}>SETTLED</ThemedText>
+        </View>
+
+        <Spacer height={40} />
+
         <ThemedText style={styles.title}>Join Settled</ThemedText>
         <ThemedText style={styles.subtitle}>
           Choose how you'd like to get started
@@ -23,51 +30,51 @@ export default function RoleSelectScreen() {
 
         <Spacer height={40} />
 
-        {/* Client Card */}
+        {/* Homeowner Card */}
         <Pressable
           style={({ pressed }) => [
             styles.roleCard,
             pressed && styles.roleCardPressed,
           ]}
-          onPress={() => router.push('/register-client')}
+          onPress={() => router.push({ pathname: '/register', params: { role: 'client' } })}
         >
-          <View style={[styles.iconCircle, { backgroundColor: '#EEF2FF' }]}>
-            <Ionicons name="home" size={32} color={TINT} />
-          </View>
-          <Spacer height={16} />
-          <ThemedText style={styles.roleTitle}>I'm a Homeowner</ThemedText>
-          <Spacer height={8} />
-          <ThemedText style={styles.roleDescription}>
-            Find trusted trades for your home improvement projects
-          </ThemedText>
-          <Spacer height={16} />
-          <View style={styles.arrow}>
-            <Ionicons name="arrow-forward" size={20} color={TINT} />
+          <View style={styles.cardContent}>
+            <View style={styles.iconCircle}>
+              <Ionicons name="home-outline" size={28} color={Colors.light.subtitle} />
+            </View>
+            <View style={styles.cardTextContent}>
+              <ThemedText style={styles.roleTitle}>I'm a Homeowner</ThemedText>
+              <Spacer height={4} />
+              <ThemedText style={styles.roleDescription}>
+                Find trusted trades for your home improvement projects
+              </ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.light.subtitle} />
           </View>
         </Pressable>
 
-        <Spacer height={20} />
+        <Spacer height={16} />
 
-        {/* Trade Card */}
+        {/* Tradesperson Card */}
         <Pressable
           style={({ pressed }) => [
             styles.roleCard,
             pressed && styles.roleCardPressed,
           ]}
-          onPress={() => router.push('/register-trade')}
+          onPress={() => router.push({ pathname: '/register', params: { role: 'trades' } })}
         >
-          <View style={[styles.iconCircle, { backgroundColor: '#FEF3C7' }]}>
-            <Ionicons name="hammer" size={32} color="#D97706" />
-          </View>
-          <Spacer height={16} />
-          <ThemedText style={styles.roleTitle}>I'm a Tradesperson</ThemedText>
-          <Spacer height={8} />
-          <ThemedText style={styles.roleDescription}>
-            Grow your business and connect with local customers
-          </ThemedText>
-          <Spacer height={16} />
-          <View style={styles.arrow}>
-            <Ionicons name="arrow-forward" size={20} color="#D97706" />
+          <View style={styles.cardContent}>
+            <View style={styles.iconCircle}>
+              <Ionicons name="hammer-outline" size={28} color={Colors.light.subtitle} />
+            </View>
+            <View style={styles.cardTextContent}>
+              <ThemedText style={styles.roleTitle}>I'm a Tradesperson</ThemedText>
+              <Spacer height={4} />
+              <ThemedText style={styles.roleDescription}>
+                Grow your business and connect with local customers
+              </ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.light.subtitle} />
           </View>
         </Pressable>
 
@@ -93,62 +100,78 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 400,
     paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  logoContainer: {
+    width: 120,
+    height: 60,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoText: {
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 2,
+    color: Colors.light.title,
   },
   title: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '700',
     textAlign: 'center',
-    color: '#0F172A',
+    color: Colors.light.title,
   },
   subtitle: {
     fontSize: 16,
     textAlign: 'center',
-    color: '#64748B',
+    color: Colors.light.subtitle,
     marginTop: 8,
   },
   roleCard: {
-    backgroundColor: '#FFFFFF',
+    width: '100%',
+    backgroundColor: Colors.light.uiBackground,
     borderRadius: 16,
-    padding: 24,
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
   },
   roleCardPressed: {
     opacity: 0.8,
     transform: [{ scale: 0.98 }],
   },
+  cardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   iconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.light.secondaryBackground,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  cardTextContent: {
+    flex: 1,
+    marginLeft: 16,
+    marginRight: 8,
+  },
   roleTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    textAlign: 'center',
-    color: '#0F172A',
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.light.title,
   },
   roleDescription: {
     fontSize: 14,
-    textAlign: 'center',
-    color: '#64748B',
+    color: Colors.light.subtitle,
     lineHeight: 20,
-  },
-  arrow: {
-    alignSelf: 'flex-end',
   },
   loginLink: {
     fontSize: 14,
     textAlign: 'center',
-    color: '#64748B',
+    color: Colors.light.subtitle,
   },
   loginLinkBold: {
     fontWeight: '600',
