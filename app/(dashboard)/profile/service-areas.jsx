@@ -126,7 +126,7 @@ export default function ServiceAreasScreen() {
         {/* Info Section */}
         <View style={styles.infoSection}>
           <View style={styles.infoIconContainer}>
-            <Ionicons name="location" size={32} color={Colors.primary} />
+            <Ionicons name="location-outline" size={32} color={Colors.light.title} />
           </View>
           <Spacer height={16} />
           <ThemedText style={styles.infoTitle}>
@@ -147,7 +147,7 @@ export default function ServiceAreasScreen() {
               <ThemedText style={styles.sectionLabel}>Base location</ThemedText>
               <Spacer height={12} />
               <View style={styles.baseLocationCard}>
-                <Ionicons name="home-outline" size={20} color={Colors.primary} />
+                <Ionicons name="home-outline" size={20} color={Colors.light.title} />
                 <ThemedText style={styles.baseLocationText}>
                   {basePostcode}
                 </ThemedText>
@@ -176,7 +176,7 @@ export default function ServiceAreasScreen() {
             ]}
             onPress={() => setShowRadiusSheet(true)}
           >
-            <Ionicons name="navigate-outline" size={20} color={Colors.primary} />
+            <Ionicons name="navigate-outline" size={20} color={Colors.light.title} />
             <ThemedText style={styles.radiusButtonText}>
               {travelRadius} miles
             </ThemedText>
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: `${Colors.primary}15`,
+    backgroundColor: Colors.light.secondaryBackground,
     alignItems: 'center',
     justifyContent: 'center',
   },
