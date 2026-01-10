@@ -100,11 +100,11 @@ export default function CompletionResponse() {
     try {
       setLoading(true);
 
-      // Fetch quote
+      // Fetch quote with request details for category/service_type/postcode
       const { data: quoteData, error: quoteErr } = await supabase
         .from("tradify_native_app_db")
         .select(
-          "id, trade_id, project_title, grand_total, currency, marked_complete_at, payment_amount, payment_method"
+          "id, trade_id, project_title, grand_total, currency, marked_complete_at, payment_amount, payment_method, request_id, category, service_type, postcode"
         )
         .eq("id", quoteId)
         .single();
@@ -148,14 +148,32 @@ export default function CompletionResponse() {
 
       if (error) throw error;
 
+      // Build job title from category/service_type/postcode
+      const category = quote?.category;
+      const serviceType = quote?.service_type;
+      const postcode = quote?.postcode;
+      const parts = [];
+      if (category) parts.push(category);
+      if (serviceType && serviceType !== category) parts.push(serviceType);
+      let builtJobTitle = quote?.project_title || "Job";
+      if (parts.length > 0 && postcode) {
+        builtJobTitle = `${parts.join(", ")} in ${postcode}`;
+      } else if (parts.length > 0) {
+        builtJobTitle = parts.join(", ");
+      } else if (postcode) {
+        builtJobTitle = `Job in ${postcode}`;
+      }
+
       // Navigate to success screen with review prompt
       router.replace({
-        pathname: "/(dashboard)/myquotes/completion-success",
+        pathname: "/(dashboard)/client/myquotes/completion-success",
         params: {
           quoteId,
-          tradeName: trade?.business_name || trade?.full_name || "Trade",
+          tradeName: trade?.business_name || trade?.full_name || "Tradesperson",
+          tradeFullName: trade?.full_name || "",
+          businessName: trade?.business_name || "",
           tradePhotoUrl: trade?.photo_url || "",
-          jobTitle: quote?.project_title || "",
+          jobTitle: builtJobTitle,
         },
       });
     } catch (err) {
@@ -173,12 +191,36 @@ export default function CompletionResponse() {
       params: {
         quoteId,
         requestId,
-        tradeName: trade?.business_name || trade?.full_name || "Trade",
+        tradeName: trade?.business_name || trade?.full_name || "Tradesperson",
       },
     });
   };
 
   const tradeName = trade?.business_name || trade?.full_name || "Tradesperson";
+
+  // Build job title from category/service_type/postcode
+  const buildJobTitle = () => {
+    const category = quote?.category;
+    const serviceType = quote?.service_type;
+    const postcode = quote?.postcode;
+
+    const parts = [];
+    if (category) parts.push(category);
+    if (serviceType && serviceType !== category) parts.push(serviceType);
+
+    if (parts.length > 0 && postcode) {
+      return `${parts.join(", ")} in ${postcode}`;
+    }
+    if (parts.length > 0) {
+      return parts.join(", ");
+    }
+    if (postcode) {
+      return `Job in ${postcode}`;
+    }
+    return quote?.project_title || "Job";
+  };
+
+  const jobTitle = buildJobTitle();
   const markedCompleteDate = quote?.marked_complete_at
     ? new Date(quote.marked_complete_at).toLocaleDateString(undefined, {
         day: "numeric",

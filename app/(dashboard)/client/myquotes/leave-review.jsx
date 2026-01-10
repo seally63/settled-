@@ -162,7 +162,7 @@ export default function LeaveReview() {
 
       // Navigate to success screen
       router.replace({
-        pathname: "/(dashboard)/myquotes/review-success",
+        pathname: "/(dashboard)/client/myquotes/review-success",
         params: { returnTo: "projects" },
       });
     } catch (err) {

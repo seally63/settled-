@@ -298,11 +298,12 @@ export default function QuoteDetails() {
         }
 
         // 2) Load request summary with property type and timing
+        let clientIdFromRequest = null;
         try {
           const { data: reqRow, error: reqErr } = await supabase
             .from("quote_requests")
             .select(
-              `id, details, created_at, budget_band, postcode, status, suggested_title,
+              `id, details, created_at, budget_band, postcode, status, suggested_title, requester_id,
                property_types(id, name),
                timing_options(id, name, description, is_emergency)`
             )
@@ -318,6 +319,7 @@ export default function QuoteDetails() {
             setRequest(null);
           } else {
             setRequest(reqRow || null);
+            clientIdFromRequest = reqRow?.requester_id || null;
           }
         } catch (e) {
           if (mounted) {
@@ -436,6 +438,30 @@ export default function QuoteDetails() {
               setOtherAvatar(avatar);
             } else if (fallbackName) {
               setOtherName(fallbackName);
+            }
+          }
+
+          // Fallback: If no avatar found and we have a requester_id (client), fetch directly
+          // This handles cases where the conversation RPC didn't return the avatar
+          if (clientIdFromRequest && userRole === "trade") {
+            try {
+              const { data: clientProfile } = await supabase
+                .from("profiles")
+                .select("full_name, photo_url")
+                .eq("id", clientIdFromRequest)
+                .single();
+
+              if (!mounted) return;
+              if (clientProfile) {
+                if (clientProfile.photo_url) {
+                  setOtherAvatar(clientProfile.photo_url);
+                }
+                if (clientProfile.full_name) {
+                  setOtherName(clientProfile.full_name);
+                }
+              }
+            } catch (profileErr) {
+              console.warn("Fallback client profile fetch failed:", profileErr);
             }
           }
         } catch (e) {

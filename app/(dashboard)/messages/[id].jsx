@@ -374,7 +374,7 @@ export default function MessageThread() {
     ? params.returnTo[0]
     : params.returnTo;
 
-  const tradeName = tradeNameParam || "Trade business";
+  const tradeName = tradeNameParam || "Tradesperson";
   const quoteId = quoteIdParam || null;
   const avatarUrl = avatarParam || null;
   const avatarInitials = getInitials(tradeName);
