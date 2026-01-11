@@ -95,7 +95,7 @@ export default function AddressScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
         </Pressable>
         <ThemedText style={styles.headerTitle}>Address</ThemedText>
         <Pressable onPress={handleSave} disabled={saving} hitSlop={10}>

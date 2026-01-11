@@ -117,7 +117,7 @@ export default function NotificationsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
         </Pressable>
         <ThemedText style={styles.headerTitle}>Notifications</ThemedText>
         <Pressable onPress={handleSave} disabled={saving} hitSlop={10}>

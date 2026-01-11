@@ -28,6 +28,7 @@ import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import ThemedTextInput from "../../../components/ThemedTextInput";
 import ThemedButton from "../../../components/ThemedButton";
+import { CategoryGridSkeleton, ServiceTypesListSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 import { uploadRequestImages } from "../../../lib/api/attachments";
 import {
@@ -713,7 +714,7 @@ export default function ClientHome() {
         </View>
 
         {loadingCategories ? (
-          <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 40 }} />
+          <CategoryGridSkeleton />
         ) : (
           <View style={styles.categoryGrid}>
             {categories.map((cat) => (
@@ -757,7 +758,7 @@ export default function ClientHome() {
         </View>
 
         {loadingServiceTypes ? (
-          <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 40 }} />
+          <ServiceTypesListSkeleton />
         ) : (
           <View style={styles.serviceTypeList}>
             {serviceTypes.map((type) => (

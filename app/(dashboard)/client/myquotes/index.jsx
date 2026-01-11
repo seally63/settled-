@@ -22,6 +22,7 @@ import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import ThemedButton from "../../../../components/ThemedButton";
 import Spacer from "../../../../components/Spacer";
+import { ProjectsPageSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
 
 const TINT = Colors?.light?.tint || "#6849a7";
@@ -1337,12 +1338,8 @@ export default function ClientProjects() {
         }
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Show loading indicator during initial load or focus refresh to prevent chip flicker */}
-        {isLoading && (
-          <View style={styles.loadingContainer}>
-            <ThemedText style={styles.loadingText}>Loading...</ThemedText>
-          </View>
-        )}
+        {/* Show skeleton loader during initial load or focus refresh to prevent chip flicker */}
+        {isLoading && <ProjectsPageSkeleton paddingTop={0} />}
         {/* Needs Attention Section */}
         {!isLoading && shouldShowSection("needsAttention") && projects.needsAttention.length > 0 && (
           <>
@@ -1785,16 +1782,5 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingVertical: 12,
     paddingHorizontal: 20,
-  },
-  // Loading state styles
-  loadingContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 60,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: "#6B7280",
   },
 });

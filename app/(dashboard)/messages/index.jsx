@@ -21,6 +21,7 @@ import { useUser } from "../../../hooks/useUser";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
+import { MessagesPageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 
 const TINT = Colors?.light?.tint || "#0ea5e9";
@@ -188,8 +189,8 @@ export default function MessagesIndex() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: 40 }}
-        ListEmptyComponent={!loading ? <Empty /> : null}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: 40, flexGrow: 1 }}
+        ListEmptyComponent={loading ? <MessagesPageSkeleton paddingTop={0} /> : <Empty />}
         renderItem={({ item }) => (
           <ConversationCard
             item={item}

@@ -94,7 +94,7 @@ export default function ReportIssue() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color="#111827" />
+          <Ionicons name="chevron-back" size={24} color="#111827" />
         </Pressable>
         <ThemedText style={styles.headerTitle}>Report an issue</ThemedText>
         <View style={{ width: 24 }} />

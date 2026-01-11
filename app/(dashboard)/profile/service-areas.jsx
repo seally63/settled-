@@ -106,16 +106,10 @@ export default function ServiceAreasScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
         </Pressable>
         <ThemedText style={styles.headerTitle}>Service area</ThemedText>
-        <Pressable onPress={handleSave} disabled={saving} hitSlop={10}>
-          {saving ? (
-            <ActivityIndicator size="small" color={Colors.primary} />
-          ) : (
-            <ThemedText style={styles.saveButton}>Save</ThemedText>
-          )}
-        </Pressable>
+        <View style={{ width: 24 }} />
       </View>
 
       <ScrollView
@@ -123,78 +117,96 @@ export default function ServiceAreasScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Info Section */}
-        <View style={styles.infoSection}>
-          <View style={styles.infoIconContainer}>
+        {/* Hero Section */}
+        <View style={styles.heroSection}>
+          <View style={styles.heroIconContainer}>
             <Ionicons name="location-outline" size={32} color={Colors.light.title} />
           </View>
           <Spacer height={16} />
-          <ThemedText style={styles.infoTitle}>
+          <ThemedText style={styles.heroTitle}>
             Set your travel radius
           </ThemedText>
           <Spacer height={8} />
-          <ThemedText style={styles.infoText}>
-            Clients within this distance from your base location will be able to find you when requesting quotes.
+          <ThemedText style={styles.heroText}>
+            Clients within this distance will find you when requesting quotes.
           </ThemedText>
         </View>
 
         <Spacer height={32} />
 
-        {/* Base Location Display */}
-        {basePostcode && (
-          <>
-            <View style={styles.section}>
-              <ThemedText style={styles.sectionLabel}>Base location</ThemedText>
-              <Spacer height={12} />
-              <View style={styles.baseLocationCard}>
-                <Ionicons name="home-outline" size={20} color={Colors.light.title} />
-                <ThemedText style={styles.baseLocationText}>
-                  {basePostcode}
-                </ThemedText>
-              </View>
-              <Spacer height={8} />
-              <ThemedText style={styles.helperText}>
-                This is your registered business address
+        {/* Settings Card */}
+        <View style={styles.settingsCard}>
+          {/* Base Location Row */}
+          <View style={styles.settingsRow}>
+            <View style={styles.settingsRowLeft}>
+              <ThemedText style={styles.settingsLabel}>Base location</ThemedText>
+            </View>
+            <View style={styles.settingsRowRight}>
+              <Ionicons name="home-outline" size={18} color={Colors.light.title} style={styles.settingsIcon} />
+              <ThemedText style={styles.settingsValue}>
+                {basePostcode || "Not set"}
               </ThemedText>
             </View>
+          </View>
 
-            <Spacer height={24} />
-          </>
-        )}
+          {/* Divider */}
+          <View style={styles.cardDivider} />
 
-        {/* Travel Radius */}
-        <View style={styles.section}>
-          <ThemedText style={styles.sectionLabel}>Travel radius</ThemedText>
-          <ThemedText style={styles.sectionSubtext}>
-            How far you're willing to travel for jobs
-          </ThemedText>
-          <Spacer height={12} />
+          {/* Travel Radius Row */}
           <Pressable
             style={({ pressed }) => [
-              styles.radiusButton,
-              pressed && styles.radiusButtonPressed,
+              styles.settingsRow,
+              styles.settingsRowTappable,
+              pressed && styles.settingsRowPressed,
             ]}
             onPress={() => setShowRadiusSheet(true)}
           >
-            <Ionicons name="navigate-outline" size={20} color={Colors.light.title} />
-            <ThemedText style={styles.radiusButtonText}>
-              {travelRadius} miles
-            </ThemedText>
-            <Ionicons name="chevron-forward" size={20} color={Colors.light.subtitle} />
+            <View style={styles.settingsRowLeft}>
+              <ThemedText style={styles.settingsLabel}>Travel radius</ThemedText>
+            </View>
+            <View style={styles.settingsRowRight}>
+              <Ionicons name="navigate-outline" size={18} color={Colors.light.title} style={styles.settingsIcon} />
+              <ThemedText style={styles.settingsValue}>
+                {travelRadius} miles
+              </ThemedText>
+              <Ionicons name="chevron-forward" size={18} color={Colors.light.subtitle} />
+            </View>
           </Pressable>
+        </View>
+
+        <Spacer height={24} />
+
+        {/* Info Box */}
+        <View style={styles.infoBox}>
+          <Ionicons name="information-circle-outline" size={20} color={Colors.light.subtitle} />
+          <ThemedText style={styles.infoText}>
+            Clients will see you in search results if their location is within{" "}
+            <ThemedText style={styles.infoTextBold}>{travelRadius} miles</ThemedText>
+            {" "}of{" "}
+            <ThemedText style={styles.infoTextBold}>{basePostcode || "your base address"}</ThemedText>.
+          </ThemedText>
         </View>
 
         <Spacer height={32} />
 
-        {/* Visual Explanation */}
-        <View style={styles.explanationCard}>
-          <Ionicons name="information-circle-outline" size={20} color={Colors.light.subtitle} />
-          <ThemedText style={styles.explanationText}>
-            Clients will see you in search results if their location is within {travelRadius} miles of {basePostcode || 'your base address'}.
-          </ThemedText>
-        </View>
+        {/* Save Button */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.primaryButton,
+            pressed && styles.primaryButtonPressed,
+            saving && styles.primaryButtonDisabled,
+          ]}
+          onPress={handleSave}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <ThemedText style={styles.primaryButtonText}>Save changes</ThemedText>
+          )}
+        </Pressable>
 
-        <Spacer height={insets.bottom > 0 ? insets.bottom + 20 : 40} />
+        <Spacer height={insets.bottom > 0 ? insets.bottom + 16 : 32} />
       </ScrollView>
 
       {/* Radius Picker Modal */}
@@ -282,11 +294,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.light.title,
   },
-  saveButton: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.primary,
-  },
   scrollView: {
     flex: 1,
   },
@@ -294,119 +301,141 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 16,
   },
-  infoSection: {
-    alignItems: 'center',
+  // Hero section
+  heroSection: {
+    alignItems: "center",
     paddingVertical: 24,
   },
-  infoIconContainer: {
+  heroIconContainer: {
     width: 64,
     height: 64,
     borderRadius: 32,
     backgroundColor: Colors.light.secondaryBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
-  infoTitle: {
+  heroTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Colors.light.title,
-    textAlign: 'center',
+    textAlign: "center",
   },
-  infoText: {
+  heroText: {
     fontSize: 15,
     color: Colors.light.subtitle,
-    textAlign: 'center',
+    textAlign: "center",
     lineHeight: 22,
     paddingHorizontal: 16,
   },
-  section: {
-    marginBottom: 8,
+  // Settings card
+  settingsCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    overflow: "hidden",
   },
-  sectionLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: Colors.light.subtitle,
-  },
-  sectionSubtext: {
-    fontSize: 13,
-    color: Colors.light.subtitle,
-    marginTop: 4,
-  },
-  baseLocationCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 14,
+  settingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 16,
     paddingHorizontal: 16,
+  },
+  settingsRowTappable: {
+    // No additional styling needed, just marking it as tappable
+  },
+  settingsRowPressed: {
     backgroundColor: Colors.light.secondaryBackground,
-    borderRadius: 12,
   },
-  baseLocationText: {
+  settingsRowLeft: {
     flex: 1,
-    fontSize: 16,
-    color: Colors.light.title,
-    fontWeight: '500',
   },
-  helperText: {
-    fontSize: 13,
+  settingsRowRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  settingsLabel: {
+    fontSize: 12,
     color: Colors.light.subtitle,
+    marginBottom: 2,
   },
-  radiusButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    backgroundColor: Colors.light.secondaryBackground,
-    borderRadius: 12,
+  settingsIcon: {
+    marginRight: 4,
   },
-  radiusButtonPressed: {
-    opacity: 0.7,
-  },
-  radiusButtonText: {
-    flex: 1,
+  settingsValue: {
     fontSize: 16,
+    fontWeight: "600",
     color: Colors.light.title,
   },
-  explanationCard: {
-    flexDirection: 'row',
+  cardDivider: {
+    height: 1,
+    backgroundColor: Colors.light.border,
+    marginHorizontal: 16,
+  },
+  // Info box
+  infoBox: {
+    flexDirection: "row",
     gap: 12,
     padding: 16,
-    backgroundColor: Colors.light.secondaryBackground,
+    backgroundColor: "#F9FAFB",
     borderRadius: 12,
-    alignItems: 'flex-start',
+    alignItems: "flex-start",
   },
-  explanationText: {
+  infoText: {
     flex: 1,
     fontSize: 14,
     color: Colors.light.subtitle,
     lineHeight: 20,
   },
+  infoTextBold: {
+    fontWeight: "600",
+    color: Colors.light.title,
+  },
+  primaryButton: {
+    backgroundColor: TINT,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryButtonPressed: {
+    opacity: 0.9,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.5,
+  },
+  primaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
   // Modal styles
   sheetOverlay: {
     flex: 1,
-    justifyContent: 'flex-end',
+    justifyContent: "flex-end",
   },
   sheetBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: "rgba(0,0,0,0.4)",
   },
   sheetContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
     paddingTop: 24,
-    maxHeight: '60%',
+    maxHeight: "60%",
   },
   sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   sheetTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Colors.light.title,
     flex: 1,
   },
@@ -418,16 +447,16 @@ const styles = StyleSheet.create({
     maxHeight: 300,
   },
   radiusOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingVertical: 16,
     paddingHorizontal: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.light.border,
   },
   radiusOptionSelected: {
-    backgroundColor: 'rgba(104, 73, 167, 0.05)',
+    backgroundColor: "rgba(104, 73, 167, 0.05)",
   },
   radiusOptionText: {
     fontSize: 16,
@@ -435,6 +464,6 @@ const styles = StyleSheet.create({
   },
   radiusOptionTextSelected: {
     color: TINT,
-    fontWeight: '500',
+    fontWeight: "500",
   },
 });

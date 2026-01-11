@@ -17,6 +17,7 @@ import Constants from "expo-constants";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
+import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
@@ -94,9 +95,7 @@ export default function SettingsScreen() {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
         <StatusBar style="dark" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator />
-        </View>
+        <SettingsFormSkeleton paddingTop={16} />
       </ThemedView>
     );
   }

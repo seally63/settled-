@@ -253,7 +253,7 @@ export default function AppointmentResponse() {
       <ThemedView style={styles.container}>
         <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
           <Pressable onPress={() => router.back()} hitSlop={10}>
-            <Ionicons name="arrow-back" size={24} color="#111827" />
+            <Ionicons name="chevron-back" size={24} color="#111827" />
           </Pressable>
           <ThemedText style={styles.headerTitle}>Appointment request</ThemedText>
           <View style={{ width: 24 }} />
@@ -271,7 +271,7 @@ export default function AppointmentResponse() {
       <ThemedView style={styles.container}>
         <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
           <Pressable onPress={() => setShowSuggestForm(false)} hitSlop={10}>
-            <Ionicons name="arrow-back" size={24} color="#111827" />
+            <Ionicons name="chevron-back" size={24} color="#111827" />
           </Pressable>
           <ThemedText style={styles.headerTitle}>Suggest another time</ThemedText>
           <View style={{ width: 24 }} />
@@ -362,7 +362,7 @@ export default function AppointmentResponse() {
     <ThemedView style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color="#111827" />
+          <Ionicons name="chevron-back" size={24} color="#111827" />
         </Pressable>
         <ThemedText style={styles.headerTitle}>Appointment request</ThemedText>
         <View style={{ width: 24 }} />

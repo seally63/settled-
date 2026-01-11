@@ -649,7 +649,7 @@ export default function MessageThread() {
           }}
           hitSlop={10}
         >
-          <Ionicons name="arrow-back" size={22} color="#0F172A" />
+          <Ionicons name="chevron-back" size={22} color="#0F172A" />
         </Pressable>
 
         <View style={styles.topBarCenter}>
