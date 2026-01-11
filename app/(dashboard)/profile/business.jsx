@@ -23,25 +23,31 @@ import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
+import { getServiceCategories, getServiceTypes } from "../../../lib/api/services";
 
 const PRIMARY = Colors?.light?.tint || "#7C3AED";
 
-const SERVICE_OPTIONS = [
-  "Plumbing",
-  "Electrical",
-  "HVAC",
-  "Roofing",
-  "Painting",
-  "Carpentry",
-  "Landscaping",
-  "General Contracting",
-  "Flooring",
-  "Tiling",
-  "Masonry",
-  "Drywall",
-  "Window Installation",
-  "Fencing",
-  "Pressure Washing",
+// Trade job titles options (same as registration)
+const JOB_TITLE_OPTIONS = [
+  "Plumber",
+  "Electrician",
+  "Heating Engineer",
+  "Roofer",
+  "Painter & Decorator",
+  "Carpenter",
+  "Tiler",
+  "Landscaper",
+  "General Builder",
+  "Locksmith",
+  "Window Fitter",
+  "Flooring Specialist",
+  "Plasterer",
+  "Bricklayer",
+  "HVAC Technician",
+  "Fencer",
+  "Driveway Specialist",
+  "Cleaner",
+  "Handyman",
 ];
 
 export default function BusinessInfoScreen() {
@@ -51,19 +57,29 @@ export default function BusinessInfoScreen() {
 
   const [businessName, setBusinessName] = useState("");
   const [bio, setBio] = useState("");
-  const [selectedServices, setSelectedServices] = useState([]);
+  const [selectedJobTitles, setSelectedJobTitles] = useState([]);
+  const [selectedServiceIds, setSelectedServiceIds] = useState([]); // Array of service_type IDs
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showLockedModal, setShowLockedModal] = useState(false);
+  const [showJobTitlesSheet, setShowJobTitlesSheet] = useState(false);
+  const [showServicesSheet, setShowServicesSheet] = useState(false);
+
+  // Categories and service types from database
+  const [categories, setCategories] = useState([]);
+  const [serviceTypesByCategory, setServiceTypesByCategory] = useState({});
+  const [expandedCategories, setExpandedCategories] = useState({});
+  const [loadingServices, setLoadingServices] = useState(false);
+  const [serviceSearch, setServiceSearch] = useState("");
 
   const handleContactSupport = () => {
     setShowLockedModal(false);
-    // Open email client with support email
     Linking.openURL("mailto:support@settled.app?subject=Business%20Name%20Change%20Request");
   };
 
   useEffect(() => {
     loadProfile();
+    loadCategories();
   }, []);
 
   async function loadProfile() {
@@ -71,7 +87,8 @@ export default function BusinessInfoScreen() {
       const profile = await getMyProfile();
       setBusinessName(profile?.business_name || "");
       setBio(profile?.bio || "");
-      setSelectedServices(profile?.services || []);
+      setSelectedJobTitles(profile?.job_titles || []);
+      setSelectedServiceIds(profile?.service_type_ids || []);
     } catch (e) {
       console.log("Error loading profile:", e);
     } finally {
@@ -79,12 +96,85 @@ export default function BusinessInfoScreen() {
     }
   }
 
-  function toggleService(service) {
-    setSelectedServices((prev) =>
-      prev.includes(service)
-        ? prev.filter((s) => s !== service)
-        : [...prev, service]
+  async function loadCategories() {
+    try {
+      setLoadingServices(true);
+      const cats = await getServiceCategories();
+      setCategories(cats);
+
+      // Load service types for each category
+      const typesByCategory = {};
+      for (const cat of cats) {
+        const types = await getServiceTypes(cat.id);
+        typesByCategory[cat.id] = types;
+      }
+      setServiceTypesByCategory(typesByCategory);
+    } catch (e) {
+      console.log("Error loading categories:", e);
+    } finally {
+      setLoadingServices(false);
+    }
+  }
+
+  function toggleCategory(categoryId) {
+    setExpandedCategories((prev) => ({
+      ...prev,
+      [categoryId]: !prev[categoryId],
+    }));
+  }
+
+  function toggleService(serviceId) {
+    setSelectedServiceIds((prev) =>
+      prev.includes(serviceId)
+        ? prev.filter((id) => id !== serviceId)
+        : [...prev, serviceId]
     );
+  }
+
+  function toggleJobTitle(title) {
+    setSelectedJobTitles((prev) => {
+      if (prev.includes(title)) {
+        return prev.filter((t) => t !== title);
+      }
+      if (prev.length >= 3) {
+        Alert.alert("Limit reached", "You can select up to 3 job titles.");
+        return prev;
+      }
+      return [...prev, title];
+    });
+  }
+
+  // Get count of selected services per category
+  function getSelectedCountForCategory(categoryId) {
+    const types = serviceTypesByCategory[categoryId] || [];
+    return types.filter((t) => selectedServiceIds.includes(t.id)).length;
+  }
+
+  // Group selected services by category for display (returns {categoryName: [{id, name}, ...], ...})
+  function getGroupedSelectedServices() {
+    const grouped = {};
+    for (const cat of categories) {
+      const types = serviceTypesByCategory[cat.id] || [];
+      const selected = types.filter((t) => selectedServiceIds.includes(t.id));
+      if (selected.length > 0) {
+        grouped[cat.name] = selected; // Keep full objects for id and name
+      }
+    }
+    return grouped;
+  }
+
+  // Filter services by search
+  function getFilteredCategories() {
+    if (!serviceSearch.trim()) return categories;
+
+    const search = serviceSearch.toLowerCase();
+    return categories.filter((cat) => {
+      const types = serviceTypesByCategory[cat.id] || [];
+      return (
+        cat.name.toLowerCase().includes(search) ||
+        types.some((t) => t.name.toLowerCase().includes(search))
+      );
+    });
   }
 
   async function handleSave() {
@@ -92,7 +182,8 @@ export default function BusinessInfoScreen() {
       setSaving(true);
       await updateMyProfile({
         bio: bio.trim(),
-        services: selectedServices,
+        job_titles: selectedJobTitles,
+        service_type_ids: selectedServiceIds,
       });
       Alert.alert("Success", "Business info updated.", [
         { text: "OK", onPress: () => router.back() },
@@ -115,6 +206,8 @@ export default function BusinessInfoScreen() {
     );
   }
 
+  const groupedServices = getGroupedSelectedServices();
+
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style="dark" />
@@ -122,16 +215,10 @@ export default function BusinessInfoScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
         </Pressable>
         <ThemedText style={styles.headerTitle}>Business info</ThemedText>
-        <Pressable onPress={handleSave} disabled={saving} hitSlop={10}>
-          {saving ? (
-            <ActivityIndicator size="small" color={Colors.primary} />
-          ) : (
-            <ThemedText style={styles.saveButton}>Save</ThemedText>
-          )}
-        </Pressable>
+        <View style={{ width: 24 }} />
       </View>
 
       <ScrollView
@@ -170,44 +257,292 @@ export default function BusinessInfoScreen() {
 
         <Spacer height={24} />
 
+        {/* Job Titles */}
+        <ThemedText style={styles.label}>Job title</ThemedText>
+        <ThemedText style={styles.hintText}>Select up to 3</ThemedText>
+        <Spacer height={8} />
+        <Pressable
+          style={styles.dropdownButton}
+          onPress={() => setShowJobTitlesSheet(true)}
+        >
+          <ThemedText style={selectedJobTitles.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder}>
+            {selectedJobTitles.length > 0 ? `${selectedJobTitles.length} selected` : 'Select job titles...'}
+          </ThemedText>
+          <Ionicons name="chevron-down" size={20} color={Colors.light.subtitle} />
+        </Pressable>
+
+        {/* Selected Job Titles Chips */}
+        {selectedJobTitles.length > 0 && (
+          <View style={styles.chipsContainer}>
+            {selectedJobTitles.map((title) => (
+              <View key={title} style={styles.chip}>
+                <ThemedText style={styles.chipText}>{title}</ThemedText>
+                <Pressable
+                  onPress={() => setSelectedJobTitles((prev) => prev.filter((t) => t !== title))}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={16} color="#6B7280" />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+
+        <Spacer height={24} />
+
         {/* Services */}
         <ThemedText style={styles.label}>Services offered</ThemedText>
-        <ThemedText style={styles.servicesHint}>
-          Select all services you provide
-        </ThemedText>
+        <ThemedText style={styles.hintText}>Optional - helps clients find you</ThemedText>
+        <Spacer height={8} />
+        <Pressable
+          style={styles.dropdownButton}
+          onPress={() => setShowServicesSheet(true)}
+        >
+          <ThemedText style={selectedServiceIds.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder}>
+            {selectedServiceIds.length > 0 ? `${selectedServiceIds.length} selected` : 'Add services...'}
+          </ThemedText>
+          <Ionicons name="chevron-down" size={20} color={Colors.light.subtitle} />
+        </Pressable>
 
-        <Spacer height={12} />
+        {/* Selected Services grouped by category */}
+        {Object.keys(groupedServices).length > 0 && (
+          <View style={styles.groupedChipsContainer}>
+            {Object.entries(groupedServices).map(([categoryName, services]) => (
+              <View key={categoryName} style={styles.categoryGroup}>
+                <ThemedText style={styles.categoryLabel}>{categoryName}</ThemedText>
+                <View style={styles.chipsContainer}>
+                  {services.map((service) => (
+                    <View key={service.id} style={styles.chip}>
+                      <ThemedText style={styles.chipText}>{service.name}</ThemedText>
+                      <Pressable
+                        onPress={() => toggleService(service.id)}
+                        hitSlop={8}
+                      >
+                        <Ionicons name="close" size={16} color="#6B7280" />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
 
-        <View style={styles.servicesGrid}>
-          {SERVICE_OPTIONS.map((service) => {
-            const isSelected = selectedServices.includes(service);
-            return (
-              <Pressable
-                key={service}
-                style={[
-                  styles.serviceChip,
-                  isSelected && styles.serviceChipSelected,
-                ]}
-                onPress={() => toggleService(service)}
-              >
-                <ThemedText
-                  style={[
-                    styles.serviceChipText,
-                    isSelected && styles.serviceChipTextSelected,
-                  ]}
-                >
-                  {service}
-                </ThemedText>
-                {isSelected && (
-                  <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
+        {selectedServiceIds.length === 0 && (
+          <ThemedText style={styles.emptyServicesText}>No services added yet</ThemedText>
+        )}
 
-        <Spacer height={insets.bottom > 0 ? insets.bottom + 20 : 40} />
+        <Spacer height={32} />
+
+        {/* Save Button */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.primaryButton,
+            pressed && styles.primaryButtonPressed,
+            saving && styles.primaryButtonDisabled,
+          ]}
+          onPress={handleSave}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <ThemedText style={styles.primaryButtonText}>Save changes</ThemedText>
+          )}
+        </Pressable>
+
+        <Spacer height={insets.bottom > 0 ? insets.bottom + 16 : 32} />
       </ScrollView>
+
+      {/* Job Titles Bottom Sheet */}
+      <Modal
+        visible={showJobTitlesSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowJobTitlesSheet(false)}
+      >
+        <View style={styles.sheetOverlay}>
+          <Pressable
+            style={styles.sheetBackdrop}
+            onPress={() => setShowJobTitlesSheet(false)}
+          />
+          <View style={styles.sheetContent}>
+            <View style={styles.sheetHeader}>
+              <ThemedText style={styles.sheetTitle}>What's your job title?</ThemedText>
+              <Pressable onPress={() => setShowJobTitlesSheet(false)} hitSlop={10}>
+                <Ionicons name="close" size={24} color={Colors.light.title} />
+              </Pressable>
+            </View>
+
+            <ThemedText style={styles.sheetSubtitle}>Select up to 3</ThemedText>
+            <Spacer height={16} />
+
+            <ScrollView style={styles.sheetList} showsVerticalScrollIndicator={false}>
+              {JOB_TITLE_OPTIONS.map((title) => {
+                const isSelected = selectedJobTitles.includes(title);
+                return (
+                  <Pressable
+                    key={title}
+                    style={[styles.sheetListItem, isSelected && styles.sheetListItemSelected]}
+                    onPress={() => toggleJobTitle(title)}
+                  >
+                    <ThemedText style={[styles.sheetListItemText, isSelected && styles.sheetListItemTextSelected]}>
+                      {title}
+                    </ThemedText>
+                    {isSelected && (
+                      <Ionicons name="checkmark" size={20} color={PRIMARY} />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <Spacer height={16} />
+
+            <Pressable
+              style={styles.sheetDoneBtn}
+              onPress={() => setShowJobTitlesSheet(false)}
+            >
+              <ThemedText style={styles.sheetDoneBtnText}>
+                Done {selectedJobTitles.length > 0 ? `(${selectedJobTitles.length})` : ''}
+              </ThemedText>
+            </Pressable>
+
+            <Spacer height={insets.bottom > 0 ? insets.bottom : 16} />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Services Bottom Sheet with Categories */}
+      <Modal
+        visible={showServicesSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowServicesSheet(false)}
+      >
+        <View style={styles.sheetOverlay}>
+          <Pressable
+            style={styles.sheetBackdrop}
+            onPress={() => setShowServicesSheet(false)}
+          />
+          <View style={[styles.sheetContent, styles.servicesSheetContent]}>
+            <View style={styles.sheetHeader}>
+              <ThemedText style={styles.sheetTitle}>Add services</ThemedText>
+              <Pressable onPress={() => setShowServicesSheet(false)} hitSlop={10}>
+                <Ionicons name="close" size={24} color={Colors.light.title} />
+              </Pressable>
+            </View>
+
+            <ThemedText style={styles.sheetSubtitle}>Select all that apply</ThemedText>
+            <Spacer height={16} />
+
+            {/* Search */}
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={20} color={Colors.light.subtitle} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search services..."
+                placeholderTextColor={Colors.light.subtitle}
+                value={serviceSearch}
+                onChangeText={setServiceSearch}
+              />
+              {serviceSearch.length > 0 && (
+                <Pressable onPress={() => setServiceSearch("")} hitSlop={10}>
+                  <Ionicons name="close-circle" size={20} color={Colors.light.subtitle} />
+                </Pressable>
+              )}
+            </View>
+
+            <Spacer height={16} />
+
+            {loadingServices ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator />
+              </View>
+            ) : (
+              <ScrollView style={styles.sheetList} showsVerticalScrollIndicator={false}>
+                {getFilteredCategories().map((category) => {
+                  const isExpanded = expandedCategories[category.id];
+                  const types = serviceTypesByCategory[category.id] || [];
+                  const selectedCount = getSelectedCountForCategory(category.id);
+
+                  // Filter types by search
+                  const filteredTypes = serviceSearch.trim()
+                    ? types.filter((t) => t.name.toLowerCase().includes(serviceSearch.toLowerCase()))
+                    : types;
+
+                  if (serviceSearch.trim() && filteredTypes.length === 0) return null;
+
+                  return (
+                    <View key={category.id}>
+                      {/* Category Header */}
+                      <Pressable
+                        style={styles.categoryHeader}
+                        onPress={() => toggleCategory(category.id)}
+                      >
+                        <View style={styles.categoryHeaderLeft}>
+                          <Ionicons
+                            name={isExpanded ? "chevron-down" : "chevron-forward"}
+                            size={20}
+                            color={Colors.light.subtitle}
+                          />
+                          <ThemedText style={styles.categoryHeaderText}>
+                            {category.name}
+                            {selectedCount > 0 && (
+                              <ThemedText style={styles.categoryCount}> ({selectedCount})</ThemedText>
+                            )}
+                          </ThemedText>
+                        </View>
+                      </Pressable>
+
+                      {/* Service Types (when expanded or searching) */}
+                      {(isExpanded || serviceSearch.trim()) && (
+                        <View style={styles.serviceTypesContainer}>
+                          {filteredTypes.map((type) => {
+                            const isSelected = selectedServiceIds.includes(type.id);
+                            return (
+                              <Pressable
+                                key={type.id}
+                                style={styles.serviceTypeItem}
+                                onPress={() => toggleService(type.id)}
+                              >
+                                <Ionicons
+                                  name={isSelected ? "checkbox" : "square-outline"}
+                                  size={22}
+                                  color={isSelected ? PRIMARY : Colors.light.subtitle}
+                                />
+                                <ThemedText style={[
+                                  styles.serviceTypeText,
+                                  isSelected && styles.serviceTypeTextSelected,
+                                ]}>
+                                  {type.name}
+                                </ThemedText>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            <Spacer height={16} />
+
+            <Pressable
+              style={styles.sheetDoneBtn}
+              onPress={() => setShowServicesSheet(false)}
+            >
+              <ThemedText style={styles.sheetDoneBtnText}>
+                Done {selectedServiceIds.length > 0 ? `(${selectedServiceIds.length} selected)` : ''}
+              </ThemedText>
+            </Pressable>
+
+            <Spacer height={insets.bottom > 0 ? insets.bottom : 16} />
+          </View>
+        </View>
+      </Modal>
 
       {/* Locked Business Name Modal */}
       <Modal
@@ -222,7 +557,6 @@ export default function BusinessInfoScreen() {
             onPress={() => setShowLockedModal(false)}
           />
           <View style={styles.modalContent}>
-            {/* Lock Icon */}
             <View style={styles.modalIconContainer}>
               <Ionicons name="lock-closed" size={32} color="#6B7280" />
             </View>
@@ -241,7 +575,6 @@ export default function BusinessInfoScreen() {
 
             <Spacer height={24} />
 
-            {/* Contact Support Button */}
             <Pressable
               style={styles.modalPrimaryBtn}
               onPress={handleContactSupport}
@@ -253,7 +586,6 @@ export default function BusinessInfoScreen() {
 
             <Spacer height={12} />
 
-            {/* Cancel Link */}
             <Pressable
               style={styles.modalCancelBtn}
               onPress={() => setShowLockedModal(false)}
@@ -291,11 +623,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.light.title,
   },
-  saveButton: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.primary,
-  },
   scrollView: {
     flex: 1,
   },
@@ -307,6 +634,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     color: Colors.light.title,
+    marginBottom: 4,
+  },
+  hintText: {
+    fontSize: 12,
+    color: Colors.light.subtitle,
     marginBottom: 8,
   },
   lockedField: {
@@ -322,12 +654,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.light.subtitle,
     flex: 1,
-  },
-  lockedHint: {
-    fontSize: 12,
-    color: Colors.light.subtitle,
-    marginTop: 6,
-    fontStyle: "italic",
   },
   bioInput: {
     backgroundColor: "#FFFFFF",
@@ -347,36 +673,210 @@ const styles = StyleSheet.create({
     textAlign: "right",
     marginTop: 4,
   },
-  servicesHint: {
-    fontSize: 13,
-    color: Colors.light.subtitle,
+  dropdownButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    minHeight: 52,
   },
-  servicesGrid: {
+  dropdownText: {
+    fontSize: 16,
+    color: Colors.light.title,
+    flex: 1,
+  },
+  dropdownPlaceholder: {
+    fontSize: 16,
+    color: Colors.light.subtitle,
+    flex: 1,
+  },
+  chipsContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
+    marginTop: 8,
   },
-  serviceChip: {
+  groupedChipsContainer: {
+    marginTop: 12,
+  },
+  categoryGroup: {
+    marginBottom: 12,
+  },
+  categoryLabel: {
+    fontSize: 12,
+    color: Colors.light.subtitle,
+    marginBottom: 6,
+  },
+  chip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.light.border,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: Colors.light.secondaryBackground,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
   },
-  serviceChipSelected: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  serviceChipText: {
+  chipText: {
     fontSize: 14,
     color: Colors.light.title,
   },
-  serviceChipTextSelected: {
+  emptyServicesText: {
+    fontSize: 14,
+    color: Colors.light.subtitle,
+    textAlign: "center",
+    marginTop: 16,
+  },
+  primaryButton: {
+    backgroundColor: PRIMARY,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryButtonPressed: {
+    opacity: 0.9,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.5,
+  },
+  primaryButtonText: {
     color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  // Sheet styles
+  sheetOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  sheetContent: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    maxHeight: "80%",
+  },
+  servicesSheetContent: {
+    maxHeight: "85%",
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: Colors.light.title,
+    flex: 1,
+  },
+  sheetSubtitle: {
+    fontSize: 14,
+    color: Colors.light.subtitle,
+    marginTop: 4,
+  },
+  sheetList: {
+    maxHeight: 400,
+  },
+  sheetListItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 16,
+    paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.light.border,
+  },
+  sheetListItemSelected: {
+    backgroundColor: "rgba(104, 73, 167, 0.05)",
+  },
+  sheetListItemText: {
+    fontSize: 16,
+    color: Colors.light.title,
+    flex: 1,
+  },
+  sheetListItemTextSelected: {
+    color: PRIMARY,
+    fontWeight: "500",
+  },
+  sheetDoneBtn: {
+    backgroundColor: PRIMARY,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetDoneBtnText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  // Search
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: Colors.light.secondaryBackground,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: Colors.light.title,
+    padding: 0,
+  },
+  // Category accordion
+  categoryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.light.border,
+  },
+  categoryHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  categoryHeaderText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: Colors.light.title,
+  },
+  categoryCount: {
+    fontSize: 14,
+    color: Colors.light.subtitle,
+    fontWeight: "400",
+  },
+  serviceTypesContainer: {
+    paddingLeft: 28,
+  },
+  serviceTypeItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+  },
+  serviceTypeText: {
+    fontSize: 15,
+    color: Colors.light.title,
+  },
+  serviceTypeTextSelected: {
+    color: PRIMARY,
+    fontWeight: "500",
   },
   // Modal styles
   modalOverlay: {

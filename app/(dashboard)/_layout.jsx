@@ -117,7 +117,7 @@ export default function DashboardLayout() {
             tabBarIcon: ({ focused, color, size = 24 }) => (
               <Ionicons
                 size={size}
-                name={focused ? 'home' : 'home-outline'}
+                name={focused ? 'home-sharp' : 'home-outline'}
                 color={color}
               />
             ),
@@ -131,7 +131,7 @@ export default function DashboardLayout() {
             tabBarIcon: ({ focused, color, size = 24 }) => (
               <Ionicons
                 size={size}
-                name={focused ? 'briefcase' : 'briefcase-outline'}
+                name={focused ? 'folder-open' : 'folder-open-outline'}
                 color={color}
               />
             ),
@@ -147,7 +147,7 @@ export default function DashboardLayout() {
             tabBarIcon: ({ focused, color, size = 24 }) => (
               <Ionicons
                 size={size}
-                name={focused ? 'home' : 'home-outline'}
+                name={focused ? 'home-sharp' : 'home-outline'}
                 color={color}
               />
             ),
@@ -161,7 +161,7 @@ export default function DashboardLayout() {
             tabBarIcon: ({ focused, color, size = 24 }) => (
               <Ionicons
                 size={size}
-                name={focused ? 'briefcase' : 'briefcase-outline'}
+                name={focused ? 'folder-open' : 'folder-open-outline'}
                 color={color}
               />
             ),
@@ -176,7 +176,7 @@ export default function DashboardLayout() {
             tabBarIcon: ({ focused, color, size = 24 }) => (
               <Ionicons
                 size={size}
-                name={focused ? 'chatbubbles' : 'chatbubbles-outline'}
+                name={focused ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
                 color={color}
               />
             ),
@@ -198,7 +198,7 @@ export default function DashboardLayout() {
             tabBarIcon: ({ focused, color, size = 24 }) => (
               <Ionicons
                 size={size}
-                name={focused ? 'person' : 'person-outline'}
+                name={focused ? 'person-circle' : 'person-circle-outline'}
                 color={color}
               />
             ),
