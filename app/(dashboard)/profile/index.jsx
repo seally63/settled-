@@ -1,5 +1,6 @@
 // app/(dashboard)/profile/index.jsx
-import { useEffect, useState, useCallback, useRef } from "react";
+// Profile page - shows profile card with burger menu to settings
+import { useEffect, useState, useCallback } from "react";
 import {
   StyleSheet,
   View,
@@ -12,7 +13,6 @@ import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
@@ -22,11 +22,13 @@ import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { getMyRole, getMyProfile } from "../../../lib/api/profile";
 
+const PRIMARY = Colors?.light?.tint || "#7C3AED";
+
 // Keep tab label + icon
 export const options = {
   title: "Profile",
   tabBarIcon: ({ color, size, focused }) => (
-    <Ionicons name={focused ? "person" : "person-outline"} size={size} color={color} />
+    <Ionicons name={focused ? "person-circle" : "person-circle-outline"} size={size} color={color} />
   ),
 };
 
@@ -47,10 +49,19 @@ function getInitials(name) {
   return name.slice(0, 2).toUpperCase();
 }
 
-export default function MyProfileScreen() {
+function getNameWithInitial(fullName) {
+  if (!fullName) return "";
+  const parts = fullName.trim().split(" ");
+  if (parts.length >= 2) {
+    return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+  }
+  return fullName;
+}
+
+export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, authChecked, logout } = useUser();
+  const { user, authChecked } = useUser();
 
   const [role, setRole] = useState(null);
   const [roleLoading, setRoleLoading] = useState(true);
@@ -94,7 +105,7 @@ export default function MyProfileScreen() {
     if (role) loadProfile();
   }, [user?.id, role, loadProfile]);
 
-  // Reload when screen comes into focus (e.g., after updating photo)
+  // Reload when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       if (role && user?.id) {
@@ -102,10 +113,6 @@ export default function MyProfileScreen() {
       }
     }, [role, user?.id, loadProfile])
   );
-
-  const onSignOut = useCallback(() => {
-    router.push("/profile/signout");
-  }, [router]);
 
   if (roleLoading || loadingData) {
     return (
@@ -120,30 +127,26 @@ export default function MyProfileScreen() {
 
   const isTrades = role === "trades";
 
-  // Verification status (mock for now - would come from profile data)
+  // Get display data
+  const displayName = profile?.full_name || user?.email || "User";
+  const businessName = profile?.business_name;
+  const photoUrl = profile?.photo_url;
+  const jobTitles = profile?.job_titles || [];
+  const basePostcode = profile?.base_postcode;
+
+  // Verification status
   const verification = profile?.verification || {
     photo_id: "not_started",
     insurance: "not_started",
     credentials: "not_started",
   };
 
-  const verificationCount = [
-    verification.photo_id === "verified",
-    verification.insurance === "verified",
-    verification.credentials === "verified",
-  ].filter(Boolean).length;
+  // Review data
+  const reviewCount = profile?.review_count || 0;
+  const averageRating = profile?.average_rating || 0;
 
-  const isFullyVerified = verificationCount === 3;
-  const hasActionNeeded = verification.insurance === "expired" || verification.insurance === "expiring_soon";
-
-  // Get display name
-  const displayName = profile?.full_name || user?.email || "User";
-  const businessName = profile?.business_name;
-  const email = profile?.email || user?.email;
-  const phone = profile?.phone;
-  const photoUrl = profile?.photo_url;
-
-  const appVersion = Constants.expoConfig?.version || "1.0.0";
+  // Client data
+  const projectCount = profile?.project_count || 0;
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
@@ -152,327 +155,217 @@ export default function MyProfileScreen() {
       {/* Header */}
       <View style={styles.header}>
         <ThemedText style={styles.headerTitle}>Profile</ThemedText>
+        <Pressable
+          onPress={() => router.push("/profile/settings")}
+          hitSlop={10}
+          style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="menu-outline" size={26} color={Colors.light.title} />
+        </Pressable>
       </View>
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Profile Header Card */}
-        <View style={styles.profileCard}>
-          {/* Avatar */}
-          <Pressable
-            style={styles.avatarContainer}
-            onPress={() => router.push("/profile/photo")}
-          >
-            {photoUrl ? (
-              <Image source={{ uri: photoUrl }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarFallback]}>
-                <ThemedText style={styles.avatarInitials}>
-                  {getInitials(displayName)}
-                </ThemedText>
-              </View>
-            )}
-          </Pressable>
-          <Pressable onPress={() => router.push("/profile/photo")}>
-            <ThemedText style={styles.photoLink}>
-              {photoUrl ? "Edit" : "+ Add photo"}
-            </ThemedText>
-          </Pressable>
-
-          <Spacer height={12} />
-
-          {/* Name display */}
-          {isTrades && businessName ? (
-            <>
-              <ThemedText style={styles.businessName}>{businessName}</ThemedText>
-              <ThemedText style={styles.personalName}>{displayName}</ThemedText>
-            </>
-          ) : (
-            <>
-              <ThemedText style={styles.businessName}>{displayName}</ThemedText>
-              <ThemedText style={styles.emailText}>{email}</ThemedText>
-            </>
-          )}
-
-          {/* Verification badge for trades */}
-          {isTrades && (
-            <View style={styles.badgeContainer}>
-              {isFullyVerified ? (
-                <View style={styles.verifiedBadge}>
-                  <Ionicons name="checkmark-circle" size={14} color={Colors.success} />
-                  <ThemedText style={styles.verifiedText}>Verified</ThemedText>
-                </View>
-              ) : hasActionNeeded ? (
-                <View style={styles.actionBadge}>
-                  <Ionicons name="warning" size={14} color="#D97706" />
-                  <ThemedText style={styles.actionText}>Action needed</ThemedText>
-                </View>
-              ) : null}
-            </View>
-          )}
-        </View>
-
-        {/* Verification Banner for Trades */}
-        {isTrades && !isFullyVerified && !hasActionNeeded && (
-          <View style={styles.verificationBanner}>
-            <Ionicons name="warning" size={20} color="#D97706" />
-            <View style={styles.bannerContent}>
-              <ThemedText style={styles.bannerTitle}>Complete verification</ThemedText>
-              <ThemedText style={styles.bannerText}>
-                Verify your details to start receiving quote requests from customers.
-              </ThemedText>
-              <View style={styles.progressBar}>
-                <View style={[styles.progressFill, { width: `${(verificationCount / 3) * 100}%` }]} />
-              </View>
-              <ThemedText style={styles.progressText}>{verificationCount} of 3 complete</ThemedText>
-            </View>
-          </View>
-        )}
-
-        {/* Action needed banner */}
-        {isTrades && hasActionNeeded && (
-          <View style={styles.actionBanner}>
-            <Ionicons name="warning" size={20} color="#DC2626" />
-            <View style={styles.bannerContent}>
-              <ThemedText style={styles.actionBannerTitle}>Insurance expired</ThemedText>
-              <ThemedText style={styles.bannerText}>
-                Your insurance has expired. Upload a new certificate to continue receiving quotes.
-              </ThemedText>
-              <Pressable
-                style={styles.updateButton}
-                onPress={() => router.push("/profile/insurance")}
-              >
-                <ThemedText style={styles.updateButtonText}>Update now</ThemedText>
-              </Pressable>
-            </View>
-          </View>
-        )}
-
-        {/* Verification Section (Trades only) */}
-        {isTrades && (
-          <>
-            <ThemedText style={styles.sectionLabel}>VERIFICATION</ThemedText>
-            <View style={styles.sectionCard}>
-              <ProfileRow
-                icon="person-outline"
-                label="Photo ID"
-                value={getVerificationStatusText(verification.photo_id)}
-                statusIcon={getVerificationStatusIcon(verification.photo_id)}
-                onPress={() => router.push("/profile/photo-id")}
-              />
-              <View style={styles.divider} />
-              <ProfileRow
-                icon="shield-outline"
-                label="Insurance"
-                value={getVerificationStatusText(verification.insurance)}
-                statusIcon={getVerificationStatusIcon(verification.insurance)}
-                onPress={() => router.push("/profile/insurance")}
-              />
-              <View style={styles.divider} />
-              <ProfileRow
-                icon="ribbon-outline"
-                label="Credentials"
-                value={getVerificationStatusText(verification.credentials)}
-                statusIcon={getVerificationStatusIcon(verification.credentials)}
-                onPress={() => router.push("/profile/credentials")}
-              />
-            </View>
-          </>
-        )}
-
-        {/* Personal Details Section (Trades) */}
-        {isTrades && (
-          <>
-            <ThemedText style={styles.sectionLabel}>PERSONAL DETAILS</ThemedText>
-            <View style={styles.sectionCard}>
-              <ProfileRow
-                icon="person-outline"
-                label="Name"
-                value={displayName}
-                locked={true}
-              />
-              <View style={styles.divider} />
-              <ProfileRow
-                icon="mail-outline"
-                label="Email"
-                value={email || "Not added"}
-                onPress={() => router.push("/profile/change-email")}
-              />
-              <View style={styles.divider} />
-              <ProfileRow
-                icon="call-outline"
-                label="Phone"
-                value={phone || "Not added"}
-                onPress={() => router.push("/profile/change-phone")}
-              />
-            </View>
-          </>
-        )}
-
-        {/* Business Section (Trades only) */}
-        {isTrades && (
-          <>
-            <ThemedText style={styles.sectionLabel}>BUSINESS</ThemedText>
-            <View style={styles.sectionCard}>
-              <ProfileRow
-                icon="briefcase-outline"
-                label="Business info"
-                value={businessName || "Not set up"}
-                onPress={() => router.push("/profile/business")}
-              />
-              <View style={styles.divider} />
-              <ProfileRow
-                icon="location-outline"
-                label="Service areas"
-                value={profile?.base_postcode || "Not set up"}
-                onPress={() => router.push("/profile/service-areas")}
-              />
-            </View>
-          </>
-        )}
-
-        {/* Personal Details Section (Client) */}
-        {!isTrades && (
-          <>
-            <ThemedText style={styles.sectionLabel}>PERSONAL DETAILS</ThemedText>
-            <View style={styles.sectionCard}>
-              <ProfileRow
-                icon="person-outline"
-                label="Name"
-                value={displayName}
-                locked={true}
-              />
-              <View style={styles.divider} />
-              <ProfileRow
-                icon="mail-outline"
-                label="Email"
-                value={email || "Not added"}
-                onPress={() => router.push("/profile/change-email")}
-              />
-              <View style={styles.divider} />
-              <ProfileRow
-                icon="call-outline"
-                label="Phone"
-                value={phone || "Not added"}
-                onPress={() => router.push("/profile/change-phone")}
-              />
-              <View style={styles.divider} />
-              <ProfileRow
-                icon="home-outline"
-                label="Address"
-                value={profile?.address?.line1 || "Not added"}
-                onPress={() => router.push("/profile/address")}
-              />
-            </View>
-          </>
-        )}
-
-        {/* Account Section */}
-        <ThemedText style={styles.sectionLabel}>ACCOUNT</ThemedText>
-        <View style={styles.sectionCard}>
-          <ProfileRow
-            icon="notifications-outline"
-            label="Notifications"
-            onPress={() => router.push("/profile/notifications")}
+        {/* Profile Card */}
+        {isTrades ? (
+          <TradeProfileCard
+            photoUrl={photoUrl}
+            businessName={businessName}
+            displayName={displayName}
+            reviewCount={reviewCount}
+            averageRating={averageRating}
+            verification={verification}
+            jobTitles={jobTitles}
+            basePostcode={basePostcode}
           />
-          <View style={styles.divider} />
-          <ProfileRow
-            icon="help-circle-outline"
-            label="Help & support"
-            onPress={() => router.push("/profile/help")}
+        ) : (
+          <ClientProfileCard
+            photoUrl={photoUrl}
+            displayName={displayName}
+            projectCount={projectCount}
           />
-          <View style={styles.divider} />
-          <ProfileRow
-            icon="log-out-outline"
-            label="Sign out"
-            onPress={onSignOut}
-          />
-        </View>
+        )}
 
-        {/* App Version */}
-        <View style={styles.versionContainer}>
-          <ThemedText style={styles.versionText}>App version {appVersion}</ThemedText>
-        </View>
-
-        <Spacer height={40} />
+        <Spacer height={insets.bottom > 0 ? insets.bottom + 24 : 40} />
       </ScrollView>
     </ThemedView>
   );
 }
 
-// Helper functions for verification status
-function getVerificationStatusText(status) {
-  switch (status) {
-    case "verified": return "Verified";
-    case "under_review": return "Under review";
-    case "submitted": return "Submitted";
-    case "rejected": return "Rejected";
-    case "expired": return "Expired";
-    case "expiring_soon": return "Expiring soon";
-    default: return "Not started";
-  }
-}
+// Trade Profile Card Component - Two column layout
+function TradeProfileCard({
+  photoUrl,
+  businessName,
+  displayName,
+  reviewCount,
+  averageRating,
+  verification,
+  jobTitles,
+  basePostcode,
+}) {
+  const hasReviews = reviewCount > 0;
 
-function getVerificationStatusIcon(status) {
-  switch (status) {
-    case "verified": return { name: "checkmark-circle", color: Colors.success };
-    case "under_review":
-    case "submitted": return { name: "time-outline", color: "#3B82F6" };
-    case "rejected":
-    case "expired": return { name: "warning", color: "#DC2626" };
-    case "expiring_soon": return { name: "warning", color: "#D97706" };
-    default: return { name: "ellipse-outline", color: Colors.light.subtitle };
-  }
-}
+  return (
+    <View style={styles.profileCard}>
+      <View style={styles.cardColumns}>
+        {/* Left Column: Avatar, Name, Badges */}
+        <View style={styles.cardLeftColumn}>
+          {/* Avatar */}
+          <View style={styles.avatarContainer}>
+            {photoUrl ? (
+              <Image source={{ uri: photoUrl }} style={styles.cardAvatar} />
+            ) : (
+              <View style={[styles.cardAvatar, styles.avatarFallback]}>
+                <ThemedText style={styles.avatarInitials}>
+                  {getInitials(businessName || displayName)}
+                </ThemedText>
+              </View>
+            )}
+          </View>
 
-// Profile Row Component
-function ProfileRow({ icon, label, value, onPress, locked, statusIcon }) {
-  const content = (
-    <View style={styles.rowContainer}>
-      <View style={styles.rowLeft}>
-        <Ionicons name={icon} size={20} color={Colors.light.subtitle} />
-        <View style={styles.rowTextContainer}>
-          <ThemedText style={styles.rowLabel}>{label}</ThemedText>
-          {value && (
-            <ThemedText
-              style={[
-                styles.rowValue,
-                statusIcon?.color && { color: statusIcon.color },
-              ]}
-              numberOfLines={1}
-            >
-              {value}
+          {/* Name Section */}
+          <View style={styles.nameSection}>
+            <ThemedText style={styles.cardBusinessName} numberOfLines={2}>
+              {businessName || "Business Name"}
             </ThemedText>
-          )}
+            <ThemedText style={styles.cardPersonalName}>
+              {getNameWithInitial(displayName)}
+            </ThemedText>
+          </View>
+
+          {/* Verification Badges */}
+          <View style={styles.badgesRow}>
+            <VerificationBadge
+              icon="person-outline"
+              label="ID"
+              status={verification.photo_id}
+            />
+            <VerificationBadge
+              icon="shield-outline"
+              label="Ins"
+              status={verification.insurance}
+            />
+            <VerificationBadge
+              icon="ribbon-outline"
+              label="Cred"
+              status={verification.credentials}
+            />
+          </View>
         </View>
-      </View>
-      <View style={styles.rowRight}>
-        {statusIcon && (
-          <Ionicons name={statusIcon.name} size={18} color={statusIcon.color} style={{ marginRight: 8 }} />
-        )}
-        {locked ? (
-          <Ionicons name="lock-closed" size={18} color={Colors.light.subtitle} />
-        ) : onPress ? (
-          <Ionicons name="chevron-forward" size={18} color={Colors.light.subtitle} />
-        ) : null}
+
+        {/* Vertical Divider */}
+        <View style={styles.verticalDivider} />
+
+        {/* Right Column: Job Titles, Location, Reviews */}
+        <View style={styles.cardRightColumn}>
+          {/* Job Titles */}
+          <View style={styles.rightSection}>
+            {jobTitles.length > 0 ? (
+              <ThemedText style={styles.jobTitlesText} numberOfLines={2}>
+                {jobTitles.join(" · ")}
+              </ThemedText>
+            ) : (
+              <ThemedText style={styles.emptyText}>No job titles</ThemedText>
+            )}
+          </View>
+
+          {/* Divider */}
+          <View style={styles.horizontalDivider} />
+
+          {/* Location */}
+          <View style={styles.rightSection}>
+            <View style={styles.locationRow}>
+              <Ionicons name="location" size={16} color={Colors.light.title} />
+              <ThemedText style={styles.locationText} numberOfLines={1}>
+                {basePostcode || "No location set"}
+              </ThemedText>
+            </View>
+          </View>
+
+          {/* Divider */}
+          <View style={styles.horizontalDivider} />
+
+          {/* Reviews */}
+          <View style={styles.rightSection}>
+            <View style={styles.reviewsRow}>
+              <Ionicons name="star" size={16} color={Colors.light.title} />
+              {hasReviews ? (
+                <ThemedText style={styles.reviewsText}>
+                  <ThemedText style={styles.ratingValue}>{averageRating.toFixed(1)}</ThemedText>
+                  {" "}({reviewCount} review{reviewCount !== 1 ? "s" : ""})
+                </ThemedText>
+              ) : (
+                <ThemedText style={styles.noReviewsText}>No reviews yet</ThemedText>
+              )}
+            </View>
+          </View>
+        </View>
       </View>
     </View>
   );
+}
 
-  if (onPress && !locked) {
-    return (
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [pressed && styles.rowPressed]}
-      >
-        {content}
-      </Pressable>
-    );
-  }
+// Client Profile Card Component
+function ClientProfileCard({ photoUrl, displayName, projectCount }) {
+  return (
+    <View style={styles.profileCard}>
+      <View style={styles.clientCardContent}>
+        {/* Avatar */}
+        <View style={styles.avatarContainer}>
+          {photoUrl ? (
+            <Image source={{ uri: photoUrl }} style={styles.cardAvatar} />
+          ) : (
+            <View style={[styles.cardAvatar, styles.avatarFallback]}>
+              <ThemedText style={styles.avatarInitials}>
+                {getInitials(displayName)}
+              </ThemedText>
+            </View>
+          )}
+        </View>
 
-  return content;
+        {/* Info */}
+        <View style={styles.clientCardInfo}>
+          <ThemedText style={styles.cardBusinessName}>{displayName}</ThemedText>
+          <ThemedText style={styles.cardPersonalName}>
+            {projectCount} project{projectCount !== 1 ? "s" : ""} completed
+          </ThemedText>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// Verification Badge Component - No dots
+function VerificationBadge({ icon, label, status }) {
+  const isVerified = status === "verified";
+
+  return (
+    <View style={styles.badgeWrapper}>
+      <View style={[
+        styles.badgeIconContainer,
+        isVerified ? styles.badgeVerified : styles.badgeNotVerified,
+      ]}>
+        <Ionicons
+          name={icon}
+          size={16}
+          color={isVerified ? PRIMARY : "#D1D5DB"}
+        />
+        {isVerified && (
+          <View style={styles.badgeCheckmark}>
+            <Ionicons name="checkmark" size={8} color="#FFFFFF" />
+          </View>
+        )}
+      </View>
+      <ThemedText style={[
+        styles.badgeLabel,
+        isVerified ? styles.badgeLabelVerified : styles.badgeLabelNotVerified,
+      ]}>
+        {label}
+      </ThemedText>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -486,6 +379,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 12,
@@ -498,19 +394,44 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
+    paddingTop: 8,
   },
   // Profile Card
   profileCard: {
-    alignItems: "center",
-    paddingVertical: 24,
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
     borderWidth: 1,
     borderColor: Colors.light.border,
-    marginBottom: 16,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  avatarContainer: {},
-  avatar: {
+  // Two-column layout
+  cardColumns: {
+    flexDirection: "row",
+  },
+  cardLeftColumn: {
+    width: "40%",
+    paddingRight: 12,
+  },
+  verticalDivider: {
+    width: 1,
+    backgroundColor: Colors.light.border,
+  },
+  cardRightColumn: {
+    flex: 1,
+    paddingLeft: 12,
+    justifyContent: "space-between",
+  },
+  // Avatar
+  avatarContainer: {
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  cardAvatar: {
     width: 72,
     height: 72,
     borderRadius: 36,
@@ -525,183 +446,129 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.light.subtitle,
   },
-  photoLink: {
-    fontSize: 12,
-    color: Colors.primary,
-    marginTop: 8,
+  // Name section
+  nameSection: {
+    alignItems: "center",
+    marginBottom: 12,
   },
-  businessName: {
-    fontSize: 20,
+  cardBusinessName: {
+    fontSize: 16,
     fontWeight: "600",
     color: Colors.light.title,
     textAlign: "center",
   },
-  personalName: {
-    fontSize: 14,
+  cardPersonalName: {
+    fontSize: 13,
     color: Colors.light.subtitle,
     marginTop: 2,
+    textAlign: "center",
   },
-  emailText: {
-    fontSize: 14,
-    color: Colors.light.subtitle,
-    marginTop: 4,
-  },
-  badgeContainer: {
-    marginTop: 8,
-  },
-  verifiedBadge: {
+  // Badges Row
+  badgesRow: {
     flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+  },
+  badgeWrapper: {
     alignItems: "center",
-    gap: 4,
   },
-  verifiedText: {
-    fontSize: 14,
-    color: Colors.success,
-    fontWeight: "500",
-  },
-  actionBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  actionText: {
-    fontSize: 14,
-    color: "#D97706",
-    fontWeight: "500",
-  },
-  // Verification Banner
-  verificationBanner: {
-    flexDirection: "row",
-    backgroundColor: "#FEF3C7",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    gap: 12,
-  },
-  bannerContent: {
-    flex: 1,
-  },
-  bannerTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.light.title,
-    marginBottom: 4,
-  },
-  bannerText: {
-    fontSize: 14,
-    color: Colors.light.subtitle,
-    lineHeight: 20,
-    marginBottom: 12,
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: "#E5E7EB",
-    borderRadius: 2,
-    overflow: "hidden",
-    marginBottom: 8,
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: Colors.primary,
-    borderRadius: 2,
-  },
-  progressText: {
-    fontSize: 12,
-    color: Colors.light.subtitle,
-  },
-  // Action Banner
-  actionBanner: {
-    flexDirection: "row",
-    backgroundColor: "#FEE2E2",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    gap: 12,
-  },
-  actionBannerTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#DC2626",
-    marginBottom: 4,
-  },
-  updateButton: {
-    backgroundColor: Colors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+  badgeIconContainer: {
+    width: 32,
+    height: 32,
     borderRadius: 8,
-    alignSelf: "flex-start",
-    marginTop: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
   },
-  updateButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  // Section
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Colors.light.subtitle,
-    letterSpacing: 0.5,
-    marginBottom: 8,
-    marginTop: 8,
-  },
-  sectionCard: {
+  badgeVerified: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.light.border,
-    marginBottom: 16,
-    overflow: "hidden",
   },
-  divider: {
+  badgeNotVerified: {
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderStyle: "dashed",
+  },
+  badgeCheckmark: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#10B981",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeLabel: {
+    fontSize: 10,
+    marginTop: 4,
+  },
+  badgeLabelVerified: {
+    color: "#374151",
+  },
+  badgeLabelNotVerified: {
+    color: "#9CA3AF",
+  },
+  // Right column sections
+  rightSection: {
+    paddingVertical: 8,
+  },
+  horizontalDivider: {
     height: 1,
     backgroundColor: Colors.light.border,
-    marginLeft: 52,
   },
-  // Row
-  rowContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+  // Job titles
+  jobTitlesText: {
+    fontSize: 14,
+    color: "#374151",
+    fontWeight: "500",
+    lineHeight: 20,
   },
-  rowPressed: {
-    backgroundColor: Colors.light.secondaryBackground,
-  },
-  rowLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  rowTextContainer: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  rowLabel: {
-    fontSize: 16,
-    color: Colors.light.title,
-  },
-  rowValue: {
+  emptyText: {
     fontSize: 14,
     color: Colors.light.subtitle,
-    marginTop: 2,
+    fontStyle: "italic",
   },
-  rowRight: {
+  // Location
+  locationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  locationText: {
+    fontSize: 14,
+    color: "#374151",
+    flex: 1,
+  },
+  // Reviews
+  reviewsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  reviewsText: {
+    fontSize: 14,
+    color: Colors.light.subtitle,
+  },
+  ratingValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.light.title,
+  },
+  noReviewsText: {
+    fontSize: 14,
+    color: Colors.light.subtitle,
+  },
+  // Client card
+  clientCardContent: {
     flexDirection: "row",
     alignItems: "center",
   },
-  // Version
-  versionContainer: {
-    alignItems: "center",
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
-    marginTop: 8,
-  },
-  versionText: {
-    fontSize: 12,
-    color: Colors.light.subtitle,
+  clientCardInfo: {
+    marginLeft: 16,
+    flex: 1,
   },
 });

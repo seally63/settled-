@@ -37,7 +37,7 @@ export const Colors = {
     cardBackground: "#FFFFFF",  // White for cards
 
     // Icon colors
-    iconColor: "#6849a7",       // Purple for inactive icons
+    iconColor: "#0F172A",       // Black for inactive icons
     iconColorFocused: "#6849a7", // Purple for active icons
 
     // Primary accent color
