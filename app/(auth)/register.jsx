@@ -391,19 +391,13 @@ export default function RegisterScreen() {
     if (currentScreen === SCREENS.WELCOME) return null
 
     const currentStep = PROGRESS_MAP[currentScreen]
+    const progressPercent = (currentStep / totalProgressSteps) * 100
 
     return (
       <View style={styles.progressContainer}>
-        {[...Array(totalProgressSteps)].map((_, index) => (
-          <View key={index} style={styles.progressSegmentWrapper}>
-            <View
-              style={[
-                styles.progressSegment,
-                index + 1 <= currentStep && styles.progressSegmentActive,
-              ]}
-            />
-          </View>
-        ))}
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+        </View>
       </View>
     )
   }
@@ -601,7 +595,7 @@ export default function RegisterScreen() {
 
             {/* Job Titles */}
             <View style={styles.fieldContainer}>
-              <ThemedText style={styles.label}>What type of work do you do?</ThemedText>
+              <ThemedText style={styles.label}>What's your job title?</ThemedText>
               <ThemedText style={styles.subLabel}>Select up to 3</ThemedText>
               <Spacer height={8} />
               <Pressable
@@ -915,7 +909,7 @@ export default function RegisterScreen() {
             hitSlop={10}
             style={styles.backButton}
           >
-            <Ionicons name="arrow-back" size={24} color={Colors.light.title} />
+            <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
           </Pressable>
         </View>
 
@@ -994,7 +988,7 @@ export default function RegisterScreen() {
             />
             <View style={styles.sheetContent}>
               <View style={styles.sheetHeader}>
-                <ThemedText style={styles.sheetTitle}>What type of work do you do?</ThemedText>
+                <ThemedText style={styles.sheetTitle}>What's your job title?</ThemedText>
                 <Pressable onPress={() => setShowJobTitlesSheet(false)} hitSlop={10}>
                   <Ionicons name="close" size={24} color={Colors.light.title} />
                 </Pressable>
@@ -1130,25 +1124,19 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   progressContainer: {
-    flexDirection: 'row',
     paddingHorizontal: 24,
-    gap: 8,
     marginBottom: 32,
   },
-  progressSegmentWrapper: {
-    flex: 1,
+  progressTrack: {
     height: 4,
     backgroundColor: '#E5E7EB',
     borderRadius: 2,
     overflow: 'hidden',
   },
-  progressSegment: {
+  progressFill: {
     height: '100%',
-    backgroundColor: '#E5E7EB',
-    borderRadius: 2,
-  },
-  progressSegmentActive: {
     backgroundColor: TINT,
+    borderRadius: 2,
   },
   scrollContent: {
     paddingHorizontal: 32,

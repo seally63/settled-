@@ -19,6 +19,7 @@ import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import OTPInput from "../../../components/OTPInput";
+import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
@@ -119,9 +120,7 @@ export default function ChangeEmailScreen() {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
         <StatusBar style="dark" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator />
-        </View>
+        <SettingsFormSkeleton paddingTop={16} />
       </ThemedView>
     );
   }
@@ -133,7 +132,7 @@ export default function ChangeEmailScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={handleBack} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
         </Pressable>
         <ThemedText style={styles.headerTitle}>Change email</ThemedText>
         <View style={{ width: 24 }} />

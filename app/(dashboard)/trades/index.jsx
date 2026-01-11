@@ -17,6 +17,7 @@ import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import ThemedCard from "../../../components/ThemedCard";
 import Spacer from "../../../components/Spacer";
+import { HomePageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
@@ -128,9 +129,7 @@ export default function TradesmanHome() {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
         <StatusBar style="dark" />
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={Colors.light?.tint || "#0ea5e9"} />
-        </View>
+        <HomePageSkeleton paddingTop={20} />
       </ThemedView>
     );
   }

@@ -17,6 +17,7 @@ import { StatusBar } from "expo-status-bar";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
+import { ProjectsPageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
@@ -624,9 +625,7 @@ export default function TradesmanProjects() {
     return (
       <ThemedView style={styles.container}>
         <StatusBar style="dark" backgroundColor="#FFFFFF" />
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={TINT} />
-        </View>
+        <ProjectsPageSkeleton paddingTop={insets.top + 16} />
       </ThemedView>
     );
   }
