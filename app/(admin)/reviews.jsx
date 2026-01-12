@@ -12,6 +12,7 @@ import {
   Linking,
   RefreshControl,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -200,9 +201,11 @@ export default function AdminReviewsScreen() {
       case "credentials":
         return {
           type: formatCredentialType(submission.credential_type),
+          credentialType: submission.credential_type,
           registrationNumber: submission.registration_number,
           documentPath: submission.document_path,
-          isGasSafe: submission.credential_type === "gas_safe",
+          verifyUrl: getCredentialVerifyUrl(submission.credential_type),
+          verifyLabel: getCredentialVerifyLabel(submission.credential_type),
         };
       default:
         return null;
@@ -215,6 +218,7 @@ export default function AdminReviewsScreen() {
       niceic: "NICEIC",
       napit: "NAPIT",
       oftec: "OFTEC",
+      cscs: "CSCS Card",
       city_guilds: "City & Guilds",
       nvq: "NVQ",
       dbs: "DBS Certificate",
@@ -222,6 +226,33 @@ export default function AdminReviewsScreen() {
       other: "Other",
     };
     return labels[type] || type;
+  }
+
+  function getCredentialVerifyUrl(type) {
+    const urls = {
+      gas_safe: "https://www.gassaferegister.co.uk/find-an-engineer/",
+      niceic: "https://www.niceic.com/find-a-contractor",
+      napit: "https://www.napit.org.uk/find-an-installer.html",
+      oftec: "https://www.oftec.org/find-a-technician",
+      cscs: "https://www.cscs.uk.com/card-checker/",
+    };
+    return urls[type] || null;
+  }
+
+  function getCredentialVerifyLabel(type) {
+    const labels = {
+      gas_safe: "Gas Safe Search",
+      niceic: "NICEIC Search",
+      napit: "NAPIT Search",
+      oftec: "OFTEC Search",
+      cscs: "CSCS Card Checker",
+    };
+    return labels[type] || "Verify Online";
+  }
+
+  async function handleCopyToClipboard(text, label) {
+    await Clipboard.setStringAsync(text);
+    Alert.alert("Copied", `${label} copied to clipboard`);
   }
 
   if (loading) {
@@ -338,9 +369,18 @@ export default function AdminReviewsScreen() {
                       {details.type}
                     </ThemedText>
                     {details.registrationNumber && (
-                      <ThemedText style={styles.detailValue}>
-                        Reg #: {details.registrationNumber}
-                      </ThemedText>
+                      <View style={styles.registrationRow}>
+                        <ThemedText style={styles.detailValue}>
+                          Reg #: {details.registrationNumber}
+                        </ThemedText>
+                        <Pressable
+                          style={styles.copyButton}
+                          onPress={() => handleCopyToClipboard(details.registrationNumber, "Registration number")}
+                          hitSlop={8}
+                        >
+                          <Ionicons name="copy-outline" size={16} color={PRIMARY} />
+                        </Pressable>
+                      </View>
                     )}
                     {details.extra && (
                       <ThemedText style={styles.detailValue}>
@@ -352,7 +392,7 @@ export default function AdminReviewsScreen() {
 
                 {/* Action Buttons */}
                 <View style={styles.actionButtons}>
-                  {/* View Document / Gas Safe Link */}
+                  {/* View Document */}
                   {details?.documentPath && (
                     <Pressable
                       style={styles.viewDocButton}
@@ -363,15 +403,14 @@ export default function AdminReviewsScreen() {
                     </Pressable>
                   )}
 
-                  {details?.isGasSafe && details.registrationNumber && (
+                  {/* Verification Link - for all credentials with verify URLs */}
+                  {details?.verifyUrl && details.registrationNumber && (
                     <Pressable
                       style={styles.viewDocButton}
-                      onPress={() =>
-                        Linking.openURL("https://www.gassaferegister.co.uk/find-an-engineer/")
-                      }
+                      onPress={() => Linking.openURL(details.verifyUrl)}
                     >
                       <Ionicons name="open-outline" size={18} color={PRIMARY} />
-                      <ThemedText style={styles.viewDocText}>Gas Safe Search</ThemedText>
+                      <ThemedText style={styles.viewDocText}>{details.verifyLabel}</ThemedText>
                     </Pressable>
                   )}
 
@@ -611,6 +650,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.light.subtitle,
     marginTop: 4,
+  },
+  registrationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  copyButton: {
+    padding: 4,
   },
   actionButtons: {
     gap: 12,

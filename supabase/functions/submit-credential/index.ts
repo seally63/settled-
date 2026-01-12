@@ -19,6 +19,7 @@ type CredentialType =
   | "niceic"
   | "napit"
   | "oftec"
+  | "cscs"
   | "city_guilds"
   | "nvq"
   | "dbs"
@@ -90,7 +91,7 @@ serve(async (req) => {
 
     // Validate credential type
     const validCredentialTypes: CredentialType[] = [
-      "gas_safe", "niceic", "napit", "oftec",
+      "gas_safe", "niceic", "napit", "oftec", "cscs",
       "city_guilds", "nvq", "dbs", "disclosure_scotland", "other"
     ];
     if (!validCredentialTypes.includes(payload.credential_type)) {
