@@ -139,13 +139,14 @@ export default function ServiceAreasScreen() {
           {/* Base Location Row */}
           <View style={styles.settingsRow}>
             <View style={styles.settingsRowLeft}>
+              <Ionicons name="home-outline" size={18} color={Colors.light.subtitle} style={styles.settingsIcon} />
               <ThemedText style={styles.settingsLabel}>Base location</ThemedText>
             </View>
             <View style={styles.settingsRowRight}>
-              <Ionicons name="home-outline" size={18} color={Colors.light.title} style={styles.settingsIcon} />
               <ThemedText style={styles.settingsValue}>
                 {basePostcode || "Not set"}
               </ThemedText>
+              <View style={{ width: 18 }} />
             </View>
           </View>
 
@@ -162,10 +163,10 @@ export default function ServiceAreasScreen() {
             onPress={() => setShowRadiusSheet(true)}
           >
             <View style={styles.settingsRowLeft}>
+              <Ionicons name="navigate-outline" size={18} color={Colors.light.subtitle} style={styles.settingsIcon} />
               <ThemedText style={styles.settingsLabel}>Travel radius</ThemedText>
             </View>
             <View style={styles.settingsRowRight}>
-              <Ionicons name="navigate-outline" size={18} color={Colors.light.title} style={styles.settingsIcon} />
               <ThemedText style={styles.settingsValue}>
                 {travelRadius} miles
               </ThemedText>
@@ -349,6 +350,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.secondaryBackground,
   },
   settingsRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
     flex: 1,
   },
   settingsRowRight: {
@@ -356,16 +359,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  settingsLabel: {
-    fontSize: 12,
-    color: Colors.light.subtitle,
-    marginBottom: 2,
-  },
   settingsIcon: {
-    marginRight: 4,
+    marginRight: 10,
+  },
+  settingsLabel: {
+    fontSize: 15,
+    color: Colors.light.title,
   },
   settingsValue: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
     color: Colors.light.title,
   },
