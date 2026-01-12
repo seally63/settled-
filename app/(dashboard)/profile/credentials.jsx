@@ -42,6 +42,7 @@ const CREDENTIAL_TYPES = {
     { id: "napit", label: "NAPIT", type: "manual", icon: "flash-outline" },
   ],
   qualifications: [
+    { id: "cscs", label: "CSCS Card", type: "manual", icon: "card-outline" },
     { id: "city_guilds", label: "City & Guilds", type: "upload", icon: "school-outline" },
     { id: "nvq", label: "NVQ", type: "upload", icon: "school-outline" },
   ],
