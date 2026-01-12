@@ -22,6 +22,8 @@ import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
 import { getMyRole, getMyProfile } from "../../../lib/api/profile";
+import { getMyVerificationStatus } from "../../../lib/api/verification";
+import { isCurrentUserAdmin } from "../../../lib/api/admin";
 
 function normalizeRole(r) {
   if (r == null) return null;
@@ -39,7 +41,9 @@ export default function SettingsScreen() {
   const [role, setRole] = useState(null);
   const [roleLoading, setRoleLoading] = useState(true);
   const [profile, setProfile] = useState(null);
+  const [verification, setVerification] = useState(null);
   const [loadingData, setLoadingData] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Determine role
   useEffect(() => {
@@ -61,13 +65,30 @@ export default function SettingsScreen() {
     return () => { alive = false; };
   }, [user?.id, authChecked]);
 
-  // Load profile data
+  // Load profile data and verification status
   const loadProfile = useCallback(async () => {
     if (!user?.id) return;
     try {
       setLoadingData(true);
-      const me = await getMyProfile();
+
+      // Load profile, verification status, and admin status in parallel
+      const [me, verificationData, adminStatus] = await Promise.all([
+        getMyProfile(),
+        getMyVerificationStatus().catch(e => {
+          console.log("Error loading verification status:", e);
+          return null;
+        }),
+        isCurrentUserAdmin().catch(() => false),
+      ]);
+
       setProfile(me || null);
+      setVerification(verificationData || {
+        photo_id_status: "not_started",
+        insurance_status: "not_started",
+        credentials_status: "not_started",
+        overall_complete: false,
+      });
+      setIsAdmin(adminStatus);
     } finally {
       setLoadingData(false);
     }
@@ -102,21 +123,51 @@ export default function SettingsScreen() {
 
   const isTrades = role === "trades";
 
-  // Verification status
-  const verification = profile?.verification || {
-    photo_id: "not_started",
-    insurance: "not_started",
-    credentials: "not_started",
+  // Verification status (from real API data)
+  const verificationData = verification || {
+    photo_id_status: "not_started",
+    insurance_status: "not_started",
+    credentials_status: "not_started",
+  };
+
+  // Map to shorter names for easier access
+  const verificationStatus = {
+    photo_id: verificationData.photo_id_status || "not_started",
+    insurance: verificationData.insurance_status || "not_started",
+    credentials: verificationData.credentials_status || "not_started",
   };
 
   const verificationCount = [
-    verification.photo_id === "verified",
-    verification.insurance === "verified",
-    verification.credentials === "verified",
+    verificationStatus.photo_id === "verified",
+    verificationStatus.insurance === "verified",
+    verificationStatus.credentials === "verified",
   ].filter(Boolean).length;
 
   const isFullyVerified = verificationCount === 3;
-  const hasActionNeeded = verification.insurance === "expired" || verification.insurance === "expiring_soon";
+  const hasActionNeeded = verificationStatus.insurance === "expired" ||
+    verificationStatus.photo_id === "rejected" ||
+    verificationStatus.insurance === "rejected" ||
+    verificationStatus.credentials === "rejected";
+  const isExpiringSoon = verificationStatus.insurance === "expiring_soon";
+
+  // Check if any verification is under review
+  const hasUnderReview = [
+    verificationStatus.photo_id,
+    verificationStatus.insurance,
+    verificationStatus.credentials,
+  ].some(s => s === "under_review" || s === "pending_review");
+
+  // Determine banner state
+  const getBannerState = () => {
+    if (hasActionNeeded) return "action";
+    if (isExpiringSoon) return "expiring";
+    if (isFullyVerified) return "complete";
+    if (hasUnderReview && verificationCount < 3) return "review";
+    if (verificationCount < 3) return "incomplete";
+    return null;
+  };
+
+  const bannerState = getBannerState();
 
   // Get display data
   const displayName = profile?.full_name || user?.email || "User";
@@ -143,31 +194,84 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Verification Banner for Trades */}
-        {isTrades && !isFullyVerified && !hasActionNeeded && (
-          <View style={styles.verificationBanner}>
-            <Ionicons name="warning" size={20} color="#D97706" />
+        {/* Verification Banners for Trades */}
+        {isTrades && bannerState === "incomplete" && (
+          <View style={styles.incompleteBanner}>
+            <Ionicons name="warning" size={20} color="#F59E0B" />
             <View style={styles.bannerContent}>
-              <ThemedText style={styles.bannerTitle}>Complete verification</ThemedText>
+              <ThemedText style={styles.incompleteBannerTitle}>Complete verification</ThemedText>
               <ThemedText style={styles.bannerText}>
-                Verify your details to start receiving quote requests from customers.
+                {verificationCount === 0
+                  ? "Verify your details to start receiving quote requests from customers."
+                  : `${3 - verificationCount} more step${3 - verificationCount !== 1 ? "s" : ""} to start receiving quotes.`}
               </ThemedText>
               <View style={styles.progressBar}>
-                <View style={[styles.progressFill, { width: `${(verificationCount / 3) * 100}%` }]} />
+                <View style={[styles.progressFillAmber, { width: `${(verificationCount / 3) * 100}%` }]} />
               </View>
               <ThemedText style={styles.progressText}>{verificationCount} of 3 complete</ThemedText>
             </View>
           </View>
         )}
 
-        {/* Action needed banner */}
-        {isTrades && hasActionNeeded && (
+        {/* Under Review Banner */}
+        {isTrades && bannerState === "review" && (
+          <View style={styles.reviewBanner}>
+            <Ionicons name="time-outline" size={20} color="#3B82F6" />
+            <View style={styles.bannerContent}>
+              <ThemedText style={styles.reviewBannerTitle}>Under review</ThemedText>
+              <ThemedText style={styles.bannerText}>
+                We're checking your documents. This usually takes 1-2 business days.
+              </ThemedText>
+            </View>
+          </View>
+        )}
+
+        {/* Complete Banner */}
+        {isTrades && bannerState === "complete" && (
+          <View style={styles.completeBanner}>
+            <Ionicons name="checkmark-circle" size={20} color="#10B981" />
+            <View style={styles.bannerContent}>
+              <ThemedText style={styles.completeBannerTitle}>Verification complete</ThemedText>
+              <ThemedText style={styles.bannerText}>
+                You're all set! Clients can now find you and request quotes.
+              </ThemedText>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFillGreen, { width: "100%" }]} />
+              </View>
+              <ThemedText style={styles.progressText}>3 of 3 complete</ThemedText>
+            </View>
+          </View>
+        )}
+
+        {/* Expiring Soon Banner */}
+        {isTrades && bannerState === "expiring" && (
+          <View style={styles.expiringBanner}>
+            <Ionicons name="warning" size={20} color="#F59E0B" />
+            <View style={styles.bannerContent}>
+              <ThemedText style={styles.expiringBannerTitle}>Insurance expiring soon</ThemedText>
+              <ThemedText style={styles.bannerText}>
+                Your insurance is expiring soon. Upload your renewal to continue receiving quotes.
+              </ThemedText>
+              <Pressable
+                style={styles.updateButton}
+                onPress={() => router.push("/profile/insurance")}
+              >
+                <ThemedText style={styles.updateButtonText}>Update now</ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* Action Needed Banner (Expired/Rejected) */}
+        {isTrades && bannerState === "action" && (
           <View style={styles.actionBanner}>
             <Ionicons name="warning" size={20} color="#DC2626" />
             <View style={styles.bannerContent}>
-              <ThemedText style={styles.actionBannerTitle}>Insurance expired</ThemedText>
+              <ThemedText style={styles.actionBannerTitle}>Action required</ThemedText>
               <ThemedText style={styles.bannerText}>
-                Your insurance has expired. Upload a new certificate to continue receiving quotes.
+                {verificationStatus.insurance === "expired"
+                  ? "Your insurance has expired. Upload a new certificate to continue receiving quotes."
+                  : "There's an issue with your verification. Please check and resubmit."}
               </ThemedText>
               <Pressable
                 style={styles.updateButton}
@@ -187,24 +291,24 @@ export default function SettingsScreen() {
               <SettingsRow
                 icon="person-outline"
                 label="Photo ID"
-                value={getVerificationStatusText(verification.photo_id)}
-                statusIcon={getVerificationStatusIcon(verification.photo_id)}
+                value={getVerificationStatusText(verificationStatus.photo_id)}
+                statusIcon={getVerificationStatusIcon(verificationStatus.photo_id)}
                 onPress={() => router.push("/profile/photo-id")}
               />
               <View style={styles.divider} />
               <SettingsRow
                 icon="shield-outline"
                 label="Insurance"
-                value={getVerificationStatusText(verification.insurance)}
-                statusIcon={getVerificationStatusIcon(verification.insurance)}
+                value={getVerificationStatusText(verificationStatus.insurance)}
+                statusIcon={getVerificationStatusIcon(verificationStatus.insurance)}
                 onPress={() => router.push("/profile/insurance")}
               />
               <View style={styles.divider} />
               <SettingsRow
                 icon="ribbon-outline"
                 label="Credentials"
-                value={getVerificationStatusText(verification.credentials)}
-                statusIcon={getVerificationStatusIcon(verification.credentials)}
+                value={getVerificationStatusText(verificationStatus.credentials)}
+                statusIcon={getVerificationStatusIcon(verificationStatus.credentials)}
                 onPress={() => router.push("/profile/credentials")}
               />
             </View>
@@ -301,6 +405,16 @@ export default function SettingsScreen() {
         {/* Account Section */}
         <ThemedText style={styles.sectionLabel}>ACCOUNT</ThemedText>
         <View style={styles.sectionCard}>
+          {isAdmin && (
+            <>
+              <SettingsRow
+                icon="shield-checkmark-outline"
+                label="Admin"
+                onPress={() => router.push("/(admin)/reviews")}
+              />
+              <View style={styles.divider} />
+            </>
+          )}
           <SettingsRow
             icon="notifications-outline"
             label="Notifications"
@@ -335,7 +449,8 @@ export default function SettingsScreen() {
 function getVerificationStatusText(status) {
   switch (status) {
     case "verified": return "Verified";
-    case "under_review": return "Under review";
+    case "under_review":
+    case "pending_review": return "Under review";
     case "submitted": return "Submitted";
     case "rejected": return "Rejected";
     case "expired": return "Expired";
@@ -348,6 +463,7 @@ function getVerificationStatusIcon(status) {
   switch (status) {
     case "verified": return { name: "checkmark-circle", color: Colors.success };
     case "under_review":
+    case "pending_review":
     case "submitted": return { name: "time-outline", color: "#3B82F6" };
     case "rejected":
     case "expired": return { name: "warning", color: "#DC2626" };
@@ -429,23 +545,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
   },
-  // Verification Banner
-  verificationBanner: {
-    flexDirection: "row",
-    backgroundColor: "#FEF3C7",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    gap: 12,
-  },
+  // Banner base styles
   bannerContent: {
     flex: 1,
-  },
-  bannerTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.light.title,
-    marginBottom: 4,
   },
   bannerText: {
     fontSize: 14,
@@ -460,29 +562,19 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginBottom: 8,
   },
-  progressFill: {
+  progressFillAmber: {
     height: "100%",
-    backgroundColor: Colors.primary,
+    backgroundColor: "#F59E0B",
+    borderRadius: 2,
+  },
+  progressFillGreen: {
+    height: "100%",
+    backgroundColor: "#10B981",
     borderRadius: 2,
   },
   progressText: {
     fontSize: 12,
     color: Colors.light.subtitle,
-  },
-  // Action Banner
-  actionBanner: {
-    flexDirection: "row",
-    backgroundColor: "#FEE2E2",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    gap: 12,
-  },
-  actionBannerTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#DC2626",
-    marginBottom: 4,
   },
   updateButton: {
     backgroundColor: Colors.primary,
@@ -496,6 +588,91 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "600",
+  },
+  // Incomplete Banner (Amber)
+  incompleteBanner: {
+    flexDirection: "row",
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  incompleteBannerTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Colors.light.title,
+    marginBottom: 4,
+  },
+  // Under Review Banner (Blue)
+  reviewBanner: {
+    flexDirection: "row",
+    backgroundColor: "#DBEAFE",
+    borderWidth: 1,
+    borderColor: "#3B82F6",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  reviewBannerTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#3B82F6",
+    marginBottom: 4,
+  },
+  // Complete Banner (Green)
+  completeBanner: {
+    flexDirection: "row",
+    backgroundColor: "#D1FAE5",
+    borderWidth: 1,
+    borderColor: "#10B981",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  completeBannerTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#10B981",
+    marginBottom: 4,
+  },
+  // Expiring Soon Banner (Amber)
+  expiringBanner: {
+    flexDirection: "row",
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  expiringBannerTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#D97706",
+    marginBottom: 4,
+  },
+  // Action Banner (Red)
+  actionBanner: {
+    flexDirection: "row",
+    backgroundColor: "#FEE2E2",
+    borderWidth: 1,
+    borderColor: "#DC2626",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  actionBannerTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#DC2626",
+    marginBottom: 4,
   },
   // Section
   sectionLabel: {
