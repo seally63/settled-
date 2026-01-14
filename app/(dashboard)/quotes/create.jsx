@@ -407,12 +407,22 @@ export default function Create() {
       setSending(true);
       if (isEditing && quoteId) {
         // Update existing draft and send
+        console.log("[Quote Create] Updating quote:", quoteId);
         await updateQuote(quoteId, payload);
       } else {
         // Create new quote
+        console.log("[Quote Create] Creating new quote for request:", requestId);
         await createQuote(payload);
       }
-      router.replace("/quotes");
+      // Go back to Client Request page so trade can see all quotes for this request
+      // Trades can create up to 3 quotes per request
+      if (requestId) {
+        console.log("[Quote Create] Redirecting to Client Request:", `/quotes/request/${requestId}`);
+        router.replace(`/quotes/request/${requestId}`);
+      } else {
+        console.log("[Quote Create] No requestId, redirecting to Projects list");
+        router.replace("/quotes");
+      }
     } catch (e) {
       Alert.alert("Save failed", e?.message || "Failed to save quote.");
     } finally {
@@ -422,6 +432,7 @@ export default function Create() {
 
   const handleSaveAsDraft = async () => {
     const derivedTitle = buildProjectTitle();
+    console.log("[Quote Draft] Saving draft, requestId:", requestId, "quoteId:", quoteId);
 
     const payload = {
       request_id: requestId || null,
@@ -439,11 +450,21 @@ export default function Create() {
 
     try {
       if (isEditing && quoteId) {
+        console.log("[Quote Draft] Updating existing draft:", quoteId);
         await updateQuote(quoteId, payload);
       } else {
+        console.log("[Quote Draft] Creating new draft");
         await createQuote(payload);
       }
-      router.replace("/quotes");
+      // Go back to Client Request page so trade can see all quotes for this request
+      // Trades can create up to 3 quotes per request
+      if (requestId) {
+        console.log("[Quote Draft] Redirecting to Client Request:", `/quotes/request/${requestId}`);
+        router.replace(`/quotes/request/${requestId}`);
+      } else {
+        console.log("[Quote Draft] No requestId, redirecting to Projects list");
+        router.replace("/quotes");
+      }
     } catch (e) {
       Alert.alert("Save failed", e?.message || "Failed to save draft.");
     }

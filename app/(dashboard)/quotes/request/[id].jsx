@@ -182,15 +182,23 @@ function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, d
   // Get client first name for quote labels
   const clientFirstName = clientName ? clientName.split(" ")[0] : null;
 
+  // Helper to get last 4 characters of quote ID for display
+  // This ensures both trade and client see the same quote identifier
+  const getQuoteShortId = (quoteId) => {
+    if (!quoteId) return "0000";
+    const idStr = String(quoteId);
+    return idStr.slice(-4).toUpperCase();
+  };
+
   // Sort quotes by creation date (oldest first for numbering)
   const sortedByDate = [...quotes].sort((a, b) =>
     new Date(a.created_at) - new Date(b.created_at)
   );
 
-  // Create a map of quote id to its number
+  // Create a map of quote id to its short ID (last 4 chars)
   const quoteNumberMap = {};
-  sortedByDate.forEach((q, idx) => {
-    quoteNumberMap[q.id] = idx + 1;
+  sortedByDate.forEach((q) => {
+    quoteNumberMap[q.id] = getQuoteShortId(q.id);
   });
 
   // Sort quotes for display: accepted first, then drafts (action needed), then sent, then declined/expired
@@ -230,10 +238,11 @@ function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, d
     const sentDateLabel = createdDate ? formatDate(quote.created_at) : null;
     const expiryDateLabel = validUntil ? formatDate(quote.valid_until) : null;
 
-    // Build quote title: "Quote N - ClientName" or just "Quote N"
+    // Build quote title: "Quote #XXXX - ClientName" or just "Quote #XXXX"
+    // Uses last 4 chars of quote ID so both trade and client see same identifier
     const quoteTitle = clientFirstName
-      ? `Quote ${quoteNumber} - ${clientFirstName}`
-      : `Quote ${quoteNumber}`;
+      ? `Quote #${quoteNumber} - ${clientFirstName}`
+      : `Quote #${quoteNumber}`;
 
     // Handle card press for sent/accepted quotes (navigate to read-only view)
     const handleCardPress = () => {

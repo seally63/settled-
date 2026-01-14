@@ -84,28 +84,38 @@ function parseTitle(suggestedTitle) {
 }
 
 // Calculate trade progress position
+// ProgressBar stage dots at: 12.5%, 37.5%, 62.5%, 87.5%
+// Progress fills from 0% left toward 100% right
+// To light up a stage dot, progress must reach that dot's position
 function getTradeProgressPosition(stage, subStatus) {
   switch (stage) {
     case "REQUEST":
-      return 12;
+      // Stage 0 (Request): Dot at 12.5% - show progress just at the dot
+      return 12.5;
     case "QUOTE":
-      if (subStatus === "quote_sent") return 45;
-      if (subStatus === "survey_completed") return 40;
-      if (subStatus === "survey_confirmed") return 35;
-      if (subStatus === "survey_proposed") return 30;
-      return 25;
+      // Stage 1 (Quote): Dot at 37.5%
+      // Progress ranges from 12.5% (request) to 37.5% (quote reached)
+      if (subStatus === "quote_sent") return 37.5; // Quote sent - reached Quote stage
+      if (subStatus === "survey_completed") return 35; // Almost at Quote stage
+      if (subStatus === "survey_confirmed") return 30;
+      if (subStatus === "survey_proposed") return 25;
+      return 20; // Default: working toward Quote stage
     case "WORK":
-      if (subStatus === "issue_resolved_pending") return 92;
-      if (subStatus === "issue_reported") return 88;
-      if (subStatus === "awaiting_completion") return 95;
-      if (subStatus === "work_in_progress") return 80;
-      if (subStatus === "work_confirmed") return 75;
-      if (subStatus === "work_proposed") return 70;
-      return 62;
+      // Stage 2 (Work): Dot at 62.5%
+      // Progress ranges from 37.5% (quote) to 62.5% (work reached)
+      if (subStatus === "awaiting_completion") return 75; // Past Work, heading to Done
+      if (subStatus === "issue_resolved_pending") return 70;
+      if (subStatus === "issue_reported") return 68;
+      if (subStatus === "work_in_progress") return 65;
+      if (subStatus === "work_confirmed") return 62.5; // Work scheduled - reached Work stage
+      if (subStatus === "work_proposed") return 55;
+      if (subStatus === "accepted_no_appt") return 45; // Quote accepted, need to schedule work
+      return 50; // Default: working toward Work stage
     case "DONE":
-      return 100;
+      // Stage 3 (Settled): Dot at 87.5%
+      return 87.5;
     default:
-      return 12;
+      return 12.5;
   }
 }
 
@@ -464,6 +474,7 @@ export default function TradesmanProjects() {
           title: a.title || a.project_title,
           status: a.status,
           location: a.postcode || a.job_outcode,
+          type: a.type, // survey or work
         };
 
         if (normalized.quote_id) {
@@ -637,7 +648,10 @@ export default function TradesmanProjects() {
             "accepted",
             "awaiting_completion",
             "completed",
+            "issue_reported",
+            "issue_resolved_pending",
           ];
+
           const acceptedQuote = requestQuotes.find((q) =>
             acceptedStatuses.includes((q.status || "").toLowerCase())
           );
@@ -749,7 +763,9 @@ export default function TradesmanProjects() {
 
       const apptStatus = item.nextAppointment?.status?.toLowerCase();
       const isDirectRequest = item.request_type === "client";
-      const isAccepted = item.state === "accepted" || item.state === "trade_accepted";
+      // Check all accepted states: "accepted", "trade_accepted", "client_accepted"
+      const stateStr = (item.state || "").toLowerCase();
+      const isAccepted = stateStr.includes("accepted");
 
       // Always show client info in context line
       const contextLine = `${item.clientName || "Client"} · ${item.clientPostcode || item.postcode || ""}`;
@@ -798,7 +814,11 @@ export default function TradesmanProjects() {
             {
               label: "Schedule Visit",
               primary: false,
-              onPress: () => router.push(`/quotes/request/${item.request_id}`),
+              onPress: () =>
+                router.push({
+                  pathname: "/quotes/schedule",
+                  params: { requestId: item.request_id },
+                }),
             },
             {
               label: "Send Quote",
@@ -901,7 +921,11 @@ export default function TradesmanProjects() {
           {
             label: "Schedule Visit",
             primary: false,
-            onPress: () => router.push(`/quotes/request/${item.request_id}`),
+            onPress: () =>
+              router.push({
+                pathname: "/quotes/schedule",
+                params: { requestId: item.request_id, quoteId: item.id },
+              }),
           },
           {
             label: "Send Quote",
@@ -936,12 +960,19 @@ export default function TradesmanProjects() {
         stage = "WORK";
         stageIndex = 2;
 
-        if (apptStatus === "proposed") {
+        // For accepted quotes, only look at WORK appointments (linked to quote_id)
+        // Survey appointments (quote_id: null, title contains "Survey") should be ignored
+        const isWorkAppointment = item.nextAppointment?.quote_id != null ||
+          (item.nextAppointment?.title && !item.nextAppointment.title.toLowerCase().includes("survey"));
+        const workApptStatus = isWorkAppointment ? apptStatus : null;
+
+        if (workApptStatus === "proposed") {
           statusType = "waiting";
           statusText = "Work visit proposed";
           statusDetail = `${formatDate(item.nextAppointment.scheduled_at)} · Awaiting client`;
           subStatus = "work_proposed";
-        } else if (apptStatus === "confirmed") {
+        } else if (workApptStatus === "confirmed" || workApptStatus === "accepted") {
+          // Both "confirmed" and "accepted" mean the client approved the appointment
           statusType = "scheduled";
           statusText = "Work scheduled";
           statusDetail = `${formatDate(item.nextAppointment.scheduled_at)}, ${formatTime(item.nextAppointment.scheduled_at)}`;
@@ -963,9 +994,11 @@ export default function TradesmanProjects() {
             },
           ];
         } else {
+          // No work appointment scheduled yet - prompt to schedule work
           statusType = "action";
           statusText = "Schedule work visit";
           statusDetail = `Accepted ${item.daysSinceIssued || 0} days ago`;
+          subStatus = "accepted_no_appt";
           actions = [
             {
               label: "Schedule Work",
@@ -973,7 +1006,10 @@ export default function TradesmanProjects() {
               onPress: () =>
                 router.push({
                   pathname: "/quotes/schedule",
-                  params: { quoteId: item.acceptedQuoteId || item.id },
+                  params: {
+                    requestId: item.request_id,
+                    quoteId: item.acceptedQuoteId || item.id,
+                  },
                 }),
             },
           ];
@@ -1070,6 +1106,7 @@ export default function TradesmanProjects() {
         statusDetail,
         quoteAmount: stage !== "REQUEST" && quoteAmount ? quoteAmount : null,
         quoteAmountLabel: item.hasAcceptedQuote ? "Accepted quote" : "Quote total",
+        hasAcceptedQuote: item.hasAcceptedQuote,
         actions,
         hasReview: !!item.client_review_rating,
         reviewRating: item.client_review_rating,
@@ -1185,7 +1222,9 @@ export default function TradesmanProjects() {
                 key={project.id}
                 item={project}
                 onPress={() => {
-                  if (project.quoteId) {
+                  // Only go to Quote Overview if client has accepted a quote
+                  // Otherwise go to Client Request page where trade can see/manage all quotes
+                  if (project.hasAcceptedQuote && project.quoteId) {
                     router.push(`/quotes/${project.quoteId}`);
                   } else {
                     router.push(`/quotes/request/${project.requestId}`);
