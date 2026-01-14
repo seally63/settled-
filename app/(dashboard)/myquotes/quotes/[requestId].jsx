@@ -20,6 +20,7 @@ import { useUser } from "../../../../hooks/useUser";
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import Spacer from "../../../../components/Spacer";
+import { QuoteOverviewSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
 
 const TINT = Colors?.light?.tint || "#6849a7";
@@ -377,15 +378,8 @@ export default function QuoteListScreen() {
 
   if (loading) {
     return (
-      <ThemedView style={styles.container}>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
-          <Pressable onPress={handleClose} style={styles.closeBtn}>
-            <Ionicons name="close" size={24} color="#111827" />
-          </Pressable>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={TINT} />
-        </View>
+      <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
+        <QuoteOverviewSkeleton paddingTop={16} />
       </ThemedView>
     );
   }

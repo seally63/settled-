@@ -25,6 +25,7 @@ import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import ThemedButton from "../../../../components/ThemedButton";
 import Spacer from "../../../../components/Spacer";
+import { QuoteOverviewSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
 import { listRequestImagePaths } from "../../../../lib/api/attachments";
 
@@ -1160,9 +1161,7 @@ export default function ClientMyQuoteDetail() {
       </View>
 
       {loading ? (
-        <View style={{ padding: 16 }}>
-          <ThemedText>Loading…</ThemedText>
-        </View>
+        <QuoteOverviewSkeleton paddingTop={0} />
       ) : !quote ? (
         <View style={{ padding: 16 }}>
           <ThemedText>Quote not found.</ThemedText>

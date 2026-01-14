@@ -256,6 +256,96 @@ export function ServiceTypesListSkeleton() {
   );
 }
 
+// Request detail page skeleton (trade view)
+export function RequestDetailSkeleton({ paddingTop }) {
+  return (
+    <View style={[styles.pageContainer, { paddingTop: paddingTop ?? 16 }]}>
+      {/* Action buttons placeholder */}
+      <View style={styles.actionButtonsRow}>
+        <SkeletonBox width="48%" height={48} borderRadius={8} />
+        <SkeletonBox width="48%" height={48} borderRadius={8} />
+      </View>
+
+      {/* Hero section */}
+      <View style={styles.heroCard}>
+        <SkeletonText width="70%" height={20} />
+        <SkeletonText width="50%" height={16} style={{ marginTop: 8 }} />
+        <SkeletonText width="40%" height={14} style={{ marginTop: 8 }} />
+      </View>
+
+      {/* Section */}
+      <SkeletonText width={100} height={16} style={{ marginTop: 20, marginBottom: 8 }} />
+      <View style={styles.detailCard}>
+        {[1, 2, 3, 4].map((i) => (
+          <View key={i} style={styles.detailRow}>
+            <SkeletonBox width={18} height={18} borderRadius={4} />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <SkeletonText width={60} height={12} />
+              <SkeletonText width="80%" height={14} style={{ marginTop: 4 }} />
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {/* Description section */}
+      <SkeletonText width={100} height={16} style={{ marginTop: 20, marginBottom: 8 }} />
+      <View style={styles.detailCard}>
+        <SkeletonText width="100%" height={14} />
+        <SkeletonText width="90%" height={14} style={{ marginTop: 6 }} />
+        <SkeletonText width="70%" height={14} style={{ marginTop: 6 }} />
+      </View>
+    </View>
+  );
+}
+
+// Quote overview page skeleton
+export function QuoteOverviewSkeleton({ paddingTop }) {
+  return (
+    <View style={[styles.pageContainer, { paddingTop: paddingTop ?? 16 }]}>
+      {/* Hero card */}
+      <View style={styles.quoteHeroCard}>
+        <View style={styles.quoteHeroHeader}>
+          <SkeletonCircle size={56} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <SkeletonText width="60%" height={18} />
+            <SkeletonText width="80%" height={14} style={{ marginTop: 6 }} />
+          </View>
+          <SkeletonBox width={80} height={28} borderRadius={14} />
+        </View>
+
+        <View style={styles.quoteHeroStats}>
+          <View style={{ flex: 1 }}>
+            <SkeletonText width={80} height={12} />
+            <SkeletonText width={100} height={24} style={{ marginTop: 4 }} />
+            <SkeletonText width={70} height={12} style={{ marginTop: 4 }} />
+          </View>
+          <View style={{ flex: 1, alignItems: "flex-end" }}>
+            <SkeletonText width={60} height={12} />
+            <SkeletonText width={80} height={16} style={{ marginTop: 4 }} />
+          </View>
+        </View>
+      </View>
+
+      {/* Sections */}
+      {[1, 2].map((i) => (
+        <View key={i}>
+          <SkeletonText width={120} height={16} style={{ marginTop: 20, marginBottom: 8 }} />
+          <View style={styles.detailCard}>
+            <View style={styles.detailRow}>
+              <SkeletonBox width={40} height={40} borderRadius={8} />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <SkeletonText width="70%" height={14} />
+                <SkeletonText width="50%" height={12} style={{ marginTop: 4 }} />
+              </View>
+              <SkeletonText width={60} height={14} />
+            </View>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   skeleton: {
     backgroundColor: "#E5E7EB",
@@ -400,6 +490,50 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.light.border,
+  },
+  // Request detail page
+  actionButtonsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  heroCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    padding: 16,
+  },
+  detailCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    padding: 16,
+  },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  // Quote overview
+  quoteHeroCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    padding: 16,
+  },
+  quoteHeroHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  quoteHeroStats: {
+    flexDirection: "row",
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
   },
 });
 

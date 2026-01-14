@@ -1,4 +1,5 @@
-// app/(dashboard)/quotes/index.jsx - Tradesman Projects (Quotes + Sales combined)
+// app/(dashboard)/quotes/index.jsx
+// Trade Projects Screen - v5 with Progress Bars and Visual Design
 import { useCallback, useEffect, useState, useMemo } from "react";
 import {
   StyleSheet,
@@ -6,7 +7,6 @@ import {
   ScrollView,
   Pressable,
   RefreshControl,
-  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -17,125 +17,311 @@ import { StatusBar } from "expo-status-bar";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
+import ProgressBar from "../../../components/ProgressBar";
 import { ProjectsPageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
 
-// Helper to get privacy-aware client display name
-// Before quote accepted: "Sarah L." (first name + last initial)
-// After quote accepted: "Sarah Thompson" (full name)
+const TINT = Colors?.light?.tint || "#6849a7";
+
+// Trade progress stages
+const TRADE_STAGES = ["Request", "Quote", "Work", "Settled"];
+
+// Status colors
+const STATUS_COLORS = {
+  action: { text: "#F59E0B", icon: "alert-circle" },     // Orange
+  scheduled: { text: "#10B981", icon: "calendar" },       // Green
+  waiting: { text: "#6B7280", icon: "hourglass" },        // Gray
+  issue: { text: "#DC2626", icon: "alert-circle" },       // Red
+  completed: { text: "#6B7280", icon: "checkmark" },      // Gray
+  new: { text: "#3B82F6", icon: "sparkles" },             // Blue
+};
+
+// Format number with thousand separators
+function formatNumber(num) {
+  if (num == null || isNaN(num)) return "0.00";
+  return Number(num).toLocaleString("en-GB", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+// Get privacy-aware client display name
 function getClientDisplayName(fullName, contactUnlocked) {
   if (!fullName) return null;
   if (contactUnlocked) return fullName;
-
-  // Privacy mode: first name + last initial
   const parts = String(fullName).trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return null;
   if (parts.length === 1) return parts[0];
   return `${parts[0]} ${parts[parts.length - 1].charAt(0)}.`;
 }
 
-// Format number with thousand separators (commas)
-function formatNumber(num) {
-  if (num == null || isNaN(num)) return "0.00";
-  return Number(num).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+// Parse title: "Category - Service" or "Service, Category"
+function parseTitle(suggestedTitle) {
+  if (!suggestedTitle) return { service: "Project", category: "" };
 
-// Format title: "Service, Category" -> "Category, Service"
-// Sometimes the title already contains "in POSTCODE" - we need to strip it first
-function formatTitle(suggestedTitle) {
-  if (!suggestedTitle) return "Project";
+  // Strip any "in POSTCODE" suffix
+  let cleanTitle = suggestedTitle
+    .replace(/\s+in\s+[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}/gi, "")
+    .trim();
 
-  // Strip any existing "in POSTCODE" from the title to avoid duplication
-  // Postcode pattern: UK postcodes like "EH48 3NN", "SW1A 1AA", etc.
-  let cleanTitle = suggestedTitle.replace(/\s+in\s+[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}/gi, '').trim();
-
-  const parts = cleanTitle.split(",").map(s => s.trim()).filter(s => s.length > 0);
-  if (parts.length >= 2) {
-    return `${parts[1]}, ${parts[0]}`;
+  // Try "Category - Service" format first
+  if (cleanTitle.includes(" - ")) {
+    const parts = cleanTitle.split(" - ").map((s) => s.trim());
+    if (parts.length >= 2) {
+      return { service: parts[1], category: parts[0] };
+    }
   }
-  return cleanTitle;
+
+  // Try "Service, Category" format
+  const parts = cleanTitle.split(",").map((s) => s.trim());
+  if (parts.length >= 2) {
+    return { service: parts[0], category: parts[1] };
+  }
+
+  return { service: cleanTitle, category: "" };
 }
 
-// Chip color categories based on action context
-// ACTION NEEDED (Orange #F59E0B): Send Quote, New Quote, Expires Soon, Confirm Completion
-// WAITING (Blue #3B82F6): Request Sent, Quote Sent, Quote Pending, Awaiting Schedule
-// ACTIVE/GOOD (Green #10B981): Quote Accepted, Scheduled, On Site, Work in Progress
-// COMPLETED (Gray #6B7280): Completed
-// NEGATIVE (Red #EF4444): Declined, Expired, No Response
-const CHIP_TONES = {
-  action: { bg: "#FEF3C7", fg: "#F59E0B", icon: "alert-circle" },
-  waiting: { bg: "#DBEAFE", fg: "#3B82F6", icon: "hourglass" },
-  active: { bg: "#D1FAE5", fg: "#10B981", icon: "checkmark-circle" },
-  completed: { bg: "#F3F4F6", fg: "#6B7280", icon: "checkmark-done" },
-  negative: { bg: "#FEE2E2", fg: "#EF4444", icon: "close-circle" },
-};
-
-/* Status Chip component - takes label and tone */
-function StatusChip({ label, tone = "waiting", icon }) {
-  const colors = CHIP_TONES[tone] || CHIP_TONES.waiting;
-  const chipIcon = icon || colors.icon;
-
-  return (
-    <View style={[styles.statusChip, { backgroundColor: colors.bg }]}>
-      <Ionicons name={chipIcon} size={14} color={colors.fg} />
-      <ThemedText style={[styles.statusChipText, { color: colors.fg }]}>
-        {label}
-      </ThemedText>
-    </View>
-  );
+// Calculate trade progress position
+function getTradeProgressPosition(stage, subStatus) {
+  switch (stage) {
+    case "REQUEST":
+      return 12;
+    case "QUOTE":
+      if (subStatus === "quote_sent") return 45;
+      if (subStatus === "survey_completed") return 40;
+      if (subStatus === "survey_confirmed") return 35;
+      if (subStatus === "survey_proposed") return 30;
+      return 25;
+    case "WORK":
+      if (subStatus === "issue_resolved_pending") return 92;
+      if (subStatus === "issue_reported") return 88;
+      if (subStatus === "awaiting_completion") return 95;
+      if (subStatus === "work_in_progress") return 80;
+      if (subStatus === "work_confirmed") return 75;
+      if (subStatus === "work_proposed") return 70;
+      return 62;
+    case "DONE":
+      return 100;
+    default:
+      return 12;
+  }
 }
 
-const TINT = Colors?.light?.tint || "#6849a7";
-
-/* Tab button */
-function TabBtn({ active, label, count, onPress }) {
+// Filter pill component
+function FilterPill({ active, label, count, onPress }) {
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={10}
-      style={[
-        styles.tabBtn,
-        active && styles.tabBtnActive,
-      ]}
+      style={[styles.filterPill, active && styles.filterPillActive]}
     >
       <ThemedText
-        style={[
-          styles.tabLabel,
-          active && styles.tabLabelActive,
-        ]}
+        style={[styles.filterPillText, active && styles.filterPillTextActive]}
       >
         {label}
-        {typeof count === "number" ? ` (${count})` : ""}
       </ThemedText>
+      {typeof count === "number" && (
+        <ThemedText
+          style={[
+            styles.filterPillCount,
+            active && styles.filterPillCountActive,
+          ]}
+        >
+          ({count})
+        </ThemedText>
+      )}
     </Pressable>
   );
 }
 
-/* Info row component */
-function InfoRow({ icon, text, color }) {
+// Project card component - visual design with progress bar
+function ProjectCard({ item, onPress }) {
+  const router = useRouter();
+  const { service, category } = parseTitle(item.title);
+  const hasActions = item.actions && item.actions.length > 0;
+  const isDirectRequest = item.requestType === "client";
+
+  // Get status display
+  const getStatusDisplay = () => {
+    const { statusType, statusText, statusDetail } = item;
+    let color = STATUS_COLORS.waiting;
+    let icon = "hourglass";
+
+    switch (statusType) {
+      case "action":
+        color = STATUS_COLORS.action;
+        icon = "alert-circle";
+        break;
+      case "scheduled":
+        color = STATUS_COLORS.scheduled;
+        icon = "calendar";
+        break;
+      case "issue":
+        color = STATUS_COLORS.issue;
+        icon = "alert-circle";
+        break;
+      case "completed":
+        color = STATUS_COLORS.completed;
+        icon = "checkmark";
+        break;
+      case "new":
+        color = STATUS_COLORS.new;
+        icon = "sparkles";
+        break;
+      default:
+        color = STATUS_COLORS.waiting;
+        icon = "hourglass";
+    }
+
+    return { color, icon, text: statusText, detail: statusDetail };
+  };
+
+  const status = getStatusDisplay();
+
   return (
-    <View style={styles.infoRow}>
-      <Ionicons name={icon} size={14} color={color || "#6B7280"} />
-      <ThemedText style={[styles.infoText, color && { color }]}>{text}</ThemedText>
-    </View>
+    <Pressable style={styles.projectCard} onPress={onPress}>
+      {/* Two-line title + menu */}
+      <View style={styles.cardTitleRow}>
+        <View style={styles.cardTitleContent}>
+          <ThemedText style={styles.cardServiceTitle} numberOfLines={1}>
+            {service}
+          </ThemedText>
+        </View>
+        <Pressable style={styles.menuButton}>
+          <Ionicons name="ellipsis-horizontal" size={20} color="#9CA3AF" />
+        </Pressable>
+      </View>
+
+      {/* Category subtitle */}
+      {category ? (
+        <ThemedText style={styles.cardCategory}>{category}</ThemedText>
+      ) : null}
+
+      {/* Progress bar */}
+      <ProgressBar
+        stages={TRADE_STAGES}
+        progressPosition={item.progressPosition}
+        activeStageIndex={item.stageIndex}
+      />
+
+      {/* Context line - client info */}
+      {item.contextLine && (
+        <ThemedText style={styles.contextLine}>{item.contextLine}</ThemedText>
+      )}
+
+      {/* Job description preview for new requests */}
+      {item.jobDescription && (
+        <ThemedText style={styles.jobDescription} numberOfLines={2}>
+          "{item.jobDescription}"
+        </ThemedText>
+      )}
+
+      {/* Budget info for new requests */}
+      {item.budgetInfo && (
+        <ThemedText style={styles.budgetText}>{item.budgetInfo}</ThemedText>
+      )}
+
+      {/* Status with icon */}
+      <View style={styles.statusRow}>
+        {status.text && (
+          <>
+            <Ionicons name={status.icon} size={16} color={status.color.text} />
+            <ThemedText style={[styles.statusText, { color: status.color.text }]}>
+              {status.text}
+            </ThemedText>
+          </>
+        )}
+      </View>
+
+      {/* Detail line */}
+      {status.detail && (
+        <ThemedText style={styles.detailLine}>{status.detail}</ThemedText>
+      )}
+
+      {/* Quote amount */}
+      {item.quoteAmount && (
+        <View style={styles.quoteAmountRow}>
+          <ThemedText style={styles.quoteAmountLabel}>
+            {item.quoteAmountLabel || "Quote total"}
+          </ThemedText>
+          <ThemedText style={styles.quoteAmountValue}>
+            £{formatNumber(item.quoteAmount)}
+          </ThemedText>
+        </View>
+      )}
+
+      {/* Action buttons */}
+      {hasActions && (
+        <View style={styles.cardActions}>
+          {item.actions.map((action, idx) => (
+            <Pressable
+              key={idx}
+              style={[
+                styles.actionBtn,
+                action.primary
+                  ? styles.actionBtnPrimary
+                  : styles.actionBtnSecondary,
+              ]}
+              onPress={(e) => {
+                e.stopPropagation();
+                action.onPress?.();
+              }}
+            >
+              <ThemedText
+                style={
+                  action.primary
+                    ? styles.actionBtnTextPrimary
+                    : styles.actionBtnTextSecondary
+                }
+              >
+                {action.label}
+              </ThemedText>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {/* Review stars for completed */}
+      {item.hasReview && (
+        <View style={styles.reviewRow}>
+          {[1, 2, 3, 4, 5].map((star) => (
+            <Ionicons
+              key={star}
+              name={star <= (item.reviewRating || 0) ? "star" : "star-outline"}
+              size={16}
+              color="#F59E0B"
+            />
+          ))}
+          <ThemedText style={styles.reviewLabel}>Client review</ThemedText>
+        </View>
+      )}
+    </Pressable>
   );
 }
 
-/* Warning/Alert row */
-function AlertRow({ icon, text, type = "warning" }) {
-  const colors = {
-    warning: { bg: "#FEF3C7", fg: "#F59E0B" },
-    danger: { bg: "#FEE2E2", fg: "#EF4444" },
-    info: { bg: "#DBEAFE", fg: "#3B82F6" },
-  };
-  const c = colors[type] || colors.warning;
-
+// Empty state component
+function EmptyState({ icon, title, subtitle, primaryAction }) {
   return (
-    <View style={[styles.alertRow, { backgroundColor: c.bg }]}>
-      <Ionicons name={icon} size={14} color={c.fg} />
-      <ThemedText style={[styles.alertText, { color: c.fg }]}>{text}</ThemedText>
+    <View style={styles.emptyState}>
+      <View style={styles.emptyIconContainer}>
+        <Ionicons name={icon} size={48} color="#9CA3AF" />
+      </View>
+      <ThemedText style={styles.emptyTitle}>{title}</ThemedText>
+      <ThemedText style={styles.emptySubtitle}>{subtitle}</ThemedText>
+      {primaryAction && (
+        <>
+          <Spacer height={16} />
+          <Pressable
+            style={styles.emptyPrimaryBtn}
+            onPress={primaryAction.onPress}
+          >
+            <ThemedText style={styles.emptyPrimaryBtnText}>
+              {primaryAction.label}
+            </ThemedText>
+          </Pressable>
+        </>
+      )}
     </View>
   );
 }
@@ -145,14 +331,13 @@ export default function TradesmanProjects() {
   const { user } = useUser();
   const insets = useSafeAreaInsets();
 
-  const [activeTab, setActiveTab] = useState("active"); // active | completed | invoices
+  const [filter, setFilter] = useState("all"); // all | new | active | past
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   // Data
   const [inboxRows, setInboxRows] = useState([]);
   const [sentRows, setSentRows] = useState([]);
-  const [invoices, setInvoices] = useState([]);
   const [appointments, setAppointments] = useState([]);
 
   // Helper functions
@@ -166,6 +351,25 @@ export default function TradesmanProjects() {
     if (!date) return 0;
     const diff = new Date(date) - new Date();
     return Math.floor(diff / (1000 * 60 * 60 * 24));
+  };
+
+  const formatDate = (date) => {
+    if (!date) return "";
+    const d = new Date(date);
+    return d.toLocaleDateString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+  };
+
+  const formatTime = (date) => {
+    if (!date) return "";
+    const d = new Date(date);
+    return d.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   const load = useCallback(async () => {
@@ -183,10 +387,12 @@ export default function TradesmanProjects() {
         .order("created_at", { ascending: false });
       if (tErr) throw tErr;
 
-      // Fetch quotes with valid_until for expiration tracking
+      // Fetch quotes
       const { data: quotes, error: qErr } = await supabase
         .from("tradify_native_app_db")
-        .select("id, request_id, client_id, status, issued_at, created_at, details, currency, grand_total, tax_total, valid_until")
+        .select(
+          "id, request_id, client_id, status, issued_at, created_at, details, currency, grand_total, tax_total, valid_until"
+        )
         .eq("trade_id", myId)
         .order("issued_at", { ascending: false, nullsFirst: false });
       if (qErr) throw qErr;
@@ -200,21 +406,24 @@ export default function TradesmanProjects() {
         ])
       );
 
-      // Fetch request docs first (we need requester_id for client names)
+      // Fetch request docs
       let reqById = {};
       if (reqIds.length) {
         const { data: reqs } = await supabase
           .from("quote_requests")
-          .select("id, details, created_at, status, postcode, budget_band, suggested_title, requester_id")
+          .select(
+            "id, details, created_at, status, postcode, budget_band, suggested_title, requester_id"
+          )
           .in("id", reqIds);
         (reqs || []).forEach((r) => (reqById[r.id] = r));
       }
 
-      // Fetch client names using rpc_list_conversations (which has proper RLS permissions)
-      // This RPC returns other_party_name for each request_id
+      // Fetch client names
       let clientNameByRequestId = {};
       let clientContactByRequestId = {};
-      const { data: convData } = await supabase.rpc("rpc_list_conversations", { p_limit: 100 });
+      const { data: convData } = await supabase.rpc("rpc_list_conversations", {
+        p_limit: 100,
+      });
       if (convData) {
         convData.forEach((conv) => {
           if (conv.request_id && conv.other_party_name) {
@@ -223,33 +432,30 @@ export default function TradesmanProjects() {
         });
       }
 
-      // Fetch client contact visibility info for each request using new RPC
-      // This returns privacy-aware contact info based on quote acceptance status
+      // Fetch client contact visibility
       for (const reqId of reqIds) {
         try {
-          const { data: contactData } = await supabase.rpc("rpc_get_client_contact_for_request", {
-            p_request_id: reqId,
-          });
+          const { data: contactData } = await supabase.rpc(
+            "rpc_get_client_contact_for_request",
+            { p_request_id: reqId }
+          );
           if (contactData) {
             clientContactByRequestId[reqId] = contactData;
           }
         } catch {
-          // Silently fail - will fallback to conversation data
+          // Silently fail
         }
       }
 
-      // Fetch appointments for these quotes
-      const quoteIds = (quotes || []).map((q) => q.id);
+      // Fetch appointments
       let appointmentsByQuote = {};
       let appointmentsByRequest = {};
-
-      // Fetch all appointments using RPC (bypasses RLS issues)
-      const { data: apptData } = await supabase.rpc("rpc_trade_list_appointments", {
-        p_only_upcoming: false,
-      });
+      const { data: apptData } = await supabase.rpc(
+        "rpc_trade_list_appointments",
+        { p_only_upcoming: false }
+      );
 
       (apptData || []).forEach((a) => {
-        // Normalize field names from RPC (appointment_id -> id)
         const normalized = {
           id: a.appointment_id || a.id,
           quote_id: a.quote_id,
@@ -260,14 +466,14 @@ export default function TradesmanProjects() {
           location: a.postcode || a.job_outcode,
         };
 
-        // Index by quote_id if available
         if (normalized.quote_id) {
-          if (!appointmentsByQuote[normalized.quote_id]) appointmentsByQuote[normalized.quote_id] = [];
+          if (!appointmentsByQuote[normalized.quote_id])
+            appointmentsByQuote[normalized.quote_id] = [];
           appointmentsByQuote[normalized.quote_id].push(normalized);
         }
-        // Also index by request_id for inbox items
         if (normalized.request_id) {
-          if (!appointmentsByRequest[normalized.request_id]) appointmentsByRequest[normalized.request_id] = [];
+          if (!appointmentsByRequest[normalized.request_id])
+            appointmentsByRequest[normalized.request_id] = [];
           appointmentsByRequest[normalized.request_id].push(normalized);
         }
       });
@@ -279,49 +485,79 @@ export default function TradesmanProjects() {
         .map((t) => {
           const r = reqById[t.request_id];
           const requestAge = daysSince(t.created_at);
-          const isUrgent = requestAge >= 2 && t.state !== "accepted" && t.state !== "declined";
+          const isStale = requestAge >= 3;
 
-          // Get client contact info (privacy-aware)
           const contactInfo = clientContactByRequestId[t.request_id] || {};
-          const clientFullName = contactInfo.name || clientNameByRequestId[t.request_id] || null;
+          const clientFullName =
+            contactInfo.name || clientNameByRequestId[t.request_id] || null;
           const contactUnlocked = contactInfo.contact_unlocked || false;
 
-          // Get appointments for this request (survey appointments before quote exists)
-          const requestAppointments = appointmentsByRequest[t.request_id] || [];
+          // Get job description from request details
+          // For direct requests, skip metadata lines and find actual description
+          let jobDescription = null;
+          if (r?.details) {
+            const lines = String(r.details).split("\n");
+            // Find first line that isn't metadata (doesn't start with known prefixes)
+            const metadataPrefixes = ["Direct request to:", "Category:", "Service:", "Property:", "Postcode:", "Budget:", "Timing:", "Emergency:"];
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (!trimmedLine) continue;
+
+              // Check if line starts with "Description:" and extract the value
+              if (trimmedLine.startsWith("Description:")) {
+                const desc = trimmedLine.replace("Description:", "").trim();
+                jobDescription = desc.length > 80 ? desc.slice(0, 80) + "..." : desc;
+                break;
+              }
+
+              // Check if it's NOT a metadata line - that's the actual description
+              const isMetadata = metadataPrefixes.some(prefix => trimmedLine.startsWith(prefix));
+              if (!isMetadata) {
+                jobDescription = trimmedLine.length > 80 ? trimmedLine.slice(0, 80) + "..." : trimmedLine;
+                break;
+              }
+            }
+          }
+
+          const requestAppointments =
+            appointmentsByRequest[t.request_id] || [];
           const now = new Date();
           const upcomingAppointments = requestAppointments
             .filter((a) => new Date(a.scheduled_at) > now)
             .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
           const nextAppointment = upcomingAppointments[0] || null;
-          const additionalAppointmentsCount = upcomingAppointments.length > 1 ? upcomingAppointments.length - 1 : 0;
+
+          // Extract budget from budget_band column or from details string
+          let budgetBand = r?.budget_band || null;
+          if (!budgetBand && r?.details) {
+            // Look for "Budget: £X" pattern in details
+            const budgetMatch = String(r.details).match(/Budget:\s*([^\n]+)/i);
+            if (budgetMatch) {
+              budgetBand = budgetMatch[1].trim();
+            }
+          }
 
           return {
             request_id: t.request_id,
             invited_at: t.created_at,
             request_type: t.invited_by || "system",
             state: t.state,
-            title: r?.suggested_title || extractTitle(r),
+            title: r?.suggested_title || "Project",
             created_at: r?.created_at,
-            budget_band: r?.budget_band || null,
+            budget_band: budgetBand,
             postcode: r?.postcode || null,
             requestAge,
-            isUrgent,
-            // Calculate response deadline (e.g., 3 days to respond)
-            responseDeadline: 3 - requestAge,
-            // Client contact info (privacy-aware)
+            isStale,
+            jobDescription,
             clientFullName,
             clientName: getClientDisplayName(clientFullName, contactUnlocked),
             clientPostcode: contactInfo.postcode || r?.postcode || null,
             contactUnlocked,
-            // Appointment info (for surveys before quote)
             nextAppointment,
-            hasAppointments: requestAppointments.length > 0,
-            additionalAppointmentsCount,
           };
         });
 
-      // SENT (quote exists) - Group quotes by request_id for multi-quote display
-      // First, group quotes by request_id
+      // SENT (quote exists) - Group by request
       const quotesByRequest = {};
       (quotes || []).forEach((q) => {
         if (!quotesByRequest[q.request_id]) {
@@ -330,136 +566,119 @@ export default function TradesmanProjects() {
         quotesByRequest[q.request_id].push(q);
       });
 
-      // Now create a single project per request with all its quotes
-      const sent = Object.entries(quotesByRequest).map(([requestId, requestQuotes]) => {
-        const r = reqById[requestId];
-        const t = (targets || []).find(
-          (tt) => tt.request_id === requestId && tt.trade_id === myId
-        );
+      const sent = Object.entries(quotesByRequest).map(
+        ([requestId, requestQuotes]) => {
+          const r = reqById[requestId];
+          const t = (targets || []).find(
+            (tt) => tt.request_id === requestId && tt.trade_id === myId
+          );
 
-        // Sort quotes: prioritize active job states (completed, awaiting_completion, accepted) over drafts/sent
-        // These represent the actual state of the job, not pending work
-        requestQuotes.sort((a, b) => {
-          const aStatus = (a.status || "").toLowerCase();
-          const bStatus = (b.status || "").toLowerCase();
-          // Priority order: completed/awaiting states first (they define the job state),
-          // then accepted (active job), then drafts/sent (need action)
-          const priorityOrder = {
-            completed: 0,
-            awaiting_completion: 1,
-            issue_reported: 2,
-            issue_resolved_pending: 3,
-            accepted: 4,
-            sent: 5,
-            created: 5,
-            draft: 6,
-            declined: 7,
-            expired: 7
+          requestQuotes.sort((a, b) => {
+            const aStatus = (a.status || "").toLowerCase();
+            const bStatus = (b.status || "").toLowerCase();
+            const priorityOrder = {
+              completed: 0,
+              awaiting_completion: 1,
+              issue_reported: 2,
+              issue_resolved_pending: 3,
+              accepted: 4,
+              sent: 5,
+              created: 5,
+              draft: 6,
+              declined: 7,
+              expired: 7,
+            };
+            const aPriority = priorityOrder[aStatus] ?? 5;
+            const bPriority = priorityOrder[bStatus] ?? 5;
+            if (aPriority !== bPriority) return aPriority - bPriority;
+            return new Date(b.created_at) - new Date(a.created_at);
+          });
+
+          const primaryQuote = requestQuotes[0];
+          const primaryStatus = (primaryQuote.status || "").toLowerCase();
+
+          const issuedAt = primaryQuote.issued_at
+            ? new Date(primaryQuote.issued_at)
+            : null;
+          const validUntil = primaryQuote.valid_until
+            ? new Date(primaryQuote.valid_until)
+            : null;
+          const daysToExpiry = validUntil
+            ? daysUntil(validUntil)
+            : issuedAt
+            ? 14 - daysSince(issuedAt)
+            : null;
+          const isExpiringSoon =
+            daysToExpiry !== null && daysToExpiry <= 3 && daysToExpiry > 0;
+
+          const daysSinceIssued = issuedAt ? daysSince(issuedAt) : 0;
+          const clientNotResponding =
+            primaryStatus === "sent" && daysSinceIssued >= 7;
+
+          const allQuoteAppointments = requestQuotes.flatMap(
+            (q) => appointmentsByQuote[q.id] || []
+          );
+          const requestAppointments =
+            appointmentsByRequest[requestId] || [];
+          const allAppointments =
+            allQuoteAppointments.length > 0
+              ? allQuoteAppointments
+              : requestAppointments;
+          const now = new Date();
+          const upcomingAppointments = allAppointments
+            .filter((a) => new Date(a.scheduled_at) > now)
+            .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+          const nextAppointment = upcomingAppointments[0] || null;
+
+          const contactInfo = clientContactByRequestId[requestId] || {};
+          const clientFullName =
+            contactInfo.name || clientNameByRequestId[requestId] || null;
+          const acceptedStatuses = [
+            "accepted",
+            "awaiting_completion",
+            "completed",
+          ];
+          const acceptedQuote = requestQuotes.find((q) =>
+            acceptedStatuses.includes((q.status || "").toLowerCase())
+          );
+          const hasAcceptedQuote = !!acceptedQuote;
+          const acceptedQuoteId = acceptedQuote?.id || null;
+          const acceptedQuoteTotal = acceptedQuote?.grand_total || null;
+          const contactUnlocked =
+            contactInfo.contact_unlocked || hasAcceptedQuote;
+
+          return {
+            id: primaryQuote.id,
+            request_id: requestId,
+            status: primaryStatus,
+            issued_at: primaryQuote.issued_at ?? primaryQuote.created_at,
+            valid_until: primaryQuote.valid_until,
+            title: r?.suggested_title || "Project",
+            request_type: t?.invited_by || "system",
+            budget_band: r?.budget_band || null,
+            postcode: r?.postcode || null,
+            currency: primaryQuote.currency,
+            grand_total: primaryQuote.grand_total,
+            quotes: requestQuotes,
+            quoteCount: requestQuotes.length,
+            hasAcceptedQuote,
+            acceptedQuoteId,
+            acceptedQuoteTotal,
+            clientFullName,
+            clientName: getClientDisplayName(clientFullName, contactUnlocked),
+            clientPostcode: contactInfo.postcode || r?.postcode || null,
+            contactUnlocked,
+            daysToExpiry,
+            isExpiringSoon,
+            daysSinceIssued,
+            clientNotResponding,
+            nextAppointment,
           };
-          const aPriority = priorityOrder[aStatus] ?? 5;
-          const bPriority = priorityOrder[bStatus] ?? 5;
-          if (aPriority !== bPriority) return aPriority - bPriority;
-          // Same priority - sort by date (newest first)
-          return new Date(b.created_at) - new Date(a.created_at);
-        });
-
-        // Use the most relevant quote for status calculations (prioritizes job state)
-        const primaryQuote = requestQuotes[0];
-        const primaryStatus = (primaryQuote.status || "").toLowerCase();
-
-        // Calculate expiration info from primary quote
-        const issuedAt = primaryQuote.issued_at ? new Date(primaryQuote.issued_at) : null;
-        const validUntil = primaryQuote.valid_until ? new Date(primaryQuote.valid_until) : null;
-        const daysToExpiry = validUntil ? daysUntil(validUntil) : (issuedAt ? 14 - daysSince(issuedAt) : null);
-        const isExpiringSoon = daysToExpiry !== null && daysToExpiry <= 3 && daysToExpiry > 0;
-        const isExpired = daysToExpiry !== null && daysToExpiry <= 0;
-
-        // Client response tracking
-        const daysSinceIssued = issuedAt ? daysSince(issuedAt) : 0;
-        const clientNotResponding = primaryStatus === "sent" && daysSinceIssued >= 7;
-
-        // Get appointments for all quotes in this request
-        const allQuoteAppointments = requestQuotes.flatMap(q => appointmentsByQuote[q.id] || []);
-        const requestAppointments = appointmentsByRequest[requestId] || [];
-        const allAppointments = allQuoteAppointments.length > 0 ? allQuoteAppointments : requestAppointments;
-        const now = new Date();
-        const upcomingAppointments = allAppointments
-          .filter((a) => new Date(a.scheduled_at) > now)
-          .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-        const nextAppointment = upcomingAppointments[0] || null;
-        const additionalAppointmentsCount = upcomingAppointments.length > 1 ? upcomingAppointments.length - 1 : 0;
-
-        // Get client contact info (privacy-aware)
-        const contactInfo = clientContactByRequestId[requestId] || {};
-        const clientFullName = contactInfo.name || clientNameByRequestId[requestId] || null;
-        // Contact is unlocked when any quote is accepted (or in post-acceptance states)
-        const acceptedStatuses = ["accepted", "awaiting_completion", "completed"];
-        const acceptedQuote = requestQuotes.find(q => acceptedStatuses.includes((q.status || "").toLowerCase()));
-        const hasAcceptedQuote = !!acceptedQuote;
-        const acceptedQuoteId = acceptedQuote?.id || null;
-        const acceptedQuoteTotal = acceptedQuote?.grand_total || null;
-        const contactUnlocked = contactInfo.contact_unlocked || hasAcceptedQuote;
-
-        // Calculate price range if multiple quotes
-        const quoteTotals = requestQuotes
-          .filter(q => q.grand_total != null)
-          .map(q => q.grand_total);
-        const minPrice = quoteTotals.length > 0 ? Math.min(...quoteTotals) : null;
-        const maxPrice = quoteTotals.length > 0 ? Math.max(...quoteTotals) : null;
-        const hasPriceRange = quoteTotals.length > 1 && minPrice !== maxPrice;
-
-        return {
-          id: primaryQuote.id,
-          request_id: requestId,
-          status: primaryStatus,
-          issued_at: primaryQuote.issued_at ?? primaryQuote.created_at,
-          valid_until: primaryQuote.valid_until,
-          title: r?.suggested_title || extractTitle(r),
-          request_type: t?.invited_by || "system",
-          budget_band: r?.budget_band || null,
-          postcode: r?.postcode || null,
-          acceptedByTrade: t?.state === "accepted",
-          currency: primaryQuote.currency,
-          grand_total: primaryQuote.grand_total,
-          tax_total: primaryQuote.tax_total,
-          // Multi-quote info
-          quotes: requestQuotes,
-          quoteCount: requestQuotes.length,
-          minPrice,
-          maxPrice,
-          hasPriceRange,
-          hasAcceptedQuote,
-          acceptedQuoteId,
-          acceptedQuoteTotal,
-          // Client contact info (privacy-aware)
-          clientFullName,
-          clientName: getClientDisplayName(clientFullName, contactUnlocked),
-          clientPostcode: contactInfo.postcode || r?.postcode || null,
-          contactUnlocked,
-          // Expiration info
-          daysToExpiry,
-          isExpiringSoon,
-          isExpired: isExpired && primaryStatus !== "expired",
-          // Client response tracking
-          daysSinceIssued,
-          clientNotResponding,
-          // Appointment info
-          nextAppointment,
-          hasAppointments: allAppointments.length > 0,
-          additionalAppointmentsCount,
-        };
-      });
+        }
+      );
 
       setInboxRows(inbox);
       setSentRows(sent);
-
-      // Fetch invoices from sales view
-      const { data: invoiceData } = await supabase
-        .from("v_trades_sales")
-        .select("*")
-        .eq("kind", "invoice")
-        .order("issued_at", { ascending: false });
-      setInvoices(invoiceData || []);
     } catch (e) {
       console.error("Load error:", e);
     } finally {
@@ -467,7 +686,6 @@ export default function TradesmanProjects() {
     }
   }, [user?.id]);
 
-  // Refresh data when screen gains focus (e.g., returning from schedule page)
   useFocusEffect(
     useCallback(() => {
       if (user?.id) {
@@ -478,46 +696,33 @@ export default function TradesmanProjects() {
 
   useEffect(() => {
     if (!user?.id) return;
-
-    // Initial fetch
     load();
 
-    // Realtime subscriptions for quotes table
+    // Realtime subscriptions
     const quotesChannel = supabase
       .channel("trades-quotes-realtime")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "tradify_native_app_db" },
-        (payload) => {
-          console.log("[TRADES REALTIME] Quote change:", payload);
-          load();
-        }
+        () => load()
       )
       .subscribe();
 
-    // Realtime subscriptions for appointments table
     const appointmentsChannel = supabase
       .channel("trades-appointments-realtime")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "appointments" },
-        (payload) => {
-          console.log("[TRADES REALTIME] Appointment change:", payload);
-          load();
-        }
+        () => load()
       )
       .subscribe();
 
-    // Realtime subscriptions for request_targets table (for inbox updates)
     const targetsChannel = supabase
       .channel("trades-targets-realtime")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "request_targets" },
-        (payload) => {
-          console.log("[TRADES REALTIME] Target change:", payload);
-          load();
-        }
+        () => load()
       )
       .subscribe();
 
@@ -534,92 +739,390 @@ export default function TradesmanProjects() {
     setRefreshing(false);
   };
 
-  // Categorize projects
-  const categorizedProjects = useMemo(() => {
-    const needsAction = [];
-    const activeQuotes = [];
-    const completed = [];
+  // Transform data into project cards
+  const projects = useMemo(() => {
+    const allProjects = [];
 
-    // Process inbox items (requests without quotes)
+    // Process inbox items (new requests) - Stage: REQUEST or QUOTE (if accepted but no quote yet)
     inboxRows.forEach((item) => {
-      if (item.state === "declined") {
-        // Declined by trade - don't show
+      if (item.state === "declined") return;
+
+      const apptStatus = item.nextAppointment?.status?.toLowerCase();
+      const isDirectRequest = item.request_type === "client";
+      const isAccepted = item.state === "accepted" || item.state === "trade_accepted";
+
+      // Always show client info in context line
+      const contextLine = `${item.clientName || "Client"} · ${item.clientPostcode || item.postcode || ""}`;
+
+      // Show budget for all requests that have it
+      const budgetInfo = item.budget_band
+        ? `Budget: ${item.budget_band}`
+        : null;
+
+      // If accepted but no quote created yet, show as QUOTE stage with Schedule/Send actions
+      if (isAccepted) {
+        let statusType = "action";
+        let statusText = "Send quote or schedule visit";
+        let statusDetail = `Accepted ${item.requestAge > 0 ? item.requestAge + " days ago" : "today"}`;
+        let subStatus = null;
+
+        if (apptStatus === "proposed") {
+          statusType = "waiting";
+          statusText = "Survey visit proposed";
+          statusDetail = `${formatDate(item.nextAppointment.scheduled_at)} · Awaiting client`;
+          subStatus = "survey_proposed";
+        } else if (apptStatus === "confirmed") {
+          statusType = "scheduled";
+          statusText = "Survey visit confirmed";
+          statusDetail = `${formatDate(item.nextAppointment.scheduled_at)}, ${formatTime(item.nextAppointment.scheduled_at)}`;
+          subStatus = "survey_confirmed";
+        }
+
+        allProjects.push({
+          id: `inbox-${item.request_id}`,
+          type: "accepted",
+          stage: "QUOTE",
+          stageIndex: 1,
+          progressPosition: getTradeProgressPosition("QUOTE", subStatus),
+          requestId: item.request_id,
+          title: item.title,
+          requestType: item.request_type,
+          contextLine,
+          jobDescription: item.jobDescription || (isDirectRequest ? "No description added" : null),
+          budgetInfo,
+          statusType,
+          statusText,
+          statusDetail,
+          quoteAmount: null,
+          actions: [
+            {
+              label: "Schedule Visit",
+              primary: false,
+              onPress: () => router.push(`/quotes/request/${item.request_id}`),
+            },
+            {
+              label: "Send Quote",
+              primary: true,
+              onPress: () =>
+                router.push({
+                  pathname: "/quotes/create",
+                  params: { requestId: item.request_id },
+                }),
+            },
+          ],
+          sortPriority: 1,
+        });
         return;
       }
-      needsAction.push({
-        ...item,
+
+      // Not accepted yet - show as REQUEST stage with Accept/Decline
+      let statusType = "new";
+      let statusText = "New request";
+      let statusDetail = `Posted ${item.requestAge} days ago`;
+      let subStatus = null;
+
+      if (item.isStale) {
+        statusType = "action";
+        statusText = "Getting stale";
+        statusDetail = `Posted ${item.requestAge} days ago`;
+      }
+
+      if (item.request_type === "client") {
+        statusType = "action";
+        statusText = `${item.clientName?.split(" ")[0] || "Client"} requested you directly`;
+        statusDetail = `Posted ${item.requestAge > 0 ? item.requestAge + " days" : "today"}`;
+      }
+
+      if (apptStatus === "proposed") {
+        statusType = "waiting";
+        statusText = "Survey visit proposed";
+        statusDetail = `${formatDate(item.nextAppointment.scheduled_at)} · Awaiting client`;
+        subStatus = "survey_proposed";
+      } else if (apptStatus === "confirmed") {
+        statusType = "scheduled";
+        statusText = "Survey visit confirmed";
+        statusDetail = `${formatDate(item.nextAppointment.scheduled_at)}, ${formatTime(item.nextAppointment.scheduled_at)}`;
+        subStatus = "survey_confirmed";
+      }
+
+      allProjects.push({
+        id: `inbox-${item.request_id}`,
         type: "inbox",
-        displayStatus: item.state === "accepted" ? "accepted" : "new",
+        stage: "REQUEST",
+        stageIndex: 0,
+        progressPosition: getTradeProgressPosition("REQUEST", subStatus),
+        requestId: item.request_id,
+        title: item.title,
+        requestType: item.request_type,
+        contextLine,
+        // Show job description for all requests
+        jobDescription: item.jobDescription || (isDirectRequest ? "No description added" : null),
+        budgetInfo,
+        statusType,
+        statusText,
+        statusDetail,
+        quoteAmount: null,
+        actions: [
+          {
+            label: "Decline",
+            primary: false,
+            onPress: () => router.push(`/quotes/request/${item.request_id}`),
+          },
+          {
+            label: "Accept",
+            primary: true,
+            onPress: () => router.push(`/quotes/request/${item.request_id}`),
+          },
+        ],
+        sortPriority:
+          item.request_type === "client" ? 0 : item.isStale ? 1 : 2,
       });
     });
 
-    // Process sent quotes
+    // Process sent quotes - Stages: QUOTE, WORK, DONE
     sentRows.forEach((item) => {
       const status = item.status?.toLowerCase() || "";
+      const apptStatus = item.nextAppointment?.status?.toLowerCase();
+      const contextLine = `${item.clientName || "Client"} · ${item.clientPostcode || item.postcode || ""}`;
 
-      if (status === "accepted") {
-        // Accepted by client - active job
-        activeQuotes.push({
-          ...item,
-          type: "quote",
-          displayStatus: item.nextAppointment ? "scheduled" : "in_progress",
-        });
-      } else if (status === "sent") {
-        // Waiting for client response
+      let stage = "QUOTE";
+      let stageIndex = 1;
+      let statusType = "waiting";
+      let statusText = "Waiting for response";
+      let statusDetail = `Sent ${item.daysSinceIssued} days ago`;
+      let subStatus = null;
+      let actions = null;
+
+      if (status === "draft") {
+        statusType = "action";
+        statusText = "Send quote or schedule visit";
+        statusDetail = `Accepted ${item.daysSinceIssued || 0} days ago`;
+        actions = [
+          {
+            label: "Schedule Visit",
+            primary: false,
+            onPress: () => router.push(`/quotes/request/${item.request_id}`),
+          },
+          {
+            label: "Send Quote",
+            primary: true,
+            onPress: () =>
+              router.push({
+                pathname: "/quotes/create",
+                params: { quoteId: item.id, requestId: item.request_id },
+              }),
+          },
+        ];
+      } else if (status === "sent" || status === "created") {
         if (item.clientNotResponding) {
-          needsAction.push({
-            ...item,
-            type: "quote",
-            displayStatus: "awaiting",
-          });
+          statusType = "action";
+          statusText = `No response · ${item.daysSinceIssued} days`;
+          statusDetail = `Expires in ${item.daysToExpiry || 0} days`;
+          actions = [
+            {
+              label: "Send Reminder",
+              primary: true,
+              onPress: () =>
+                router.push({
+                  pathname: "/(dashboard)/messages/[id]",
+                  params: { id: item.request_id, quoteId: item.id },
+                }),
+            },
+          ];
         } else {
-          activeQuotes.push({
-            ...item,
-            type: "quote",
-            displayStatus: "sent",
-          });
+          subStatus = "quote_sent";
         }
-      } else if (status === "declined" || status === "expired") {
-        completed.push({
-          ...item,
-          type: "quote",
-          displayStatus: status,
-        });
+      } else if (status === "accepted") {
+        stage = "WORK";
+        stageIndex = 2;
+
+        if (apptStatus === "proposed") {
+          statusType = "waiting";
+          statusText = "Work visit proposed";
+          statusDetail = `${formatDate(item.nextAppointment.scheduled_at)} · Awaiting client`;
+          subStatus = "work_proposed";
+        } else if (apptStatus === "confirmed") {
+          statusType = "scheduled";
+          statusText = "Work scheduled";
+          statusDetail = `${formatDate(item.nextAppointment.scheduled_at)}, ${formatTime(item.nextAppointment.scheduled_at)}`;
+          subStatus = "work_confirmed";
+          actions = [
+            {
+              label: "Message",
+              primary: false,
+              onPress: () =>
+                router.push({
+                  pathname: "/(dashboard)/messages/[id]",
+                  params: { id: item.request_id, quoteId: item.id },
+                }),
+            },
+            {
+              label: "Mark Complete",
+              primary: true,
+              onPress: () => router.push(`/quotes/${item.acceptedQuoteId || item.id}`),
+            },
+          ];
+        } else {
+          statusType = "action";
+          statusText = "Schedule work visit";
+          statusDetail = `Accepted ${item.daysSinceIssued || 0} days ago`;
+          actions = [
+            {
+              label: "Schedule Work",
+              primary: true,
+              onPress: () =>
+                router.push({
+                  pathname: "/quotes/schedule",
+                  params: { quoteId: item.acceptedQuoteId || item.id },
+                }),
+            },
+          ];
+        }
       } else if (status === "awaiting_completion") {
-        // Trade marked complete, waiting for client confirmation
-        activeQuotes.push({
-          ...item,
-          type: "quote",
-          displayStatus: "awaiting_completion",
-          hasAcceptedQuote: true,
-          // Use the already-calculated acceptedQuoteId if available, otherwise use item.id
-          acceptedQuoteId: item.acceptedQuoteId || item.id,
-          acceptedQuoteTotal: item.acceptedQuoteTotal || item.grand_total,
-        });
+        stage = "WORK";
+        stageIndex = 2;
+        statusType = "waiting";
+        statusText = "Awaiting client confirmation";
+        statusDetail = `Marked complete ${formatDate(item.marked_complete_at || item.issued_at)}`;
+        subStatus = "awaiting_completion";
+      } else if (status === "issue_reported") {
+        stage = "WORK";
+        stageIndex = 2;
+        statusType = "issue";
+        statusText = "Issue reported";
+        statusDetail = item.issue_reason || "Client reported a problem";
+        subStatus = "issue_reported";
+        actions = [
+          {
+            label: `Message ${item.clientName?.split(" ")[0] || "Client"}`,
+            primary: false,
+            onPress: () =>
+              router.push({
+                pathname: "/(dashboard)/messages/[id]",
+                params: { id: item.request_id, quoteId: item.id },
+              }),
+          },
+          {
+            label: "Issue Resolved",
+            primary: true,
+            onPress: () => router.push(`/quotes/${item.acceptedQuoteId || item.id}`),
+          },
+        ];
+      } else if (status === "issue_resolved_pending") {
+        stage = "WORK";
+        stageIndex = 2;
+        statusType = "waiting";
+        statusText = "Resolution sent";
+        statusDetail = "Waiting for client to confirm";
+        subStatus = "issue_resolved_pending";
       } else if (status === "completed") {
-        completed.push({
-          ...item,
-          type: "quote",
-          displayStatus: "completed",
-          hasAcceptedQuote: true,
-          acceptedQuoteId: item.acceptedQuoteId || item.id,
-          acceptedQuoteTotal: item.acceptedQuoteTotal || item.grand_total,
-        });
-      } else {
-        // Draft or other
-        activeQuotes.push({
-          ...item,
-          type: "quote",
-          displayStatus: "pending",
-        });
+        stage = "DONE";
+        stageIndex = 3;
+        statusType = "completed";
+        statusText = "Completed";
+        statusDetail = formatDate(item.completion_confirmed_at || item.issued_at);
+        subStatus = null;
+        actions = item.trade_review_rating
+          ? null
+          : [
+              {
+                label: "Leave Review",
+                primary: true,
+                onPress: () =>
+                  router.push({
+                    pathname: "/quotes/leave-review",
+                    params: { quoteId: item.acceptedQuoteId || item.id },
+                  }),
+              },
+            ];
+      } else if (status === "declined") {
+        stage = "DONE";
+        stageIndex = 3;
+        statusType = "completed";
+        statusText = "Client chose another trade";
+        statusDetail = `${item.daysSinceIssued || 0} days ago`;
+      } else if (status === "expired") {
+        stage = "DONE";
+        stageIndex = 3;
+        statusType = "completed";
+        statusText = "Quote expired";
+        statusDetail = "No response after 14 days";
       }
+
+      const quoteAmount =
+        item.hasAcceptedQuote && item.acceptedQuoteTotal
+          ? item.acceptedQuoteTotal
+          : item.grand_total;
+
+      allProjects.push({
+        id: `quote-${item.id}`,
+        type: "quote",
+        stage,
+        stageIndex,
+        progressPosition: getTradeProgressPosition(stage, subStatus),
+        requestId: item.request_id,
+        quoteId: item.acceptedQuoteId || item.id,
+        title: item.title,
+        requestType: item.request_type,
+        contextLine,
+        statusType,
+        statusText,
+        statusDetail,
+        quoteAmount: stage !== "REQUEST" && quoteAmount ? quoteAmount : null,
+        quoteAmountLabel: item.hasAcceptedQuote ? "Accepted quote" : "Quote total",
+        actions,
+        hasReview: !!item.client_review_rating,
+        reviewRating: item.client_review_rating,
+        sortPriority:
+          statusType === "issue"
+            ? 0
+            : statusType === "action"
+            ? 1
+            : statusType === "scheduled"
+            ? 2
+            : statusType === "waiting"
+            ? 3
+            : 4,
+      });
     });
 
-    return { needsAction, activeQuotes, completed };
-  }, [inboxRows, sentRows]);
+    // Sort by priority
+    allProjects.sort((a, b) => {
+      if (a.sortPriority !== b.sortPriority) {
+        return a.sortPriority - b.sortPriority;
+      }
+      return 0;
+    });
 
-  const activeCount = categorizedProjects.needsAction.length + categorizedProjects.activeQuotes.length;
-  const completedCount = categorizedProjects.completed.length;
+    return allProjects;
+  }, [inboxRows, sentRows, router, formatDate, formatTime]);
+
+  // Filter projects
+  const filteredProjects = useMemo(() => {
+    switch (filter) {
+      case "new":
+        return projects.filter((p) => p.stage === "REQUEST");
+      case "active":
+        return projects.filter(
+          (p) => p.stage === "QUOTE" || p.stage === "WORK"
+        );
+      case "past":
+        return projects.filter((p) => p.stage === "DONE");
+      default:
+        return projects.filter((p) => p.stage !== "DONE");
+    }
+  }, [projects, filter]);
+
+  // Counts
+  const counts = useMemo(() => {
+    const all = projects.filter((p) => p.stage !== "DONE").length;
+    const newCount = projects.filter((p) => p.stage === "REQUEST").length;
+    const active = projects.filter(
+      (p) => p.stage === "QUOTE" || p.stage === "WORK"
+    ).length;
+    const past = projects.filter((p) => p.stage === "DONE").length;
+    return { all, new: newCount, active, past };
+  }, [projects]);
 
   if (loading) {
     return (
@@ -633,778 +1136,105 @@ export default function TradesmanProjects() {
   return (
     <ThemedView style={styles.container}>
       <StatusBar style="dark" backgroundColor="#FFFFFF" />
-      {/* Header - Profile style */}
+
+      {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <ThemedText style={styles.headerTitle}>Projects</ThemedText>
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabsRow}>
-        <TabBtn
-          active={activeTab === "active"}
+      {/* Filter pills */}
+      <View style={styles.filterRow}>
+        <FilterPill
+          active={filter === "all"}
+          label="All"
+          count={counts.all}
+          onPress={() => setFilter("all")}
+        />
+        <FilterPill
+          active={filter === "new"}
+          label="New"
+          count={counts.new}
+          onPress={() => setFilter("new")}
+        />
+        <FilterPill
+          active={filter === "active"}
           label="Active"
-          count={activeCount}
-          onPress={() => setActiveTab("active")}
+          count={counts.active}
+          onPress={() => setFilter("active")}
         />
-        <TabBtn
-          active={activeTab === "completed"}
-          label="Completed"
-          count={completedCount}
-          onPress={() => setActiveTab("completed")}
-        />
-        <TabBtn
-          active={activeTab === "invoices"}
-          label="Invoices"
-          count={invoices.length}
-          onPress={() => setActiveTab("invoices")}
+        <FilterPill
+          active={filter === "past"}
+          label="Past"
+          count={counts.past}
+          onPress={() => setFilter("past")}
         />
       </View>
 
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
         showsVerticalScrollIndicator={false}
       >
-        {activeTab === "active" && (
-          <ActiveProjectsSection
-            needsAction={categorizedProjects.needsAction}
-            activeQuotes={categorizedProjects.activeQuotes}
-            router={router}
+        {filteredProjects.length > 0 && (
+          <View style={styles.projectsList}>
+            {filteredProjects.map((project) => (
+              <ProjectCard
+                key={project.id}
+                item={project}
+                onPress={() => {
+                  if (project.quoteId) {
+                    router.push(`/quotes/${project.quoteId}`);
+                  } else {
+                    router.push(`/quotes/request/${project.requestId}`);
+                  }
+                }}
+              />
+            ))}
+          </View>
+        )}
+
+        {filteredProjects.length === 0 && filter === "all" && (
+          <EmptyState
+            icon="briefcase-outline"
+            title="No active projects"
+            subtitle="New quote requests will appear here"
           />
         )}
-        {activeTab === "completed" && (
-          <CompletedProjects data={categorizedProjects.completed} router={router} />
+
+        {filteredProjects.length === 0 && filter === "new" && (
+          <EmptyState
+            icon="mail-outline"
+            title="No new requests"
+            subtitle="New requests matching your services will appear here"
+          />
         )}
-        {activeTab === "invoices" && <Invoices data={invoices} router={router} />}
+
+        {filteredProjects.length === 0 && filter === "active" && (
+          <EmptyState
+            icon="folder-outline"
+            title="No active jobs"
+            subtitle="Accept requests from your inbox to start quoting"
+            primaryAction={{
+              label: "View Inbox",
+              onPress: () => setFilter("new"),
+            }}
+          />
+        )}
+
+        {filteredProjects.length === 0 && filter === "past" && (
+          <EmptyState
+            icon="checkmark-circle-outline"
+            title="No completed projects"
+            subtitle="Completed quotes will appear here"
+          />
+        )}
+
+        <Spacer height={40} />
       </ScrollView>
     </ThemedView>
-  );
-}
-
-/* Helper to extract title from request */
-function extractTitle(req) {
-  if (!req) return "Project";
-  const lines = String(req.details || "").split("\n");
-  return lines[0] || "Project";
-}
-
-/* Section header component */
-function SectionHeader({ title, icon, count }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Ionicons name={icon} size={18} color="#111827" />
-      <ThemedText style={styles.sectionTitle}>
-        {title} {typeof count === "number" ? `(${count})` : ""}
-      </ThemedText>
-    </View>
-  );
-}
-
-/* Helper to calculate days since a date */
-function daysSince(date) {
-  if (!date) return 0;
-  const diff = new Date() - new Date(date);
-  return Math.floor(diff / (1000 * 60 * 60 * 24));
-}
-
-/* Project Card Component - Notion/Airbnb style */
-function ProjectCard({ project, onPress, onAction, onMessage, router }) {
-  const isInbox = project.type === "inbox";
-  const displayStatus = project.displayStatus || "pending";
-  const hasAppointment = !!project.nextAppointment;
-  const hasMultipleQuotes = (project.quoteCount || 0) > 1;
-
-  // Get status for all quote-related checks
-  const status = (project.status || displayStatus || "").toLowerCase();
-
-  // Show action buttons for: quotes (sent/active/scheduled), OR inbox items with appointments
-  // For multiple quotes, always show "View Details" button
-  const showActionButtons = (!isInbox && (displayStatus === "in_progress" || displayStatus === "scheduled" || displayStatus === "sent" || displayStatus === "awaiting" || hasMultipleQuotes)) ||
-                           (isInbox && hasAppointment);
-
-  // Determine chip label and tone based on context for TRADES view
-  // For multiple quotes, show the most actionable status
-  let chipLabel = "";
-  let chipTone = "waiting";
-  let chipIcon = null;
-
-  if (isInbox) {
-    // No quote sent yet - inbox items
-    if (project.state === "declined") {
-      chipLabel = "Declined";
-      chipTone = "negative";
-    } else {
-      // Check for appointments on inbox items (surveys before quote)
-      const apptStatus = project.nextAppointment?.status?.toLowerCase();
-      if (apptStatus === "proposed") {
-        // Appointment proposed, waiting for client confirmation
-        chipLabel = "Visit Pending";
-        chipTone = "action";
-        chipIcon = "hourglass";
-      } else if (apptStatus === "confirmed") {
-        // Appointment confirmed by client
-        chipLabel = "Scheduled";
-        chipTone = "active";
-        chipIcon = "calendar";
-      } else {
-        // No appointment yet - show based on request age
-        const daysOld = daysSince(project.invited_at || project.created_at);
-        if (daysOld === 0) {
-          chipLabel = "New Request";
-          chipTone = "waiting";
-          chipIcon = "sparkles";
-        } else {
-          chipLabel = "Send Quote";
-          chipTone = "action";
-        }
-      }
-    }
-  } else {
-    // Quote exists - determine based on status
-    // For multiple quotes, use priority: Draft > Sent > Accepted > Declined/Expired
-    const daysOld = daysSince(project.issued_at);
-
-    // Check if there's an accepted quote (highest priority for display)
-    // Also check for awaiting_completion and completed statuses (post-acceptance states)
-    if (project.hasAcceptedQuote || status === "awaiting_completion" || status === "completed") {
-      // Handle post-acceptance statuses first
-      if (status === "awaiting_completion") {
-        chipLabel = "Awaiting Confirm.";
-        chipTone = "waiting";
-        chipIcon = "hourglass";
-      } else if (status === "completed") {
-        chipLabel = "Completed";
-        chipTone = "completed";
-        chipIcon = "checkmark-done";
-      } else {
-        // Check appointment status for accepted quotes
-        const apptStatus = project.nextAppointment?.status?.toLowerCase();
-        if (apptStatus === "proposed") {
-          chipLabel = "Visit Pending";
-          chipTone = "action";
-          chipIcon = "hourglass";
-        } else if (apptStatus === "confirmed") {
-          chipLabel = "Scheduled";
-          chipTone = "active";
-          chipIcon = "calendar";
-        } else {
-          chipLabel = "In Progress";
-          chipTone = "active";
-          chipIcon = "hammer";
-        }
-      }
-    } else if (status === "draft") {
-      chipLabel = "Draft";
-      chipTone = "action";
-      chipIcon = "create-outline";
-    } else if (status === "sent" || status === "created" || status === "awaiting") {
-      // Quote sent, waiting for client response
-      if (daysOld >= 7) {
-        chipLabel = "No Response";
-        chipTone = "negative";
-      } else {
-        chipLabel = "Sent";
-        chipTone = "waiting";
-        chipIcon = "send";
-      }
-    } else if (status === "awaiting_completion") {
-      // Trade marked complete, waiting for client confirmation
-      chipLabel = "Awaiting Confirm.";
-      chipTone = "waiting";
-      chipIcon = "hourglass";
-    } else if (status === "accepted" || status === "in_progress" || status === "scheduled") {
-      // Check appointment status for accepted quotes
-      const apptStatus = project.nextAppointment?.status?.toLowerCase();
-      if (apptStatus === "proposed") {
-        chipLabel = "Visit Pending";
-        chipTone = "action";
-        chipIcon = "hourglass";
-      } else if (apptStatus === "confirmed") {
-        chipLabel = "Scheduled";
-        chipTone = "active";
-        chipIcon = "calendar";
-      } else {
-        chipLabel = "In Progress";
-        chipTone = "active";
-        chipIcon = "hammer";
-      }
-    } else if (status === "declined") {
-      chipLabel = "Declined";
-      chipTone = "negative";
-    } else if (status === "expired") {
-      chipLabel = "Expired";
-      chipTone = "negative";
-      chipIcon = "time";
-    } else if (status === "completed") {
-      chipLabel = "Completed";
-      chipTone = "completed";
-    } else {
-      chipLabel = "Sent";
-      chipTone = "waiting";
-    }
-  }
-
-  // Format title: just the service/category without location
-  const formattedTitle = formatTitle(project.title);
-
-  // Build subtitle: "ClientName • Postcode" (privacy-aware)
-  const clientDisplayName = project.clientName || null;
-  const displayPostcode = project.clientPostcode || project.postcode || null;
-  let subtitleParts = [];
-  if (clientDisplayName) subtitleParts.push(clientDisplayName);
-  if (displayPostcode) subtitleParts.push(displayPostcode);
-  const subtitleText = subtitleParts.join(" • ");
-
-  return (
-    <Pressable style={styles.projectCard} onPress={onPress}>
-      {/* Header */}
-      <View style={styles.cardHeader}>
-        <View style={{ flex: 1 }}>
-          <ThemedText style={styles.cardTitle} numberOfLines={2}>
-            {formattedTitle}
-          </ThemedText>
-          {subtitleText ? (
-            <ThemedText style={styles.cardSubtitle}>
-              {subtitleText}
-            </ThemedText>
-          ) : null}
-        </View>
-        <StatusChip label={chipLabel} tone={chipTone} icon={chipIcon} />
-      </View>
-
-      <Spacer height={12} />
-
-      {/* Content */}
-      <View style={styles.cardContent}>
-        {/* Meta info row */}
-        <View style={styles.metaRow}>
-          {project.request_type && (
-            <InfoRow
-              icon={project.request_type === "client" ? "person" : "globe"}
-              text={project.request_type === "client" ? "Direct request" : "Open request"}
-            />
-          )}
-        </View>
-
-        {/* Quote summary for sent quotes */}
-        {!isInbox && (
-          <>
-            {/* Multiple quotes summary */}
-            {hasMultipleQuotes ? (
-              <View style={styles.quoteSummaryBox}>
-                <View style={styles.quoteSummaryHeader}>
-                  <Ionicons name="document-text-outline" size={16} color="#6B7280" />
-                  <ThemedText style={styles.quoteSummaryLabel}>
-                    {project.hasAcceptedQuote
-                      ? "Accepted quote"
-                      : `${project.quoteCount} quotes ${project.status === "draft" ? "drafted" : "sent"}`}
-                  </ThemedText>
-                </View>
-                {project.hasAcceptedQuote && project.acceptedQuoteTotal != null ? (
-                  <ThemedText style={styles.quoteSummaryAmount}>
-                    £{formatNumber(project.acceptedQuoteTotal)}
-                  </ThemedText>
-                ) : project.minPrice != null && (
-                  <ThemedText style={styles.quoteSummaryAmount}>
-                    {project.hasPriceRange
-                      ? `£${formatNumber(project.minPrice)} - £${formatNumber(project.maxPrice)}`
-                      : `£${formatNumber(project.minPrice)}`}
-                  </ThemedText>
-                )}
-              </View>
-            ) : project.grand_total != null ? (
-              /* Single quote - show exact amount */
-              <View style={styles.amountRow}>
-                <ThemedText style={styles.amountLabel}>Quote total</ThemedText>
-                <ThemedText style={styles.amountValue}>
-                  £{formatNumber(project.grand_total)}
-                </ThemedText>
-              </View>
-            ) : null}
-          </>
-        )}
-
-        {/* Appointment info for quotes and inbox items */}
-        {project.nextAppointment && (
-          <View style={styles.appointmentInfo}>
-            <Ionicons
-              name="calendar"
-              size={14}
-              color={project.nextAppointment.status === "confirmed" ? TINT : "#6B7280"}
-            />
-            <ThemedText style={[
-              styles.infoText,
-              {
-                color: project.nextAppointment.status === "confirmed" ? TINT : "#6B7280",
-                fontWeight: "600"
-              }
-            ]}>
-              {project.nextAppointment.title ? `${project.nextAppointment.title}: ` : (project.nextAppointment.status === "proposed" ? "Proposed: " : "Survey: ")}
-              {new Date(project.nextAppointment.scheduled_at).toLocaleDateString(undefined, {
-                weekday: "short",
-                day: "numeric",
-                month: "short",
-              })}
-              {project.nextAppointment.status === "confirmed" && (
-                `, ${new Date(project.nextAppointment.scheduled_at).toLocaleTimeString(undefined, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}`
-              )}
-            </ThemedText>
-          </View>
-        )}
-
-        {/* Additional appointments hint */}
-        {project.additionalAppointmentsCount > 0 && (
-          <ThemedText style={styles.additionalAppointmentsHint}>
-            +{project.additionalAppointmentsCount} more visit{project.additionalAppointmentsCount !== 1 ? 's' : ''} scheduled
-          </ThemedText>
-        )}
-
-        {/* Alerts/Warnings */}
-        {/* Response deadline for inbox items */}
-        {isInbox && project.isUrgent && project.responseDeadline !== undefined && (
-          <AlertRow
-            icon="alert-circle"
-            text={project.responseDeadline <= 0
-              ? "Response overdue"
-              : `Respond within ${project.responseDeadline} day${project.responseDeadline !== 1 ? 's' : ''}`}
-            type={project.responseDeadline <= 0 ? "danger" : "warning"}
-          />
-        )}
-
-        {/* Client not responding warning */}
-        {!isInbox && project.clientNotResponding && (
-          <AlertRow
-            icon="hourglass"
-            text={`Client hasn't responded (${project.daysSinceIssued} days)`}
-            type="warning"
-          />
-        )}
-
-        {/* Expiring soon warning */}
-        {!isInbox && project.isExpiringSoon && (
-          <AlertRow
-            icon="time"
-            text={`Quote expires in ${project.daysToExpiry} day${project.daysToExpiry !== 1 ? 's' : ''}`}
-            type="warning"
-          />
-        )}
-
-        {/* Awaiting completion info */}
-        {!isInbox && status === "awaiting_completion" && (
-          <View style={styles.awaitingConfirmRow}>
-            <Ionicons name="hourglass" size={14} color="#3B82F6" />
-            <ThemedText style={styles.awaitingConfirmText}>
-              Waiting for {project.clientName ? project.clientName.split(" ")[0] : "client"} to confirm
-            </ThemedText>
-          </View>
-        )}
-
-        {/* Completed info */}
-        {!isInbox && status === "completed" && project.completion_confirmed_at && (
-          <ThemedText style={styles.completedMetaText}>
-            Completed {new Date(project.completion_confirmed_at).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            })}
-          </ThemedText>
-        )}
-
-        {/* Quote age/meta info */}
-        {!isInbox && project.issued_at && status !== "awaiting_completion" && status !== "completed" && (
-          <ThemedText style={styles.metaText}>
-            Sent {new Date(project.issued_at).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            })}
-          </ThemedText>
-        )}
-
-        {isInbox && project.invited_at && (
-          <ThemedText style={styles.metaText}>
-            Received {new Date(project.invited_at).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            })}
-          </ThemedText>
-        )}
-      </View>
-
-      {/* Action button for inbox items ready to quote */}
-      {isInbox && project.state === "accepted" && (
-        <>
-          <Spacer height={12} />
-          <Pressable
-            style={styles.primaryActionBtn}
-            onPress={(e) => {
-              e.stopPropagation();
-              onAction?.();
-            }}
-          >
-            <Ionicons name="create-outline" size={16} color="#FFF" />
-            <ThemedText style={styles.primaryActionText}>Create Quote</ThemedText>
-            <Ionicons name="arrow-forward" size={16} color="#FFF" />
-          </Pressable>
-        </>
-      )}
-
-      {/* Action buttons for draft quotes: Message icon + View Details + Edit Quote */}
-      {/* For multiple quotes, show View Details only (user goes to request page to see all) */}
-      {!isInbox && displayStatus === "pending" && project.status === "draft" && !hasMultipleQuotes && (
-        <>
-          <Spacer height={12} />
-          <View style={styles.cardActionsThree}>
-            {/* Message icon button */}
-            <Pressable
-              style={styles.actionBtnIcon}
-              onPress={(e) => {
-                e.stopPropagation();
-                if (project.request_id && router) {
-                  router.push({
-                    pathname: "/(dashboard)/messages/[id]",
-                    params: {
-                      id: String(project.request_id),
-                      name: project.clientName || "",
-                      quoteId: project.id ? String(project.id) : "",
-                      returnTo: "/quotes",
-                    },
-                  });
-                }
-              }}
-            >
-              <Ionicons name="chatbubble-outline" size={18} color="#374151" />
-            </Pressable>
-            {/* View Details button - goes to Client Request page */}
-            <Pressable
-              style={[styles.actionBtn, styles.actionBtnSecondary, { flex: 1 }]}
-              onPress={(e) => {
-                e.stopPropagation();
-                if (router && project.request_id) {
-                  router.push(`/quotes/request/${project.request_id}`);
-                }
-              }}
-            >
-              <ThemedText style={styles.actionBtnTextSecondary}>View Details</ThemedText>
-            </Pressable>
-            {/* Edit Quote button - goes directly to draft editor */}
-            <Pressable
-              style={[styles.actionBtn, styles.actionBtnPrimary, { flex: 1 }]}
-              onPress={(e) => {
-                e.stopPropagation();
-                if (router && project.id) {
-                  router.push({
-                    pathname: "/quotes/create",
-                    params: {
-                      quoteId: project.id,
-                      requestId: project.request_id || "",
-                    },
-                  });
-                }
-              }}
-            >
-              <ThemedText style={styles.actionBtnTextPrimary}>Edit Quote</ThemedText>
-            </Pressable>
-          </View>
-        </>
-      )}
-
-      {/* Multiple quotes - always show Message + View Details */}
-      {!isInbox && hasMultipleQuotes && (
-        <>
-          <Spacer height={12} />
-          <View style={styles.cardActions}>
-            <Pressable
-              style={[styles.actionBtn, styles.actionBtnSecondary]}
-              onPress={(e) => {
-                e.stopPropagation();
-                if (project.request_id && router) {
-                  router.push({
-                    pathname: "/(dashboard)/messages/[id]",
-                    params: {
-                      id: String(project.request_id),
-                      name: project.clientName || "",
-                      quoteId: project.id ? String(project.id) : "",
-                      returnTo: "/quotes",
-                    },
-                  });
-                }
-              }}
-            >
-              <ThemedText style={styles.actionBtnTextSecondary}>Message</ThemedText>
-            </Pressable>
-            <Pressable
-              style={[styles.actionBtn, styles.actionBtnPrimary]}
-              onPress={(e) => {
-                e.stopPropagation();
-                // For accepted quotes, go to Quote Overview; otherwise request page
-                if (project.hasAcceptedQuote && project.acceptedQuoteId) {
-                  router.push(`/quotes/${project.acceptedQuoteId}`);
-                } else {
-                  router.push(`/quotes/request/${project.request_id}`);
-                }
-              }}
-            >
-              <ThemedText style={styles.actionBtnTextPrimary}>View Details</ThemedText>
-            </Pressable>
-          </View>
-        </>
-      )}
-
-      {/* Action buttons for sent/active quotes and inbox items with appointments (Message + View Details) */}
-      {/* Skip if multiple quotes (already handled above) or if single draft (handled above) */}
-      {showActionButtons && !hasMultipleQuotes && !(displayStatus === "pending" && project.status === "draft") && (
-        <>
-          <Spacer height={12} />
-          <View style={styles.cardActions}>
-            <Pressable
-              style={[styles.actionBtn, styles.actionBtnSecondary]}
-              onPress={(e) => {
-                e.stopPropagation();
-                if (project.request_id && router) {
-                  router.push({
-                    pathname: "/(dashboard)/messages/[id]",
-                    params: {
-                      id: String(project.request_id),
-                      name: project.clientName || "",
-                      quoteId: project.id ? String(project.id) : "",
-                      returnTo: "/quotes",
-                    },
-                  });
-                }
-              }}
-            >
-              <ThemedText style={styles.actionBtnTextSecondary}>Message</ThemedText>
-            </Pressable>
-            <Pressable
-              style={[styles.actionBtn, styles.actionBtnPrimary]}
-              onPress={(e) => {
-                e.stopPropagation();
-                // Navigate to appropriate details page
-                if (isInbox) {
-                  // Inbox items go to request details
-                  router.push(`/quotes/request/${project.request_id}`);
-                } else if (project.hasAcceptedQuote && project.acceptedQuoteId) {
-                  // Accepted quotes go to Quote Overview (using acceptedQuoteId)
-                  router.push(`/quotes/${project.acceptedQuoteId}`);
-                } else if (project.id) {
-                  // Other quotes go to quote details
-                  router.push(`/quotes/${project.id}`);
-                }
-              }}
-            >
-              <ThemedText style={styles.actionBtnTextPrimary}>View Details</ThemedText>
-            </Pressable>
-          </View>
-        </>
-      )}
-    </Pressable>
-  );
-}
-
-/* Active Projects Section with sub-categories */
-function ActiveProjectsSection({ needsAction, activeQuotes, router }) {
-  const hasAny = needsAction.length > 0 || activeQuotes.length > 0;
-
-  if (!hasAny) {
-    return (
-      <View style={styles.emptyState}>
-        <View style={styles.emptyIconContainer}>
-          <Ionicons name="briefcase-outline" size={48} color="#9CA3AF" />
-        </View>
-        <ThemedText style={styles.emptyTitle}>No active projects</ThemedText>
-        <ThemedText style={styles.emptySubtitle}>
-          New quote requests will appear here
-        </ThemedText>
-      </View>
-    );
-  }
-
-  return (
-    <View>
-      {/* Needs Action Section */}
-      {needsAction.length > 0 && (
-        <>
-          <SectionHeader
-            title="Needs attention"
-            icon="alert-circle"
-            count={needsAction.length}
-          />
-          <View style={{ gap: 12 }}>
-            {needsAction.map((project) => (
-              <ProjectCard
-                key={project.id || project.request_id}
-                project={project}
-                router={router}
-                onPress={() => {
-                  // For accepted quotes, go directly to Quote Overview
-                  if (project.hasAcceptedQuote && project.acceptedQuoteId) {
-                    router.push(`/quotes/${project.acceptedQuoteId}`);
-                  } else {
-                    router.push(`/quotes/request/${project.request_id}`);
-                  }
-                }}
-                onAction={() => {
-                  router.push({
-                    pathname: "/quotes/create",
-                    params: { requestId: project.request_id },
-                  });
-                }}
-              />
-            ))}
-          </View>
-          <Spacer height={24} />
-        </>
-      )}
-
-      {/* Active Quotes Section */}
-      {activeQuotes.length > 0 && (
-        <>
-          <SectionHeader
-            title="Active"
-            icon="construct"
-            count={activeQuotes.length}
-          />
-          <View style={{ gap: 12 }}>
-            {activeQuotes.map((project) => (
-              <ProjectCard
-                key={project.id || project.request_id}
-                project={project}
-                router={router}
-                onPress={() => {
-                  // For accepted quotes, go directly to Quote Overview
-                  if (project.hasAcceptedQuote && project.acceptedQuoteId) {
-                    router.push(`/quotes/${project.acceptedQuoteId}`);
-                  } else {
-                    router.push(`/quotes/request/${project.request_id}`);
-                  }
-                }}
-              />
-            ))}
-          </View>
-        </>
-      )}
-    </View>
-  );
-}
-
-/* Completed Projects List */
-function CompletedProjects({ data, router }) {
-  if (!data.length) {
-    return (
-      <View style={styles.emptyState}>
-        <View style={styles.emptyIconContainer}>
-          <Ionicons name="checkmark-circle-outline" size={48} color="#9CA3AF" />
-        </View>
-        <ThemedText style={styles.emptyTitle}>No completed projects</ThemedText>
-        <ThemedText style={styles.emptySubtitle}>
-          Completed quotes will appear here
-        </ThemedText>
-      </View>
-    );
-  }
-
-  return (
-    <View style={{ gap: 12 }}>
-      {data.map((project) => (
-        <ProjectCard
-          key={project.id}
-          project={project}
-          router={router}
-          onPress={() => {
-            // For accepted quotes, go directly to Quote Overview
-            if (project.hasAcceptedQuote && project.acceptedQuoteId) {
-              router.push(`/quotes/${project.acceptedQuoteId}`);
-            } else {
-              router.push(`/quotes/request/${project.request_id}`);
-            }
-          }}
-        />
-      ))}
-    </View>
-  );
-}
-
-/* Invoices List */
-function Invoices({ data, router }) {
-  if (!data.length) {
-    return (
-      <View style={styles.emptyState}>
-        <View style={styles.emptyIconContainer}>
-          <Ionicons name="receipt-outline" size={48} color="#9CA3AF" />
-        </View>
-        <ThemedText style={styles.emptyTitle}>No invoices</ThemedText>
-        <ThemedText style={styles.emptySubtitle}>
-          Create invoices for accepted projects
-        </ThemedText>
-      </View>
-    );
-  }
-
-  // Invoice status colors
-  const invoiceStatusColors = {
-    paid: { bg: "#D1FAE5", fg: "#10B981", icon: "checkmark-circle" },
-    overdue: { bg: "#FEE2E2", fg: "#EF4444", icon: "alert-circle" },
-    unpaid: { bg: "#FEF3C7", fg: "#F59E0B", icon: "hourglass" },
-  };
-
-  return (
-    <View style={{ gap: 12 }}>
-      {data.map((invoice) => {
-        const status = (invoice.status_norm || "").toLowerCase();
-        const displayStatus = status === "paid" ? "paid" : status === "overdue" ? "overdue" : "unpaid";
-        const colors = invoiceStatusColors[displayStatus];
-        const chipLabel = status === "paid" ? "Paid" : status === "overdue" ? "Overdue" : "Unpaid";
-
-        return (
-          <Pressable
-            key={invoice.id}
-            style={styles.projectCard}
-            onPress={() => router.push(`/sales/invoice/${invoice.id}`)}
-          >
-            <View style={styles.cardHeader}>
-              <View style={{ flex: 1 }}>
-                <ThemedText style={styles.cardTitle}>
-                  Invoice #{invoice.invoice_number || String(invoice.id).slice(0, 8)}
-                </ThemedText>
-                {invoice.client_name && (
-                  <ThemedText style={styles.cardSubtitle}>
-                    {invoice.client_name}
-                  </ThemedText>
-                )}
-              </View>
-              <View style={[styles.statusChip, { backgroundColor: colors.bg }]}>
-                <Ionicons name={colors.icon} size={14} color={colors.fg} />
-                <ThemedText style={[styles.statusChipText, { color: colors.fg }]}>
-                  {chipLabel}
-                </ThemedText>
-              </View>
-            </View>
-
-            <Spacer height={12} />
-
-            <View style={styles.amountRow}>
-              <ThemedText style={styles.amountLabel}>Amount</ThemedText>
-              <ThemedText style={styles.amountValue}>
-                {invoice.currency || "GBP"} {formatNumber(invoice.grand_total || 0)}
-              </ThemedText>
-            </View>
-
-            {invoice.issued_at && (
-              <ThemedText style={styles.metaText}>
-                Issued {new Date(invoice.issued_at).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </ThemedText>
-            )}
-          </Pressable>
-        );
-      })}
-    </View>
   );
 }
 
@@ -1413,13 +1243,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  // Header - Profile style
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
@@ -1429,56 +1252,51 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "700",
   },
-
-  // Tabs
-  tabsRow: {
+  filterRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 8,
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
   },
-  tabBtn: {
+  filterPill: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     borderRadius: 20,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-  tabBtnActive: {
+  filterPillActive: {
     backgroundColor: TINT,
     borderColor: TINT,
   },
-  tabLabel: {
+  filterPillText: {
     fontSize: 14,
     fontWeight: "500",
     color: "#6B7280",
   },
-  tabLabelActive: {
+  filterPillTextActive: {
     color: "#FFFFFF",
   },
-
+  filterPillCount: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#9CA3AF",
+    marginLeft: 4,
+  },
+  filterPillCountActive: {
+    color: "rgba(255,255,255,0.8)",
+  },
   scrollContent: {
-    paddingHorizontal: 20,
     paddingBottom: 40,
   },
-
-  // Section headers
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-    marginTop: 8,
+  projectsList: {
+    paddingHorizontal: 20,
+    gap: 12,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
-  },
-
-  // Project card - Notion/Airbnb style
   projectCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
@@ -1491,185 +1309,101 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  cardHeader: {
+  cardTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
+    alignItems: "center",
   },
-  cardTitle: {
+  cardTitleContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 8,
+  },
+  directBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#EDE9FE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardServiceTitle: {
     fontSize: 16,
     fontWeight: "600",
     color: "#111827",
-    lineHeight: 22,
+    flex: 1,
   },
-  cardSubtitle: {
+  menuButton: {
+    padding: 4,
+  },
+  cardCategory: {
     fontSize: 14,
     color: "#6B7280",
     marginTop: 2,
   },
-  cardContent: {
-    gap: 8,
-  },
-
-  // Status chip
-  statusChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-  },
-  statusChipText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-
-  // Info rows
-  metaRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  infoText: {
+  contextLine: {
     fontSize: 14,
     color: "#6B7280",
+    marginTop: 8,
   },
-
-  // Alert row
-  alertRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    marginTop: 4,
-  },
-  alertText: {
-    fontSize: 13,
-    fontWeight: "500",
-  },
-
-  // Amount row
-  amountRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.08)",
-  },
-  amountLabel: {
-    fontSize: 13,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
-  amountValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
-  },
-
-  // Quote summary box (for multiple quotes)
-  quoteSummaryBox: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.08)",
-  },
-  quoteSummaryHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  quoteSummaryLabel: {
+  jobDescription: {
     fontSize: 14,
     color: "#6B7280",
-    fontWeight: "500",
-  },
-  quoteSummaryAmount: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
+    fontStyle: "italic",
     marginTop: 4,
   },
-
-  // Appointment info
-  appointmentInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 4,
-  },
-  additionalAppointmentsHint: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginTop: 4,
-    marginLeft: 20, // Align with appointment text
-  },
-
-  // Meta text
-  metaText: {
+  budgetText: {
     fontSize: 13,
     color: "#9CA3AF",
     marginTop: 4,
   },
-
-  // Action buttons
-  primaryActionBtn: {
+  statusRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: TINT,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 999,
+    gap: 6,
+    marginTop: 8,
   },
-  primaryActionText: {
-    color: "#FFFFFF",
+  statusText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "500",
   },
-
-  // Card action buttons (Message + View Details)
+  detailLine: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 2,
+    marginLeft: 22,
+  },
+  quoteAmountRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 10,
+  },
+  quoteAmountLabel: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  quoteAmountValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
   cardActions: {
     flexDirection: "row",
-    gap: 8,
-  },
-  // Card action buttons for 3-button layout (Message icon + View Details + Edit Quote)
-  cardActionsThree: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-  },
-  actionBtnIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 999,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    alignItems: "center",
-    justifyContent: "center",
+    gap: 10,
+    marginTop: 14,
   },
   actionBtn: {
     flex: 1,
-    paddingVertical: 10,
+    borderRadius: 12,
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1691,8 +1425,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-
-  // Empty state
+  reviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 12,
+  },
+  reviewLabel: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginLeft: 4,
+  },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
@@ -1719,29 +1462,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: "#6B7280",
   },
-
-  // Awaiting confirmation row
-  awaitingConfirmRow: {
-    flexDirection: "row",
+  emptyPrimaryBtn: {
+    backgroundColor: TINT,
+    borderRadius: 999,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    minWidth: 180,
     alignItems: "center",
-    gap: 6,
-    marginTop: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    backgroundColor: "#EFF6FF",
-    borderRadius: 8,
   },
-  awaitingConfirmText: {
-    fontSize: 13,
-    color: "#3B82F6",
-    fontWeight: "500",
-  },
-
-  // Completed meta text
-  completedMetaText: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 8,
-    fontWeight: "500",
+  emptyPrimaryBtnText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

@@ -1,4 +1,5 @@
 // app/(dashboard)/client/myquotes/index.jsx
+// Client Projects Screen - v5 with Progress Bars and Visual Design
 import {
   StyleSheet,
   View,
@@ -6,7 +7,6 @@ import {
   Alert,
   ScrollView,
   RefreshControl,
-  Image,
 } from "react-native";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,427 +22,279 @@ import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import ThemedButton from "../../../../components/ThemedButton";
 import Spacer from "../../../../components/Spacer";
+import ProgressBar from "../../../../components/ProgressBar";
 import { ProjectsPageSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
 
 const TINT = Colors?.light?.tint || "#6849a7";
 
-// Get initials from a name (e.g., "John Builder" -> "JB")
-function getInitials(name) {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
-}
+// Client progress stages
+const CLIENT_STAGES = ["Posted", "Quotes", "Hired", "Settled"];
 
-// Avatar component with photo or initials fallback
-function Avatar({ name, photoUrl, size = 40, style }) {
-  const initials = getInitials(name);
-  const colors = ["#6849a7", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
-  const colorIndex = name ? name.charCodeAt(0) % colors.length : 0;
-  const bgColor = colors[colorIndex];
+// Status colors
+const STATUS_COLORS = {
+  action: { text: "#F59E0B", icon: "alert-circle" },      // Orange
+  scheduled: { text: "#10B981", icon: "calendar" },        // Green
+  waiting: { text: "#6B7280", icon: "hourglass" },         // Gray
+  issue: { text: "#DC2626", icon: "alert-circle" },        // Red
+  completed: { text: "#6B7280", icon: "checkmark" },       // Gray
+  direct: { text: "#7C3AED", icon: "person" },             // Purple
+};
 
-  if (photoUrl) {
-    return (
-      <Image
-        source={{ uri: photoUrl }}
-        style={[
-          {
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-            backgroundColor: "#E5E7EB",
-          },
-          style,
-        ]}
-      />
-    );
-  }
-
-  return (
-    <View
-      style={[
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: bgColor,
-          alignItems: "center",
-          justifyContent: "center",
-        },
-        style,
-      ]}
-    >
-      <ThemedText
-        style={{
-          color: "#FFFFFF",
-          fontSize: size * 0.4,
-          fontWeight: "700",
-        }}
-      >
-        {initials}
-      </ThemedText>
-    </View>
-  );
-}
-
-// Stacked avatars for multiple trades
-// trades: array of { name, photoUrl }
-function AvatarStack({ trades, size = 36, maxVisible = 3 }) {
-  const visibleTrades = trades.slice(0, maxVisible);
-  const overflow = trades.length - maxVisible;
-
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center" }}>
-      {visibleTrades.map((trade, idx) => (
-        <Avatar
-          key={idx}
-          name={trade.name}
-          photoUrl={trade.photoUrl}
-          size={size}
-          style={{
-            marginLeft: idx > 0 ? -size * 0.3 : 0,
-            borderWidth: 2,
-            borderColor: "#FFFFFF",
-            zIndex: visibleTrades.length - idx,
-          }}
-        />
-      ))}
-      {overflow > 0 && (
-        <View
-          style={{
-            marginLeft: -size * 0.3,
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-            backgroundColor: "#E5E7EB",
-            alignItems: "center",
-            justifyContent: "center",
-            borderWidth: 2,
-            borderColor: "#FFFFFF",
-          }}
-        >
-          <ThemedText style={{ fontSize: size * 0.35, fontWeight: "600", color: "#6B7280" }}>
-            +{overflow}
-          </ThemedText>
-        </View>
-      )}
-    </View>
-  );
-}
-
-// Format number with thousand separators (commas)
+// Format number with thousand separators
 function formatNumber(num) {
   if (num == null || isNaN(num)) return "0.00";
-  return Number(num).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return Number(num).toLocaleString("en-GB", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
-// Build tertiary text: "Category, Service in Postcode"
-// suggested_title is usually "Service, Category" format
-// Sometimes the title already contains "in POSTCODE" - we need to strip it first
-function buildTertiaryText(suggestedTitle, postcode) {
-  if (!suggestedTitle) return postcode ? `in ${postcode}` : null;
+// Parse title: "Category - Service" or "Service, Category"
+function parseTitle(suggestedTitle) {
+  if (!suggestedTitle) return { service: "Untitled job", category: "" };
 
-  // Strip any existing "in POSTCODE" from the title to avoid duplication
-  // Postcode pattern: UK postcodes like "EH48 3NN", "SW1A 1AA", etc.
-  let cleanTitle = suggestedTitle.replace(/\s+in\s+[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}/gi, '').trim();
+  // Strip any "in POSTCODE" suffix
+  let cleanTitle = suggestedTitle
+    .replace(/\s+in\s+[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}/gi, "")
+    .trim();
 
-  // Parse "Service, Category" -> "Category, Service"
-  const parts = cleanTitle.split(",").map(s => s.trim()).filter(s => s.length > 0);
-  let formatted;
-  if (parts.length >= 2) {
-    // Reverse: "Full Bathroom Refit, Bathroom" -> "Bathroom, Full Bathroom Refit"
-    formatted = `${parts[1]}, ${parts[0]}`;
-  } else {
-    formatted = cleanTitle;
+  // Try "Category - Service" format first
+  if (cleanTitle.includes(" - ")) {
+    const parts = cleanTitle.split(" - ").map((s) => s.trim());
+    if (parts.length >= 2) {
+      return { service: parts[1], category: parts[0] };
+    }
   }
 
-  return postcode ? `${formatted} in ${postcode}` : formatted;
+  // Try "Service, Category" format
+  const parts = cleanTitle.split(",").map((s) => s.trim());
+  if (parts.length >= 2) {
+    return { service: parts[0], category: parts[1] };
+  }
+
+  return { service: cleanTitle, category: "" };
 }
 
-// Status badge component with icons (no emojis)
-// Colors based on action context:
-// - ACTION NEEDED (Orange #F59E0B): New Quote, Expires Soon, Confirm Completion
-// - WAITING (Blue #3B82F6): Request Sent, Quote Pending, Awaiting Schedule
-// - ACTIVE/GOOD (Green #10B981): Quote Accepted, Scheduled, On Site, Work in Progress
-// - COMPLETED (Gray #6B7280): Completed
-// - NEGATIVE (Red #EF4444): Declined, Expired, No Response
-function StatusBadge({ type }) {
-  const badges = {
-    // ACTION NEEDED (Orange) - client needs to take action
-    NEW_QUOTE: { icon: "document-text", color: "#F59E0B", bg: "#FEF3C7", text: "New Quote" },
-    EXPIRES_SOON: { icon: "time", color: "#F59E0B", bg: "#FEF3C7", text: "Expires Soon" },
-    CONFIRM_COMPLETION: { icon: "checkmark-circle", color: "#F59E0B", bg: "#FEF3C7", text: "Confirm Completion" },
-    RESPONSE_NEEDED: { icon: "alert-circle", color: "#F59E0B", bg: "#FEF3C7", text: "Response Needed" },
-
-    // WAITING (Blue) - waiting for trade
-    REQUEST_SENT: { icon: "send", color: "#3B82F6", bg: "#DBEAFE", text: "Request Sent" },
-    QUOTE_PENDING: { icon: "hourglass", color: "#3B82F6", bg: "#DBEAFE", text: "Quote Pending" },
-    AWAITING_SCHEDULE: { icon: "calendar-outline", color: "#3B82F6", bg: "#DBEAFE", text: "Awaiting Schedule" },
-    AWAITING: { icon: "hourglass", color: "#3B82F6", bg: "#DBEAFE", text: "Awaiting Response" },
-
-    // ACTIVE/GOOD (Green) - positive state
-    QUOTE_ACCEPTED: { icon: "checkmark-circle", color: "#10B981", bg: "#D1FAE5", text: "Quote Accepted" },
-    SCHEDULED: { icon: "calendar", color: "#10B981", bg: "#D1FAE5", text: "Scheduled" },
-    ON_SITE: { icon: "location", color: "#10B981", bg: "#D1FAE5", text: "On Site" },
-    WORK_IN_PROGRESS: { icon: "construct", color: "#10B981", bg: "#D1FAE5", text: "Work in Progress" },
-    ACTIVE: { icon: "construct", color: "#10B981", bg: "#D1FAE5", text: "Active" },
-
-    // ACTION NEEDED for appointments (Orange)
-    CONFIRM_VISIT: { icon: "calendar-outline", color: "#F59E0B", bg: "#FEF3C7", text: "Confirm Visit" },
-    // Trade marked job as complete - client needs to confirm
-    AWAITING_CONFIRMATION: { icon: "checkmark-circle", color: "#F59E0B", bg: "#FEF3C7", text: "Confirm Complete" },
-    // Issue resolution pending - client needs to confirm issue is resolved
-    ISSUE_RESOLVED_PENDING: { icon: "checkmark-circle", color: "#F59E0B", bg: "#FEF3C7", text: "Confirm" },
-
-    // COMPLETED (Gray)
-    COMPLETED: { icon: "checkmark-done", color: "#6B7280", bg: "#F3F4F6", text: "Completed" },
-
-    // NEGATIVE (Red) - declined, expired, no response, issue reported
-    ISSUE_REPORTED: { icon: "alert-circle", color: "#EF4444", bg: "#FEE2E2", text: "Issue" },
-    DECLINED: { icon: "close-circle", color: "#EF4444", bg: "#FEE2E2", text: "Declined" },
-    DECLINED_BY_YOU: { icon: "close", color: "#EF4444", bg: "#FEE2E2", text: "Declined by You" },
-    EXPIRED: { icon: "ban", color: "#EF4444", bg: "#FEE2E2", text: "Expired" },
-    NO_RESPONSE: { icon: "alert-circle", color: "#EF4444", bg: "#FEE2E2", text: "No Response" },
-
-    // Legacy mappings (for backwards compatibility)
-    NEW: { icon: "sparkles", color: "#F59E0B", bg: "#FEF3C7", text: "New Quote" },
-    AT_LIMIT: { icon: "warning", color: "#EF4444", bg: "#FEE2E2", text: "At Limit" },
-    MULTIPLE_QUOTES: { icon: "document-text", color: "#F59E0B", bg: "#FEF3C7", text: "Multiple Quotes" },
-  };
-
-  const badge = badges[type] || badges.AWAITING;
-
-  return (
-    <View style={[styles.badge, { backgroundColor: badge.bg }]}>
-      <Ionicons name={badge.icon} size={14} color={badge.color} />
-      <ThemedText style={[styles.badgeText, { color: badge.color }]}>
-        {badge.text}
-      </ThemedText>
-    </View>
-  );
+// Calculate client progress position
+function getClientProgressPosition(stage, subStatus) {
+  switch (stage) {
+    case "POSTED":
+      return 12;
+    case "QUOTES":
+      if (subStatus === "quotes_received") return 45;
+      if (subStatus === "appointment_confirmed") return 35;
+      if (subStatus === "appointment_pending") return 30;
+      if (subStatus === "preparing") return 25;
+      return 20;
+    case "HIRED":
+      if (subStatus === "issue_resolved_pending") return 88;
+      if (subStatus === "issue_reported") return 85;
+      if (subStatus === "awaiting_completion") return 90;
+      if (subStatus === "work_in_progress") return 75;
+      if (subStatus === "work_confirmed") return 70;
+      if (subStatus === "work_pending") return 65;
+      return 60;
+    case "DONE":
+      return 100;
+    default:
+      return 12;
+  }
 }
 
-// Filter button component
-function FilterBtn({ active, label, count, onPress }) {
+// Filter pill component
+function FilterPill({ active, label, count, onPress }) {
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.filterBtn, active && styles.filterBtnActive]}
+      style={[styles.filterPill, active && styles.filterPillActive]}
     >
-      <ThemedText style={[styles.filterLabel, active && styles.filterLabelActive]}>
-        {label} {typeof count === "number" ? `(${count})` : ""}
+      <ThemedText
+        style={[styles.filterPillText, active && styles.filterPillTextActive]}
+      >
+        {label}
       </ThemedText>
+      {typeof count === "number" && (
+        <ThemedText
+          style={[
+            styles.filterPillCount,
+            active && styles.filterPillCountActive,
+          ]}
+        >
+          ({count})
+        </ThemedText>
+      )}
     </Pressable>
   );
 }
 
-// Project card component - NEW DESIGN
-// Hierarchy: WHO (primary) -> STATUS (secondary) -> WHAT (tertiary)
-function ProjectCard({ item, onPress, statusType, onMessage, onRespond }) {
+// Project card component - new visual design
+function ProjectCard({ item, onPress }) {
   const router = useRouter();
-  const hasTrades = item.trades && item.trades.length > 0;
-  const singleTrade = hasTrades && item.trades.length === 1;
-  const multipleTrades = hasTrades && item.trades.length > 1;
+  const { service, category } = parseTitle(item.title);
+  const hasActions = item.actions && item.actions.length > 0;
+  const isDirectRequest = item.requestType === "direct";
 
-  // Determine if we need to show action buttons for active jobs OR requests/preparing_quotes with appointments
-  const isActiveJob = item.type === "active";
-  const isRequestOrPreparing = item.type === "request" || item.type === "preparing_quotes";
-  const hasAppointment = !!item.appointmentStatus;
-  const needsConfirmation = item.appointmentStatus === "proposed";
-  const isConfirmed = item.appointmentStatus === "confirmed";
-  const waitingForAppointment = isActiveJob && !item.appointmentStatus;
-  // Show buttons for: active jobs, OR requests/preparing_quotes that have appointments
-  const showActionButtons = isActiveJob || (isRequestOrPreparing && hasAppointment);
+  // Get status display
+  const getStatusDisplay = () => {
+    const { statusType, statusText, statusDetail } = item;
+    let color = STATUS_COLORS.waiting;
+    let icon = "hourglass";
+
+    switch (statusType) {
+      case "action":
+        color = STATUS_COLORS.action;
+        icon = "alert-circle";
+        break;
+      case "scheduled":
+        color = STATUS_COLORS.scheduled;
+        icon = "calendar";
+        break;
+      case "issue":
+        color = STATUS_COLORS.issue;
+        icon = "alert-circle";
+        break;
+      case "completed":
+        color = STATUS_COLORS.completed;
+        icon = "checkmark";
+        break;
+      default:
+        color = STATUS_COLORS.waiting;
+        icon = "hourglass";
+    }
+
+    return { color, icon, text: statusText, detail: statusDetail };
+  };
+
+  const status = getStatusDisplay();
 
   return (
     <Pressable style={styles.projectCard} onPress={onPress}>
-      {/* Row 1: Avatar(s) + Primary info + Chip */}
-      <View style={styles.cardHeader}>
-        {/* Avatar section */}
-        {singleTrade && (
-          <Avatar name={item.trades[0].name} photoUrl={item.trades[0].photoUrl} size={44} />
-        )}
-        {multipleTrades && (
-          <AvatarStack trades={item.trades} size={40} maxVisible={3} />
-        )}
-        {!hasTrades && (
-          <View style={styles.noTradeIcon}>
-            <Ionicons name="hourglass-outline" size={24} color="#9CA3AF" />
-          </View>
-        )}
-
-        {/* Primary info */}
-        <View style={styles.cardPrimaryInfo}>
-          {/* Primary: Trade name(s) or Job title */}
-          <ThemedText style={styles.cardPrimaryText}>
-            {singleTrade
-              ? item.trades[0].name
-              : multipleTrades
-              ? `${item.trades.length} trades`
-              : item.jobTitle || "Untitled job"}
-          </ThemedText>
-
-          {/* Secondary: Status description */}
-          <ThemedText style={styles.cardSecondaryText}>
-            {item.statusDescription}
+      {/* Two-line title + menu */}
+      <View style={styles.cardTitleRow}>
+        <View style={styles.cardTitleContent}>
+          <ThemedText style={styles.cardServiceTitle} numberOfLines={1}>
+            {service}
           </ThemedText>
         </View>
-
-        {/* Chip */}
-        <StatusBadge type={statusType} />
+        <Pressable style={styles.menuButton}>
+          <Ionicons name="ellipsis-horizontal" size={20} color="#9CA3AF" />
+        </Pressable>
       </View>
 
-      {/* Row 2: Tertiary info (Category, Service in Postcode) */}
-      {item.tertiaryText && (
-        <View style={styles.cardTertiaryRow}>
-          <ThemedText style={styles.cardTertiaryText} numberOfLines={1}>
-            {item.tertiaryText}
-          </ThemedText>
-        </View>
+      {/* Category subtitle */}
+      {category ? (
+        <ThemedText style={styles.cardCategory}>{category}</ThemedText>
+      ) : null}
+
+      {/* Progress bar */}
+      <ProgressBar
+        stages={CLIENT_STAGES}
+        progressPosition={item.progressPosition}
+        activeStageIndex={item.stageIndex}
+      />
+
+      {/* Context line */}
+      {item.contextLine && (
+        <ThemedText style={styles.contextLine}>{item.contextLine}</ThemedText>
       )}
 
-      {/* Row 2 alt: Location only when no trades and no tertiaryText */}
-      {!item.tertiaryText && !hasTrades && item.location && (
-        <View style={styles.cardTertiaryRow}>
-          <Ionicons name="location-outline" size={14} color="#9CA3AF" />
-          <ThemedText style={styles.cardTertiaryText}>
-            {item.location}
-          </ThemedText>
-        </View>
-      )}
-
-      {/* Row 3: Price info (for quotes received) */}
-      {item.priceInfo && (
-        <View style={styles.priceRow}>
-          <ThemedText style={styles.priceLabel}>{item.priceLabel || "Quote"}</ThemedText>
-          <ThemedText style={styles.priceValue}>{item.priceInfo}</ThemedText>
-        </View>
-      )}
-
-      {/* Row 3b: Helper text for waiting for appointment */}
-      {item.helperText && (
-        <ThemedText style={styles.helperText}>{item.helperText}</ThemedText>
-      )}
-
-      {/* Row 4: Appointment info */}
-      {item.appointmentInfo && (
-        <View style={styles.appointmentRow}>
-          <Ionicons
-            name="calendar"
-            size={16}
-            color={needsConfirmation ? "#F59E0B" : TINT}
-          />
-          <ThemedText style={[
-            styles.appointmentText,
-            needsConfirmation && { color: "#92400E" }
-          ]}>
-            {item.appointmentInfo}
-          </ThemedText>
-        </View>
-      )}
-
-      {/* Row 5: Warning/expiry */}
-      {item.warningText && (
-        <View style={styles.warningRow}>
-          <Ionicons name="alert-circle" size={16} color="#F59E0B" />
-          <ThemedText style={styles.warningText}>{item.warningText}</ThemedText>
-        </View>
-      )}
-
-      {/* Additional appointments hint */}
-      {item.additionalAppointmentsCount > 0 && (
-        <ThemedText style={styles.additionalAppointmentsHint}>
-          +{item.additionalAppointmentsCount} more visit{item.additionalAppointmentsCount !== 1 ? 's' : ''} scheduled
-        </ThemedText>
-      )}
-
-      {/* Action buttons for active jobs and requests with appointments */}
-      {showActionButtons && (
-        <View style={styles.cardActions}>
-          <Pressable
-            style={[styles.actionBtn, styles.actionBtnSecondary]}
-            onPress={(e) => {
-              e.stopPropagation();
-              if (item.requestId) {
-                router.push({
-                  pathname: "/(dashboard)/messages/[id]",
-                  params: {
-                    id: String(item.requestId),
-                    name: singleTrade ? item.trades[0].name : "",
-                    quoteId: item.quoteId ? String(item.quoteId) : "",
-                    returnTo: "/(dashboard)/myquotes",
-                  },
-                });
-              }
-            }}
-          >
-            <ThemedText style={styles.actionBtnTextSecondary}>Message</ThemedText>
-          </Pressable>
-          <Pressable
-            style={[styles.actionBtn, styles.actionBtnPrimary]}
-            onPress={(e) => {
-              e.stopPropagation();
-              // For requests/preparing_quotes with appointments, always go to Your Request page
-              // For active jobs with proposed appointments, go to appointment response
-              if (isActiveJob && needsConfirmation && item.appointmentId) {
-                // Active jobs: Navigate to appointment response screen
-                router.push({
-                  pathname: "/(dashboard)/myquotes/appointment-response",
-                  params: {
-                    appointmentId: String(item.appointmentId),
-                    quoteId: item.quoteId ? String(item.quoteId) : "",
-                    requestId: String(item.requestId),
-                  },
-                });
-              } else if (isRequestOrPreparing && item.requestId) {
-                // Requests/preparing: Always go to Your Request page
-                router.push(`/(dashboard)/myquotes/request/${item.requestId}`);
-              } else {
-                // Navigate to request or quote details
-                onPress?.();
-              }
-            }}
-          >
-            <ThemedText style={styles.actionBtnTextPrimary}>
-              {isActiveJob && needsConfirmation ? "Respond" : "View Details"}
+      {/* Status with icon */}
+      <View style={styles.statusRow}>
+        {status.text && (
+          <>
+            <Ionicons name={status.icon} size={16} color={status.color.text} />
+            <ThemedText style={[styles.statusText, { color: status.color.text }]}>
+              {status.text}
             </ThemedText>
-          </Pressable>
+          </>
+        )}
+      </View>
+
+      {/* Detail line */}
+      {status.detail && (
+        <ThemedText style={styles.detailLine}>{status.detail}</ThemedText>
+      )}
+
+      {/* Price info */}
+      {item.priceInfo && (
+        <ThemedText style={styles.priceText}>{item.priceInfo}</ThemedText>
+      )}
+
+      {/* Action buttons */}
+      {hasActions && (
+        <View style={styles.cardActions}>
+          {item.actions.map((action, idx) => (
+            <Pressable
+              key={idx}
+              style={[
+                styles.actionBtn,
+                action.primary ? styles.actionBtnPrimary : styles.actionBtnSecondary,
+              ]}
+              onPress={(e) => {
+                e.stopPropagation();
+                action.onPress?.();
+              }}
+            >
+              <ThemedText
+                style={
+                  action.primary
+                    ? styles.actionBtnTextPrimary
+                    : styles.actionBtnTextSecondary
+                }
+              >
+                {action.label}
+              </ThemedText>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {/* Review stars for completed */}
+      {item.hasReview && (
+        <View style={styles.reviewRow}>
+          {[1, 2, 3, 4, 5].map((star) => (
+            <Ionicons
+              key={star}
+              name={star <= (item.reviewRating || 0) ? "star" : "star-outline"}
+              size={16}
+              color="#F59E0B"
+            />
+          ))}
+          <ThemedText style={styles.reviewLabel}>Your review</ThemedText>
         </View>
       )}
     </Pressable>
-  );
-}
-
-// Section header component
-function SectionHeader({ title, icon, count }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Ionicons name={icon} size={20} color="#111827" />
-      <ThemedText style={styles.sectionTitle}>
-        {title} {typeof count === "number" ? `(${count})` : ""}
-      </ThemedText>
-    </View>
   );
 }
 
 // Empty state component
-function EmptyState({ icon, title, subtitle, actionLabel, onAction }) {
+function EmptyState({ icon, title, subtitle, primaryAction, secondaryAction }) {
   return (
     <View style={styles.emptyState}>
       <View style={styles.emptyIconContainer}>
         <Ionicons name={icon} size={48} color="#9CA3AF" />
       </View>
       <ThemedText style={styles.emptyTitle}>{title}</ThemedText>
-      <ThemedText style={styles.emptySubtitle} variant="muted">
-        {subtitle}
-      </ThemedText>
-      {actionLabel && onAction && (
+      <ThemedText style={styles.emptySubtitle}>{subtitle}</ThemedText>
+      {primaryAction && (
         <>
           <Spacer height={16} />
-          <ThemedButton onPress={onAction} style={styles.emptyActionBtn}>
-            <ThemedText style={styles.actionBtnText}>{actionLabel}</ThemedText>
-          </ThemedButton>
+          <Pressable style={styles.emptyPrimaryBtn} onPress={primaryAction.onPress}>
+            <ThemedText style={styles.emptyPrimaryBtnText}>
+              {primaryAction.label}
+            </ThemedText>
+          </Pressable>
+        </>
+      )}
+      {secondaryAction && (
+        <>
+          <ThemedText style={styles.emptyOrText}>or</ThemedText>
+          <Pressable style={styles.emptySecondaryBtn} onPress={secondaryAction.onPress}>
+            <ThemedText style={styles.emptySecondaryBtnText}>
+              {secondaryAction.label}
+            </ThemedText>
+          </Pressable>
         </>
       )}
     </View>
@@ -454,47 +306,118 @@ export default function ClientProjects() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const [filter, setFilter] = useState("all"); // all | active | completed
+  const [filter, setFilter] = useState("all"); // all | quotes | active | done
   const [refreshing, setRefreshing] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true); // Track initial load to prevent chip flicker
-  const [isFocusLoading, setIsFocusLoading] = useState(false); // Track focus-triggered loading to prevent chip flicker
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [isFocusLoading, setIsFocusLoading] = useState(false);
 
-  // Data from existing RPCs
+  // Data from RPCs
   const [requests, setRequests] = useState([]);
   const [responses, setResponses] = useState([]);
   const [decideQuotes, setDecideQuotes] = useState([]);
   const [decidedQuotes, setDecidedQuotes] = useState([]);
   const [appointments, setAppointments] = useState([]);
-  const [caps, setCaps] = useState({
-    direct_used: 0,
-    open_used: 0,
-    direct_cap: 5,
-    open_cap: 20,
-  });
 
-  // Fetch data using existing RPCs
+  // Helper functions
+  const daysSince = (date) => {
+    if (!date) return 0;
+    const diff = new Date() - new Date(date);
+    return Math.floor(diff / (1000 * 60 * 60 * 24));
+  };
+
+  const formatDate = (date) => {
+    if (!date) return "";
+    const d = new Date(date);
+    return d.toLocaleDateString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+  };
+
+  const formatTime = (date) => {
+    if (!date) return "";
+    const d = new Date(date);
+    return d.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  // Fetch data
   const fetchAllData = useCallback(async () => {
     if (!user?.id) return;
 
     try {
-      // Caps
-      const { data: capsData } = await supabase.rpc("rpc_client_request_overview", {});
-      if (capsData && capsData.length) {
-        setCaps({
-          direct_used: capsData[0].direct_used ?? 0,
-          open_used: capsData[0].open_used ?? 0,
-          direct_cap: capsData[0].direct_cap ?? 5,
-          open_cap: capsData[0].open_cap ?? 20,
+      // Requests (no quotes yet)
+      const { data: reqData } = await supabase.rpc("rpc_client_list_requests");
+
+      // For direct requests, fetch the trade business name from request_targets + profiles
+      const directReqIds = (reqData || []).filter(r => r.is_direct).map(r => r.id);
+      let tradeInfoMap = {};
+
+      if (directReqIds.length > 0) {
+        const { data: targetsData } = await supabase
+          .from("request_targets")
+          .select("request_id, trade_id, profiles:trade_id(business_name, full_name)")
+          .in("request_id", directReqIds)
+          .eq("invited_by", "client");
+
+        (targetsData || []).forEach(t => {
+          if (t.request_id && t.profiles) {
+            tradeInfoMap[t.request_id] = t.profiles.business_name || t.profiles.full_name || "Trade";
+          }
         });
       }
 
-      // Requests (no quotes yet)
-      const { data: reqData } = await supabase.rpc("rpc_client_list_requests");
-      setRequests(reqData || []);
+      // Enrich requests with trade business name
+      const enrichedReqData = (reqData || []).map(r => ({
+        ...r,
+        trade_business_name: r.is_direct ? tradeInfoMap[r.id] : null,
+      }));
+
+      setRequests(enrichedReqData);
 
       // Responses (trades responded)
       const { data: resData } = await supabase.rpc("rpc_client_list_responses");
-      setResponses(resData || []);
+
+      // For responses, we need to check if the request is a direct request
+      // by looking up the quote_requests table for is_direct field or request_targets
+      const responseReqIds = [...new Set((resData || []).map(r => r.request_id).filter(Boolean))];
+      let directRequestIds = new Set();
+
+      if (responseReqIds.length > 0) {
+        // Check quote_requests table for is_direct flag
+        const { data: reqDirectData } = await supabase
+          .from("quote_requests")
+          .select("id, is_direct")
+          .in("id", responseReqIds);
+
+        (reqDirectData || []).forEach(r => {
+          if (r.is_direct) {
+            directRequestIds.add(r.id);
+          }
+        });
+
+        // Also check request_targets for invited_by='client' as fallback
+        const { data: targetData } = await supabase
+          .from("request_targets")
+          .select("request_id")
+          .in("request_id", responseReqIds)
+          .eq("invited_by", "client");
+
+        (targetData || []).forEach(t => {
+          directRequestIds.add(t.request_id);
+        });
+      }
+
+      // Enrich responses with is_direct flag
+      const enrichedResData = (resData || []).map(r => ({
+        ...r,
+        is_direct: directRequestIds.has(r.request_id),
+      }));
+
+      setResponses(enrichedResData);
 
       // Quotes to decide
       const { data: decideData } = await supabase.rpc("rpc_client_list_decide_v2", {
@@ -504,52 +427,51 @@ export default function ClientProjects() {
       setDecideQuotes(decideData || []);
 
       // Past decisions
-      const { data: decidedData } = await supabase.rpc("rpc_client_list_decided_quotes", {
-        p_days: 90,
-        p_limit: 50,
-      });
+      const { data: decidedData } = await supabase.rpc(
+        "rpc_client_list_decided_quotes",
+        {
+          p_days: 90,
+          p_limit: 50,
+        }
+      );
       setDecidedQuotes(decidedData || []);
 
-      // Appointments (upcoming only) - for quotes
+      // Appointments
       const { data: apptData } = await supabase.rpc("rpc_client_list_appointments", {
         p_only_upcoming: true,
       });
       setAppointments(apptData || []);
 
       // Also fetch appointments by request_id for survey appointments
-      // This is for appointments scheduled before quotes exist
-      // Need to include requests from BOTH reqData (no quotes) AND resData (trades responded/preparing)
-      // Use RPC to bypass RLS - direct table query may not work
       const reqIdsFromRequests = (reqData || []).map((r) => r.id);
-      const reqIdsFromResponses = (resData || []).map((r) => r.request_id).filter(Boolean);
-      const allReqIds = [...new Set([...reqIdsFromRequests, ...reqIdsFromResponses])]; // Unique IDs
+      const reqIdsFromResponses = (resData || [])
+        .map((r) => r.request_id)
+        .filter(Boolean);
+      const allReqIds = [...new Set([...reqIdsFromRequests, ...reqIdsFromResponses])];
 
       if (allReqIds.length > 0) {
-        // Fetch ALL appointments for each request (not just the latest)
-        // This allows us to properly sort and show the earliest upcoming appointment
         const directPromises = allReqIds.map(async (reqId) => {
-          const { data, error } = await supabase
+          const { data } = await supabase
             .from("appointments")
             .select("*")
             .eq("request_id", reqId)
-            .order("scheduled_at", { ascending: true }); // Get all, sorted by earliest first
-          return { data: data || [], error, reqId };
+            .order("scheduled_at", { ascending: true });
+          return { data: data || [], reqId };
         });
         const directResults = await Promise.all(directPromises);
 
-        // Flatten all appointments from all requests into a single array
-        let requestApptData = directResults
-          .flatMap((r) =>
-            (r.data || []).map((appt) => ({
-              ...appt,
-              request_id: appt.request_id || r.reqId,
-            }))
-          );
+        let requestApptData = directResults.flatMap((r) =>
+          (r.data || []).map((appt) => ({
+            ...appt,
+            request_id: appt.request_id || r.reqId,
+          }))
+        );
 
-        // Merge with existing appointments (avoid duplicates)
         if (requestApptData.length > 0) {
           const existingIds = new Set((apptData || []).map((a) => a.id));
-          const newAppts = requestApptData.filter((a) => a && a.id && !existingIds.has(a.id));
+          const newAppts = requestApptData.filter(
+            (a) => a && a.id && !existingIds.has(a.id)
+          );
           const mergedAppts = [...(apptData || []), ...newAppts];
           setAppointments(mergedAppts);
         }
@@ -557,7 +479,6 @@ export default function ClientProjects() {
     } catch (err) {
       Alert.alert("Error", err.message);
     } finally {
-      // Mark initial loading as complete to prevent chip flicker
       setInitialLoading(false);
     }
   }, [user?.id]);
@@ -568,12 +489,9 @@ export default function ClientProjects() {
     setRefreshing(false);
   };
 
-  // Refresh data when screen gains focus (e.g., returning from appointment response)
   useFocusEffect(
     useCallback(() => {
       if (user?.id) {
-        // Set focus loading to hide stale data while fetching
-        // Only if not initial load (which has its own loading state)
         if (!initialLoading) {
           setIsFocusLoading(true);
         }
@@ -594,10 +512,7 @@ export default function ClientProjects() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "tradify_native_app_db" },
-        (payload) => {
-          console.log("[CLIENT REALTIME] Quote change:", payload);
-          fetchAllData();
-        }
+        () => fetchAllData()
       )
       .subscribe();
 
@@ -606,23 +521,16 @@ export default function ClientProjects() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "quote_requests" },
-        (payload) => {
-          console.log("[CLIENT REALTIME] Request change:", payload);
-          fetchAllData();
-        }
+        () => fetchAllData()
       )
       .subscribe();
 
-    // Realtime subscription for appointments (for chip label updates)
     const chAppts = supabase
       .channel("client-appointments-realtime")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "appointments" },
-        (payload) => {
-          console.log("[CLIENT REALTIME] Appointment change:", payload);
-          fetchAllData();
-        }
+        () => fetchAllData()
       )
       .subscribe();
 
@@ -633,26 +541,11 @@ export default function ClientProjects() {
     };
   }, [user?.id, fetchAllData]);
 
-  // Transform data into project cards GROUPED BY REQUEST
-  // New hierarchy: WHO (primary) -> STATUS (secondary) -> WHAT (tertiary)
+  // Transform data into project cards
   const projects = useMemo(() => {
-    const needsAttention = [];
-    const waitingForQuotes = [];
-    const activeJobs = [];
-    const completedProjects = [];
+    const allProjects = [];
 
-    // Helper to calculate days difference
-    const daysSince = (date) => {
-      if (!date) return 0;
-      const diff = new Date() - new Date(date);
-      return Math.floor(diff / (1000 * 60 * 60 * 24));
-    };
-
-    // Group quotes by request_id
-    const quotesByRequest = {};
-
-    // Build a set of request IDs that already have an accepted quote (or post-acceptance states)
-    // These requests should NOT show pending quotes anymore
+    // Build set of requests with accepted quotes
     const acceptedStatuses = ["accepted", "awaiting_completion", "completed"];
     const requestsWithAcceptedQuote = new Set();
     decidedQuotes.forEach((q) => {
@@ -662,117 +555,82 @@ export default function ClientProjects() {
       }
     });
 
-    // Group decideQuotes (pending quotes) by request
-    // Filter out drafts - clients should not see draft quotes
-    // Filter out quotes for requests that already have an accepted quote
-    // IMPORTANT: Deduplicate by quote_id first to prevent duplicate counting
-    const visibleDecideQuotes = decideQuotes.filter(q =>
-      q.status !== "draft" && !requestsWithAcceptedQuote.has(q.request_id)
-    );
-    const seenQuoteIds = new Set();
-    const uniqueDecideQuotes = visibleDecideQuotes.filter(q => {
-      if (!q.quote_id || seenQuoteIds.has(q.quote_id)) return false;
-      seenQuoteIds.add(q.quote_id);
-      return true;
-    });
-    uniqueDecideQuotes.forEach((q) => {
-      const reqId = q.request_id;
-      if (!reqId) return;
-      if (!quotesByRequest[reqId]) {
-        quotesByRequest[reqId] = {
-          requestId: reqId,
-          jobTitle: q.request_suggested_title || q.project_title || "Untitled job",
-          location: q.postcode || null,
-          tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
-          trades: [],
-          quotes: [],
-          hasNewQuotes: false,
-          lowestPrice: null,
-          currency: q.currency || "GBP",
-        };
-      }
-      quotesByRequest[reqId].quotes.push(q);
-      // Only add trade if not already in list (avoid duplicate avatars for multiple quotes from same trade)
-      const existingTrade = quotesByRequest[reqId].trades.find(t => t.id === q.trade_id);
-      if (!existingTrade) {
-        quotesByRequest[reqId].trades.push({
-          id: q.trade_id,
-          name: q.trade_business_name || "Trade",
-          photoUrl: q.trade_photo_url || null,
-          hasQuote: true,
-          quoteId: q.quote_id,
-          amount: q.grand_total,
-          issuedAt: q.issued_at,
-          quoteCount: 1,
-        });
-      } else {
-        // Update existing trade with latest quote info and increment count
-        existingTrade.quoteCount = (existingTrade.quoteCount || 1) + 1;
-        // Keep the lowest price for display
-        if (q.grand_total < existingTrade.amount) {
-          existingTrade.amount = q.grand_total;
-          existingTrade.quoteId = q.quote_id;
-        }
-      }
-      quotesByRequest[reqId].hasNewQuotes = true;
-      const price = q.grand_total;
-      if (price && (quotesByRequest[reqId].lowestPrice === null || price < quotesByRequest[reqId].lowestPrice)) {
-        quotesByRequest[reqId].lowestPrice = price;
-      }
-    });
+    // Process open requests (no quotes yet) - Stage: POSTED
+    requests.forEach((req) => {
+      if (requestsWithAcceptedQuote.has(req.id)) return;
 
-    // Process grouped quotes needing decision
-    Object.values(quotesByRequest).forEach((group) => {
-      const quotesReceived = group.quotes.length;
-      const tradesCount = group.trades.length; // Now deduplicated - unique trades
+      const requestAppointments = appointments.filter((a) => a.request_id === req.id);
+      const now = new Date();
+      const upcomingAppointments = requestAppointments
+        .filter((a) => new Date(a.scheduled_at) > now)
+        .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+      const nextAppt = upcomingAppointments[0];
+      const apptStatus = nextAppt?.status?.toLowerCase();
 
-      // Check for expiry
-      const oldestQuote = group.quotes.reduce((oldest, q) => {
-        const qDate = new Date(q.issued_at);
-        return !oldest || qDate < new Date(oldest.issued_at) ? q : oldest;
-      }, null);
-      const daysOld = oldestQuote ? daysSince(oldestQuote.issued_at) : 0;
-      const expiryDays = 14 - daysOld;
-      const expiresSoon = expiryDays <= 3 && expiryDays > 0;
+      let statusType = "waiting";
+      let statusText = "Waiting for trades";
+      let statusDetail = `Posted ${daysSince(req.created_at) || 0} hours ago`;
+      let subStatus = null;
 
-      let statusType = "NEW_QUOTE";
-      if (expiresSoon) statusType = "EXPIRES_SOON";
-
-      // Build status description based on count
-      let statusDescription;
-      if (tradesCount === 1 && quotesReceived === 1) {
-        statusDescription = "Quote received";
-      } else if (tradesCount === 1 && quotesReceived > 1) {
-        // Single trade with multiple quotes
-        statusDescription = `${quotesReceived} quotes from 1 trade`;
-      } else {
-        statusDescription = `${quotesReceived} quote${quotesReceived !== 1 ? "s" : ""} from ${tradesCount} trade${tradesCount !== 1 ? "s" : ""}`;
+      if (apptStatus === "proposed") {
+        statusType = "action";
+        statusText = "Confirm survey visit";
+        statusDetail = `${formatDate(nextAppt.scheduled_at)}, ${formatTime(nextAppt.scheduled_at)}`;
+        subStatus = "appointment_pending";
+      } else if (apptStatus === "confirmed") {
+        statusType = "scheduled";
+        statusText = "Survey visit confirmed";
+        statusDetail = `${formatDate(nextAppt.scheduled_at)}, ${formatTime(nextAppt.scheduled_at)}`;
+        subStatus = "appointment_confirmed";
       }
 
-      needsAttention.push({
-        id: `grouped-${group.requestId}`,
-        type: "grouped_quotes",
-        requestId: group.requestId,
-        jobTitle: group.jobTitle,
-        location: group.location,
-        tertiaryText: group.tertiaryText,
-        trades: group.trades,
-        quotesCount: quotesReceived, // Total quotes (for navigation logic)
-        statusDescription,
+      const isDirectRequest = req.request_type === "direct" || req.is_direct;
+
+      // For direct requests, show "Waiting for trade" (not repeating the trade name)
+      if (isDirectRequest && statusType === "waiting") {
+        statusText = "Waiting for trade";
+      }
+
+      const contextLine = isDirectRequest
+        ? `Direct request · ${req.trade_business_name || "Trade"}`
+        : `Open request · ${req.target_count || 5} trades invited`;
+
+      allProjects.push({
+        id: `request-${req.id}`,
+        type: "request",
+        stage: "POSTED",
+        stageIndex: 0,
+        progressPosition: getClientProgressPosition("POSTED", subStatus),
+        requestId: req.id,
+        title: req.suggested_title || "Untitled job",
+        requestType: isDirectRequest ? "direct" : "open",
+        contextLine,
         statusType,
-        priceInfo: group.lowestPrice
-          ? (quotesReceived > 1 || tradesCount > 1)
-            ? `From £${formatNumber(group.lowestPrice)}`
-            : `£${formatNumber(group.lowestPrice)}`
-          : null,
-        priceLabel: (quotesReceived > 1 || tradesCount > 1) ? "Prices from" : "Quote total",
-        warningText: expiresSoon ? `Expires in ${expiryDays} day${expiryDays !== 1 ? "s" : ""}` : null,
+        statusText,
+        statusDetail,
+        priceInfo: null,
+        actions:
+          apptStatus === "proposed"
+            ? [
+                {
+                  label: "Decline",
+                  primary: false,
+                  onPress: () => {},
+                },
+                {
+                  label: "Confirm",
+                  primary: true,
+                  onPress: () =>
+                    router.push(`/(dashboard)/myquotes/request/${req.id}`),
+                },
+              ]
+            : null,
+        appointmentId: nextAppt?.id,
+        sortPriority: statusType === "action" ? 1 : statusType === "scheduled" ? 2 : 3,
       });
     });
 
-    // Process responses - trades who accepted but haven't sent quote yet
-    // Group by request to combine with existing grouped cards
-    // IMPORTANT: Skip trades that already have a decided quote (accepted/declined/awaiting_completion/completed)
+    // Process responses (trades preparing) - Stage: QUOTES
     const decidedTradesByRequest = {};
     decidedQuotes.forEach((q) => {
       const reqId = q.request_id;
@@ -787,25 +645,18 @@ export default function ClientProjects() {
       const reqId = r.request_id;
       const status = String(r.decision_status || "").toLowerCase();
       if (!reqId) return;
+      if (requestsWithAcceptedQuote.has(reqId)) return;
+      if (decidedTradesByRequest[reqId]?.has(r.trade_id)) return;
 
-      // Skip if this request already has an accepted quote (client already chose a trade)
-      if (requestsWithAcceptedQuote.has(reqId)) {
-        return;
-      }
-
-      // Skip if this trade already has a decided quote for this request
-      if (decidedTradesByRequest[reqId]?.has(r.trade_id)) {
-        return;
-      }
+      // Check if this is a direct request (from enriched is_direct flag)
+      const isDirectRequest = r.is_direct === true;
 
       if (!responsesByRequest[reqId]) {
         responsesByRequest[reqId] = {
           requestId: reqId,
-          jobTitle: r.suggested_title || "Untitled job",
-          location: r.postcode || null,
-          tertiaryText: buildTertiaryText(r.suggested_title, r.postcode),
+          title: r.suggested_title || "Untitled job",
           preparingTrades: [],
-          declinedTrades: [],
+          isDirectRequest: isDirectRequest,
         };
       }
 
@@ -813,522 +664,560 @@ export default function ClientProjects() {
         responsesByRequest[reqId].preparingTrades.push({
           id: r.trade_id,
           name: r.trade_business_name || "Trade",
-          photoUrl: r.trade_photo_url || null,
-          hasQuote: false,
-        });
-      } else if (status === "declined") {
-        responsesByRequest[reqId].declinedTrades.push({
-          id: r.trade_id,
-          name: r.trade_business_name || "Trade",
         });
       }
     });
 
-    // Merge responses with existing grouped cards or create new ones
-    Object.values(responsesByRequest).forEach((respGroup) => {
-      // Check if we already have a card for this request (from decideQuotes)
-      const existingIdx = needsAttention.findIndex(
-        (p) => p.type === "grouped_quotes" && p.requestId === respGroup.requestId
+    Object.values(responsesByRequest).forEach((group) => {
+      if (group.preparingTrades.length === 0) return;
+
+      const isDirectRequest = group.isDirectRequest;
+      const tradeName = group.preparingTrades[0]?.name || "Trade";
+
+      // Build context line based on request type
+      const contextLine = isDirectRequest
+        ? `Direct request · ${tradeName}`
+        : `Open request · ${group.preparingTrades.length} trades preparing`;
+
+      // Check for existing request card and skip if already added
+      const existingRequest = allProjects.find(
+        (p) => p.type === "request" && p.requestId === group.requestId
       );
-
-      if (existingIdx >= 0) {
-        // Add preparing trades to existing card
-        const existing = needsAttention[existingIdx];
-        respGroup.preparingTrades.forEach((t) => {
-          if (!existing.trades.find((et) => et.id === t.id)) {
-            existing.trades.push(t);
-          }
-        });
-        // Update status description
-        const quotesReceived = existing.trades.filter((t) => t.hasQuote).length;
-        const preparing = existing.trades.filter((t) => !t.hasQuote).length;
-        if (preparing > 0) {
-          existing.statusDescription = `${quotesReceived} quote${quotesReceived !== 1 ? "s" : ""} received, ${preparing} preparing`;
-        }
-      } else if (respGroup.preparingTrades.length > 0) {
-        // Create new card for trades preparing quotes
-        // Check for appointments for this request (survey visits)
-        const requestAppointments = appointments.filter((a) => a.request_id === respGroup.requestId);
-
-        const now = new Date();
-        const upcomingAppointments = requestAppointments
-          .filter((a) => new Date(a.scheduled_at) > now)
-          .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-        const nextAppointment = upcomingAppointments[0];
-        const appointmentStatus = nextAppointment?.status?.toLowerCase();
-        const scheduledDate = nextAppointment?.scheduled_at ? new Date(nextAppointment.scheduled_at) : null;
-        const additionalAppointmentsCount = upcomingAppointments.length > 1 ? upcomingAppointments.length - 1 : 0;
-
-        const preparing = respGroup.preparingTrades.length;
-        let statusType = "QUOTE_PENDING";
-        let statusDescription = preparing === 1 ? "Preparing quote" : `${preparing} preparing quotes`;
-        let appointmentInfo = null;
-
-        if (appointmentStatus === "proposed") {
-          // Trade proposed a survey appointment - client needs to confirm
-          statusType = "CONFIRM_VISIT";
-          statusDescription = "Survey appointment requested";
-          appointmentInfo = scheduledDate
-            ? `Survey proposed: ${scheduledDate.toLocaleDateString(undefined, {
-                day: "numeric",
-                month: "short",
-              })}, ${scheduledDate.toLocaleTimeString(undefined, {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}`
-            : null;
-        } else if (appointmentStatus === "confirmed") {
-          // Survey appointment confirmed by client
-          statusType = "SCHEDULED";
-          statusDescription = "Survey visit confirmed";
-          appointmentInfo = scheduledDate
-            ? `${scheduledDate.toLocaleDateString(undefined, {
-                weekday: "short",
-                day: "numeric",
-                month: "short",
-              })}, ${scheduledDate.toLocaleTimeString(undefined, {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}`
-            : null;
-        }
-
-        waitingForQuotes.push({
-          id: `preparing-${respGroup.requestId}`,
-          type: "preparing_quotes",
-          requestId: respGroup.requestId,
-          jobTitle: respGroup.jobTitle,
-          location: respGroup.location,
-          tertiaryText: respGroup.tertiaryText,
-          trades: respGroup.preparingTrades,
-          statusDescription,
-          statusType,
-          priceInfo: null,
-          // Appointment info
-          appointmentInfo,
-          appointmentStatus,
-          appointmentId: nextAppointment?.id,
-          additionalAppointmentsCount,
-        });
-      }
-
-      // Handle all-declined scenario
-      if (respGroup.declinedTrades.length > 0 && respGroup.preparingTrades.length === 0) {
-        const declined = respGroup.declinedTrades.length;
-        needsAttention.push({
-          id: `declined-req-${respGroup.requestId}`,
-          type: "request_declined",
-          requestId: respGroup.requestId,
-          jobTitle: respGroup.jobTitle,
-          location: respGroup.location,
-          tertiaryText: respGroup.tertiaryText,
-          trades: [], // No active trades
-          statusDescription: declined === 1 ? "Trade declined" : `${declined} trades declined`,
-          statusType: "DECLINED",
-          priceInfo: null,
-        });
-      }
-    });
-
-    // Process open requests (no responses yet)
-    // Also check for appointments by request_id (survey appointments before quote)
-    // Skip requests that already have an accepted quote
-    requests.forEach((req) => {
-      if (requestsWithAcceptedQuote.has(req.id)) {
+      if (existingRequest) {
+        // Update existing with preparing info
+        existingRequest.contextLine = contextLine;
+        existingRequest.stage = "QUOTES";
+        existingRequest.stageIndex = 1;
+        existingRequest.progressPosition = getClientProgressPosition("QUOTES", "preparing");
         return;
       }
-      // Find appointments for this request (survey visits before quote exists)
-      const requestAppointments = appointments.filter((a) => a.request_id === req.id);
+
+      const requestAppointments = appointments.filter(
+        (a) => a.request_id === group.requestId
+      );
       const now = new Date();
       const upcomingAppointments = requestAppointments
         .filter((a) => new Date(a.scheduled_at) > now)
         .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-      const nextAppointment = upcomingAppointments[0];
-      const appointmentStatus = nextAppointment?.status?.toLowerCase();
-      const scheduledDate = nextAppointment?.scheduled_at ? new Date(nextAppointment.scheduled_at) : null;
-      const additionalAppointmentsCount = upcomingAppointments.length > 1 ? upcomingAppointments.length - 1 : 0;
+      const nextAppt = upcomingAppointments[0];
+      const apptStatus = nextAppt?.status?.toLowerCase();
 
-      let statusType = "REQUEST_SENT";
-      let statusDescription = "Waiting for trades to respond";
-      let appointmentInfo = null;
+      let statusType = "waiting";
+      // For direct requests: "Preparing your quote", for open: "X trades preparing quotes"
+      let statusText = isDirectRequest
+        ? "Preparing your quote"
+        : `${group.preparingTrades.length} trade${group.preparingTrades.length > 1 ? "s" : ""} preparing quotes`;
+      let statusDetail = null;
+      let subStatus = "preparing";
 
-      if (appointmentStatus === "proposed") {
-        // Trade proposed a survey appointment - client needs to confirm
-        statusType = "CONFIRM_VISIT";
-        statusDescription = "Survey appointment requested";
-        appointmentInfo = scheduledDate
-          ? `Survey proposed: ${scheduledDate.toLocaleDateString(undefined, {
-              day: "numeric",
-              month: "short",
-            })}, ${scheduledDate.toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}`
-          : null;
-      } else if (appointmentStatus === "confirmed") {
-        // Survey appointment confirmed by client
-        statusType = "SCHEDULED";
-        statusDescription = "Survey visit confirmed";
-        appointmentInfo = scheduledDate
-          ? `${scheduledDate.toLocaleDateString(undefined, {
-              weekday: "short",
-              day: "numeric",
-              month: "short",
-            })}, ${scheduledDate.toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}`
-          : null;
+      if (apptStatus === "proposed") {
+        statusType = "action";
+        statusText = "Confirm survey visit";
+        statusDetail = `${formatDate(nextAppt.scheduled_at)}, ${formatTime(nextAppt.scheduled_at)}`;
+        subStatus = "appointment_pending";
+      } else if (apptStatus === "confirmed") {
+        statusType = "scheduled";
+        statusText = "Survey visit confirmed";
+        statusDetail = `${formatDate(nextAppt.scheduled_at)}, ${formatTime(nextAppt.scheduled_at)}`;
+        subStatus = "appointment_confirmed";
       }
 
-      waitingForQuotes.push({
-        id: `request-${req.id}`,
-        type: "request",
-        requestId: req.id,
-        jobTitle: req.suggested_title || "Untitled job",
-        location: req.postcode || null,
-        tertiaryText: buildTertiaryText(req.suggested_title, req.postcode),
-        trades: [], // No trades yet
-        statusDescription,
+      allProjects.push({
+        id: `preparing-${group.requestId}`,
+        type: "preparing",
+        stage: "QUOTES",
+        stageIndex: 1,
+        progressPosition: getClientProgressPosition("QUOTES", subStatus),
+        requestId: group.requestId,
+        title: group.title,
+        requestType: isDirectRequest ? "direct" : "open",
+        contextLine,
         statusType,
+        statusText,
+        statusDetail,
         priceInfo: null,
-        // Appointment info for requests with survey visits
-        appointmentInfo,
-        appointmentStatus,
-        appointmentId: nextAppointment?.id,
-        additionalAppointmentsCount,
+        actions:
+          apptStatus === "proposed"
+            ? [
+                { label: "Decline", primary: false },
+                {
+                  label: "Confirm",
+                  primary: true,
+                  onPress: () =>
+                    router.push(`/(dashboard)/myquotes/request/${group.requestId}`),
+                },
+              ]
+            : null,
+        sortPriority: statusType === "action" ? 1 : 3,
       });
     });
 
-    // Process decided quotes (accepted quotes = active jobs)
-    // Filter out drafts - clients should not see draft quotes
-    const visibleDecidedQuotes = decidedQuotes.filter(q => q.status !== "draft");
+    // Process quotes to decide - Stage: QUOTES
+    const quotesByRequest = {};
+    const visibleDecideQuotes = decideQuotes.filter(
+      (q) => q.status !== "draft" && !requestsWithAcceptedQuote.has(q.request_id)
+    );
+    const seenQuoteIds = new Set();
+    visibleDecideQuotes
+      .filter((q) => {
+        if (!q.quote_id || seenQuoteIds.has(q.quote_id)) return false;
+        seenQuoteIds.add(q.quote_id);
+        return true;
+      })
+      .forEach((q) => {
+        const reqId = q.request_id;
+        if (!reqId) return;
+        if (!quotesByRequest[reqId]) {
+          quotesByRequest[reqId] = {
+            requestId: reqId,
+            title: q.request_suggested_title || q.project_title || "Untitled job",
+            quotes: [],
+            lowestPrice: null,
+            highestPrice: null,
+            tradeName: null,
+          };
+        }
+        quotesByRequest[reqId].quotes.push(q);
+        const price = q.grand_total;
+        if (price) {
+          if (
+            quotesByRequest[reqId].lowestPrice === null ||
+            price < quotesByRequest[reqId].lowestPrice
+          ) {
+            quotesByRequest[reqId].lowestPrice = price;
+          }
+          if (
+            quotesByRequest[reqId].highestPrice === null ||
+            price > quotesByRequest[reqId].highestPrice
+          ) {
+            quotesByRequest[reqId].highestPrice = price;
+          }
+        }
+        if (quotesByRequest[reqId].quotes.length === 1) {
+          quotesByRequest[reqId].tradeName = q.trade_business_name;
+        }
+      });
+
+    Object.values(quotesByRequest).forEach((group) => {
+      const quotesCount = group.quotes.length;
+      const oldestQuote = group.quotes.reduce((oldest, q) => {
+        const qDate = new Date(q.issued_at);
+        return !oldest || qDate < new Date(oldest.issued_at) ? q : oldest;
+      }, null);
+      const daysOld = oldestQuote ? daysSince(oldestQuote.issued_at) : 0;
+      const expiryDays = 14 - daysOld;
+      const expiresSoon = expiryDays <= 3 && expiryDays > 0;
+
+      let statusType = "action";
+      let statusText =
+        quotesCount === 1
+          ? "Quote received"
+          : `${quotesCount} quotes ready`;
+      let statusDetail = null;
+
+      if (expiresSoon) {
+        statusText = `Quote expires in ${expiryDays} day${expiryDays !== 1 ? "s" : ""}`;
+        if (quotesCount === 1 && group.tradeName) {
+          statusDetail = `${group.tradeName} · £${formatNumber(group.lowestPrice)}`;
+        }
+      }
+
+      let priceInfo = null;
+      if (group.lowestPrice) {
+        if (quotesCount > 1 && group.lowestPrice !== group.highestPrice) {
+          priceInfo = `£${formatNumber(group.lowestPrice)} - £${formatNumber(group.highestPrice)}`;
+        } else {
+          priceInfo = `£${formatNumber(group.lowestPrice)}`;
+        }
+      }
+
+      const contextLine =
+        quotesCount === 1 && group.tradeName
+          ? `Direct request · ${group.tradeName}`
+          : `Open request · ${quotesCount} quote${quotesCount !== 1 ? "s" : ""}`;
+
+      // Remove any existing request/preparing card for this request
+      const existingIdx = allProjects.findIndex(
+        (p) =>
+          (p.type === "request" || p.type === "preparing") &&
+          p.requestId === group.requestId
+      );
+      if (existingIdx >= 0) {
+        allProjects.splice(existingIdx, 1);
+      }
+
+      allProjects.push({
+        id: `quotes-${group.requestId}`,
+        type: "quotes",
+        stage: "QUOTES",
+        stageIndex: 1,
+        progressPosition: getClientProgressPosition("QUOTES", "quotes_received"),
+        requestId: group.requestId,
+        title: group.title,
+        requestType: quotesCount === 1 ? "direct" : "open",
+        contextLine,
+        statusType,
+        statusText,
+        statusDetail,
+        priceInfo,
+        actions: [
+          {
+            label: quotesCount > 1 ? "Compare Quotes" : "View Quote",
+            primary: true,
+            onPress: () =>
+              router.push(`/(dashboard)/myquotes/request/${group.requestId}`),
+          },
+        ],
+        sortPriority: expiresSoon ? 1 : 2,
+      });
+    });
+
+    // Process decided quotes (accepted = active, completed = done) - Stages: HIRED, DONE
     const activeByRequest = {};
+    const visibleDecidedQuotes = decidedQuotes.filter((q) => q.status !== "draft");
+
     visibleDecidedQuotes.forEach((q) => {
       const status = String(q.status || "").toLowerCase();
       const reqId = q.request_id;
 
-      if (status === "accepted") {
-        // Group active jobs by request
+      if (
+        status === "accepted" ||
+        status === "awaiting_completion" ||
+        status === "issue_reported" ||
+        status === "issue_resolved_pending"
+      ) {
         if (!activeByRequest[reqId]) {
           activeByRequest[reqId] = {
             requestId: reqId,
-            jobTitle: q.request_suggested_title || q.project_title || "Active job",
-            location: q.postcode || null,
-            tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
-            trades: [],
-            quotesCount: 0, // Track total quotes
-            quoteId: q.quote_id, // For single-trade navigation
+            title: q.request_suggested_title || q.project_title || "Active job",
+            quoteId: q.quote_id,
+            tradeName: q.trade_business_name || "Trade",
+            amount: q.grand_total,
+            status,
           };
         }
-        activeByRequest[reqId].quotesCount++; // Count each quote
-        // Only add trade if not already in list (avoid duplicate avatars)
-        const existingActiveTrade = activeByRequest[reqId].trades.find(t => t.id === q.trade_id);
-        if (!existingActiveTrade) {
-          activeByRequest[reqId].trades.push({
-            id: q.trade_id,
-            name: q.trade_business_name || "Trade",
-            photoUrl: q.trade_photo_url || null,
-            hasQuote: true,
-            quoteId: q.quote_id,
-            amount: q.grand_total,
-          });
-        }
-      } else if (status === "declined") {
-        const daysAgo = daysSince(q.issued_at);
-        completedProjects.push({
-          id: `declined-${q.quote_id}`,
-          type: "declined",
-          requestId: reqId,
-          jobTitle: q.request_suggested_title || q.project_title || "Quote",
-          location: q.postcode || null,
-          tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
-          trades: [{
-            id: q.trade_id,
-            name: q.trade_business_name || "Trade",
-            photoUrl: q.trade_photo_url || null,
-            hasQuote: true,
-            quoteId: q.quote_id,
-          }],
-          statusDescription: `You declined ${daysAgo} day${daysAgo !== 1 ? "s" : ""} ago`,
-          statusType: "DECLINED_BY_YOU",
-          priceInfo: null,
-        });
-      } else if (status === "expired") {
-        const daysAgo = daysSince(q.issued_at);
-        completedProjects.push({
-          id: `expired-${q.quote_id}`,
-          type: "expired",
-          requestId: reqId,
-          jobTitle: q.request_suggested_title || q.project_title || "Quote",
-          location: q.postcode || null,
-          tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
-          trades: [{
-            id: q.trade_id,
-            name: q.trade_business_name || "Trade",
-            photoUrl: q.trade_photo_url || null,
-            hasQuote: true,
-            quoteId: q.quote_id,
-          }],
-          statusDescription: `Expired ${daysAgo} day${daysAgo !== 1 ? "s" : ""} ago`,
-          statusType: "EXPIRED",
-          priceInfo: null,
-        });
-      } else if (status === "awaiting_completion") {
-        // Trade marked complete, awaiting client confirmation
-        if (!activeByRequest[reqId]) {
-          activeByRequest[reqId] = {
-            requestId: reqId,
-            jobTitle: q.request_suggested_title || q.project_title || "Active job",
-            location: q.postcode || null,
-            tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
-            trades: [],
-            quotesCount: 0,
-            quoteId: q.quote_id,
-            isAwaitingCompletion: true,
-          };
-        }
-        activeByRequest[reqId].quotesCount++;
-        activeByRequest[reqId].isAwaitingCompletion = true;
-        const existingTrade = activeByRequest[reqId].trades.find(t => t.id === q.trade_id);
-        if (!existingTrade) {
-          activeByRequest[reqId].trades.push({
-            id: q.trade_id,
-            name: q.trade_business_name || "Trade",
-            photoUrl: q.trade_photo_url || null,
-            hasQuote: true,
-            quoteId: q.quote_id,
-            amount: q.grand_total,
-          });
-        }
-      } else if (status === "issue_reported") {
-        // Client reported an issue, waiting for trade to respond
-        if (!activeByRequest[reqId]) {
-          activeByRequest[reqId] = {
-            requestId: reqId,
-            jobTitle: q.request_suggested_title || q.project_title || "Active job",
-            location: q.postcode || null,
-            tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
-            trades: [],
-            quotesCount: 0,
-            quoteId: q.quote_id,
-            isIssueReported: true,
-          };
-        }
-        activeByRequest[reqId].quotesCount++;
-        activeByRequest[reqId].isIssueReported = true;
-        const existingTrade = activeByRequest[reqId].trades.find(t => t.id === q.trade_id);
-        if (!existingTrade) {
-          activeByRequest[reqId].trades.push({
-            id: q.trade_id,
-            name: q.trade_business_name || "Trade",
-            photoUrl: q.trade_photo_url || null,
-            hasQuote: true,
-            quoteId: q.quote_id,
-            amount: q.grand_total,
-          });
-        }
-      } else if (status === "issue_resolved_pending") {
-        // Trade marked issue as resolved, waiting for client to confirm
-        if (!activeByRequest[reqId]) {
-          activeByRequest[reqId] = {
-            requestId: reqId,
-            jobTitle: q.request_suggested_title || q.project_title || "Active job",
-            location: q.postcode || null,
-            tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
-            trades: [],
-            quotesCount: 0,
-            quoteId: q.quote_id,
-            isIssueResolvedPending: true,
-          };
-        }
-        activeByRequest[reqId].quotesCount++;
-        activeByRequest[reqId].isIssueResolvedPending = true;
-        const existingTrade = activeByRequest[reqId].trades.find(t => t.id === q.trade_id);
-        if (!existingTrade) {
-          activeByRequest[reqId].trades.push({
-            id: q.trade_id,
-            name: q.trade_business_name || "Trade",
-            photoUrl: q.trade_photo_url || null,
-            hasQuote: true,
-            quoteId: q.quote_id,
-            amount: q.grand_total,
-          });
+        // Update with highest priority status
+        const statusPriority = {
+          issue_reported: 0,
+          issue_resolved_pending: 1,
+          awaiting_completion: 2,
+          accepted: 3,
+        };
+        if (statusPriority[status] < statusPriority[activeByRequest[reqId].status]) {
+          activeByRequest[reqId].status = status;
         }
       } else if (status === "completed") {
-        // Job fully completed
-        completedProjects.push({
+        // Move to done
+        allProjects.push({
           id: `completed-${q.quote_id}`,
           type: "completed",
+          stage: "DONE",
+          stageIndex: 3,
+          progressPosition: 100,
           requestId: reqId,
-          jobTitle: q.request_suggested_title || q.project_title || "Job",
-          location: q.postcode || null,
-          tertiaryText: buildTertiaryText(q.request_suggested_title || q.project_title, q.postcode),
-          trades: [{
-            id: q.trade_id,
-            name: q.trade_business_name || "Trade",
-            photoUrl: q.trade_photo_url || null,
-            hasQuote: true,
-            quoteId: q.quote_id,
-            amount: q.grand_total,
-          }],
-          statusDescription: "Completed",
-          statusType: "COMPLETED",
-          priceInfo: q.grand_total > 0 ? `GBP ${formatNumber(q.grand_total)}` : null,
-          priceLabel: "Total paid",
+          quoteId: q.quote_id,
+          title: q.request_suggested_title || q.project_title || "Job",
+          requestType: "direct",
+          contextLine: `${q.trade_business_name} · £${formatNumber(q.grand_total)}`,
+          statusType: "completed",
+          statusText: "Completed",
+          statusDetail: formatDate(q.completion_confirmed_at || q.updated_at),
+          priceInfo: null,
+          hasReview: !!q.client_review_rating,
+          reviewRating: q.client_review_rating,
+          actions: q.client_review_rating
+            ? null
+            : [
+                {
+                  label: "Leave Review",
+                  primary: true,
+                  onPress: () =>
+                    router.push({
+                      pathname: "/(dashboard)/myquotes/leave-review",
+                      params: { quoteId: q.quote_id },
+                    }),
+                },
+              ],
+          sortPriority: q.client_review_rating ? 5 : 2,
+        });
+      } else if (status === "declined") {
+        allProjects.push({
+          id: `declined-${q.quote_id}`,
+          type: "declined",
+          stage: "DONE",
+          stageIndex: 3,
+          progressPosition: 100,
+          requestId: reqId,
+          quoteId: q.quote_id,
+          title: q.request_suggested_title || q.project_title || "Quote",
+          requestType: "direct",
+          contextLine: "Open request",
+          statusType: "completed",
+          statusText: "You declined all quotes",
+          statusDetail: `${daysSince(q.updated_at)} days ago`,
+          priceInfo: null,
+          sortPriority: 5,
+        });
+      } else if (status === "expired") {
+        allProjects.push({
+          id: `expired-${q.quote_id}`,
+          type: "expired",
+          stage: "DONE",
+          stageIndex: 3,
+          progressPosition: 100,
+          requestId: reqId,
+          quoteId: q.quote_id,
+          title: q.request_suggested_title || q.project_title || "Quote",
+          requestType: "direct",
+          contextLine: `Direct request · ${q.trade_business_name}`,
+          statusType: "completed",
+          statusText: "Quote expired",
+          statusDetail: "No response within 14 days",
+          priceInfo: null,
+          sortPriority: 5,
         });
       }
     });
 
     // Process active jobs
     Object.values(activeByRequest).forEach((group) => {
-      // Find appointment for this job
-      const relatedAppointments = appointments.filter(
-        (appt) => group.trades.some((t) => t.quoteId === appt.quote_id)
-      ).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+      const relatedAppointments = appointments
+        .filter((appt) => appt.quote_id === group.quoteId)
+        .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+      const nextAppt = relatedAppointments[0];
+      const apptStatus = nextAppt?.status?.toLowerCase();
 
-      const nextAppointment = relatedAppointments[0];
-      const scheduledDate = nextAppointment?.scheduled_at ? new Date(nextAppointment.scheduled_at) : null;
-      const appointmentStatus = nextAppointment?.status?.toLowerCase();
+      let statusType = "scheduled";
+      let statusText = "Quote accepted";
+      let statusDetail = "Waiting for work schedule";
+      let subStatus = null;
+      let actions = [
+        {
+          label: "Message",
+          primary: false,
+          onPress: () =>
+            router.push({
+              pathname: "/(dashboard)/messages/[id]",
+              params: { id: group.requestId, quoteId: group.quoteId },
+            }),
+        },
+      ];
 
-      let statusType = "QUOTE_ACCEPTED";
-      let statusDescription = "Quote accepted";
-      let appointmentInfo = null;
-      let helperText = null;
-
-      if (appointmentStatus === "proposed") {
-        // Trade proposed an appointment - client needs to confirm
-        statusType = "CONFIRM_VISIT";
-        statusDescription = "Appointment requested";
-        appointmentInfo = scheduledDate
-          ? `Survey proposed: ${scheduledDate.toLocaleDateString(undefined, {
-              day: "numeric",
-              month: "short",
-            })}, ${scheduledDate.toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}`
-          : null;
-      } else if (appointmentStatus === "confirmed") {
-        // Appointment confirmed by client
-        statusType = "SCHEDULED";
-        statusDescription = "Visit confirmed";
-        appointmentInfo = scheduledDate
-          ? `${scheduledDate.toLocaleDateString(undefined, {
-              weekday: "short",
-              day: "numeric",
-              month: "short",
-            })}, ${scheduledDate.toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}`
-          : null;
+      if (group.status === "awaiting_completion") {
+        statusType = "action";
+        statusText = "Confirm job complete";
+        statusDetail = "Trade marked as finished";
+        subStatus = "awaiting_completion";
+        actions = [
+          {
+            label: "Report Issue",
+            primary: false,
+            onPress: () =>
+              router.push({
+                pathname: "/(dashboard)/myquotes/completion-response",
+                params: { quoteId: group.quoteId },
+              }),
+          },
+          {
+            label: "Confirm Complete",
+            primary: true,
+            onPress: () =>
+              router.push({
+                pathname: "/(dashboard)/myquotes/completion-response",
+                params: { quoteId: group.quoteId },
+              }),
+          },
+        ];
+      } else if (group.status === "issue_reported") {
+        statusType = "issue";
+        statusText = "Issue reported";
+        statusDetail = "Waiting for trade to respond";
+        subStatus = "issue_reported";
+        actions = [
+          {
+            label: "Message",
+            primary: true,
+            onPress: () =>
+              router.push({
+                pathname: "/(dashboard)/messages/[id]",
+                params: { id: group.requestId, quoteId: group.quoteId },
+              }),
+          },
+        ];
+      } else if (group.status === "issue_resolved_pending") {
+        statusType = "action";
+        statusText = "Is the issue resolved?";
+        statusDetail = "Trade responded to your issue";
+        subStatus = "issue_resolved_pending";
+        actions = [
+          {
+            label: "Still not right",
+            primary: false,
+            onPress: () =>
+              router.push({
+                pathname: "/(dashboard)/myquotes/completion-response",
+                params: { quoteId: group.quoteId },
+              }),
+          },
+          {
+            label: "Yes, all sorted",
+            primary: true,
+            onPress: () =>
+              router.push({
+                pathname: "/(dashboard)/myquotes/completion-response",
+                params: { quoteId: group.quoteId },
+              }),
+          },
+        ];
+      } else if (apptStatus === "proposed") {
+        statusType = "action";
+        statusText = "Confirm work visit";
+        statusDetail = `${formatDate(nextAppt.scheduled_at)}, ${formatTime(nextAppt.scheduled_at)}`;
+        subStatus = "work_pending";
+        actions = [
+          {
+            label: "Suggest New Time",
+            primary: false,
+            onPress: () =>
+              router.push({
+                pathname: "/(dashboard)/myquotes/appointment-response",
+                params: { appointmentId: nextAppt.id, quoteId: group.quoteId },
+              }),
+          },
+          {
+            label: "Confirm",
+            primary: true,
+            onPress: () =>
+              router.push({
+                pathname: "/(dashboard)/myquotes/appointment-response",
+                params: { appointmentId: nextAppt.id, quoteId: group.quoteId },
+              }),
+          },
+        ];
+      } else if (apptStatus === "confirmed") {
+        statusType = "scheduled";
+        statusText = "Work scheduled";
+        statusDetail = `${formatDate(nextAppt.scheduled_at)}, ${formatTime(nextAppt.scheduled_at)}`;
+        subStatus = "work_confirmed";
       }
 
-
-      // Override status for awaiting completion (trade marked complete)
-      if (group.isAwaitingCompletion) {
-        statusType = "AWAITING_CONFIRMATION";
-        statusDescription = "Trade marked complete";
-        helperText = "Confirm the work is done";
-      }
-
-      // Override status for issue reported (client reported an issue)
-      if (group.isIssueReported) {
-        statusType = "ISSUE_REPORTED";
-        statusDescription = "Issue reported";
-        helperText = "Waiting for trade to respond";
-      }
-
-      // Override status for issue resolved pending (trade marked issue as resolved)
-      if (group.isIssueResolvedPending) {
-        statusType = "ISSUE_RESOLVED_PENDING";
-        statusDescription = "Issue addressed";
-        helperText = "Confirm the issue is resolved";
-      }
-      // Calculate price from trades
-      const totalPrice = group.trades.reduce((sum, t) => sum + (t.amount || 0), 0);
-
-      activeJobs.push({
+      allProjects.push({
         id: `active-${group.requestId}`,
         type: "active",
+        stage: "HIRED",
+        stageIndex: 2,
+        progressPosition: getClientProgressPosition("HIRED", subStatus),
         requestId: group.requestId,
-        jobTitle: group.jobTitle,
-        location: group.location,
-        tertiaryText: group.tertiaryText,
-        trades: group.trades,
-        quotesCount: group.quotesCount, // Track total quotes for navigation
-        statusDescription,
+        quoteId: group.quoteId,
+        title: group.title,
+        requestType: "direct",
+        contextLine: `${group.tradeName} · £${formatNumber(group.amount)}`,
         statusType,
-        priceInfo: totalPrice > 0 ? `GBP ${formatNumber(totalPrice)}` : null,
-        priceLabel: "Quote total",
-        helperText,
-        appointmentInfo,
-        appointmentStatus,
-        appointmentId: nextAppointment?.id,
-        quoteId: group.quoteId, // For single-trade navigation
+        statusText,
+        statusDetail,
+        priceInfo: null,
+        actions,
+        sortPriority:
+          statusType === "issue"
+            ? 0
+            : statusType === "action"
+            ? 1
+            : statusType === "scheduled"
+            ? 2
+            : 3,
       });
     });
 
-    return { needsAttention, waitingForQuotes, activeJobs, completedProjects };
-  }, [requests, responses, decideQuotes, decidedQuotes, appointments, caps, router]);
+    // Sort by priority
+    allProjects.sort((a, b) => {
+      if (a.sortPriority !== b.sortPriority) {
+        return a.sortPriority - b.sortPriority;
+      }
+      return 0;
+    });
 
-  // Filter counts
+    return allProjects;
+  }, [
+    requests,
+    responses,
+    decideQuotes,
+    decidedQuotes,
+    appointments,
+    router,
+    daysSince,
+    formatDate,
+    formatTime,
+  ]);
+
+  // Filter projects
+  const filteredProjects = useMemo(() => {
+    switch (filter) {
+      case "quotes":
+        return projects.filter(
+          (p) => p.stage === "POSTED" || p.stage === "QUOTES"
+        );
+      case "active":
+        return projects.filter((p) => p.stage === "HIRED");
+      case "done":
+        return projects.filter((p) => p.stage === "DONE");
+      default:
+        return projects.filter((p) => p.stage !== "DONE");
+    }
+  }, [projects, filter]);
+
+  // Counts
   const counts = useMemo(() => {
-    const all =
-      projects.needsAttention.length +
-      projects.waitingForQuotes.length +
-      projects.activeJobs.length +
-      projects.completedProjects.length;
-
-    const active =
-      projects.needsAttention.length +
-      projects.waitingForQuotes.length +
-      projects.activeJobs.length;
-
-    const completed = projects.completedProjects.length;
-
-    return { all, active, completed };
+    const all = projects.filter((p) => p.stage !== "DONE").length;
+    const quotes = projects.filter(
+      (p) => p.stage === "POSTED" || p.stage === "QUOTES"
+    ).length;
+    const active = projects.filter((p) => p.stage === "HIRED").length;
+    const done = projects.filter((p) => p.stage === "DONE").length;
+    return { all, quotes, active, done };
   }, [projects]);
 
-  // Filter logic
-  const shouldShowSection = (sectionType) => {
-    if (filter === "all") return true;
-    if (filter === "active") return sectionType !== "completed";
-    if (filter === "completed") return sectionType === "completed";
-    return false;
-  };
-
-  // Combined loading state - hide content during initial load OR focus refresh
   const isLoading = initialLoading || isFocusLoading;
 
   return (
     <ThemedView style={styles.container}>
       <StatusBar style="dark" backgroundColor="#FFFFFF" />
-      {/* Header - Profile-style */}
+
+      {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <ThemedText style={styles.headerTitle}>Projects</ThemedText>
+        <ThemedText style={styles.headerTitle}>My Projects</ThemedText>
+        <Pressable
+          style={styles.addButton}
+          onPress={() => router.push("/create")}
+        >
+          <Ionicons name="add" size={24} color="#111827" />
+        </Pressable>
       </View>
 
-      {/* Filter buttons */}
+      {/* Filter pills */}
       <View style={styles.filterRow}>
-        <FilterBtn
+        <FilterPill
           active={filter === "all"}
           label="All"
           count={counts.all}
           onPress={() => setFilter("all")}
         />
-        <FilterBtn
+        <FilterPill
+          active={filter === "quotes"}
+          label="Quotes"
+          count={counts.quotes}
+          onPress={() => setFilter("quotes")}
+        />
+        <FilterPill
           active={filter === "active"}
           label="Active"
           count={counts.active}
           onPress={() => setFilter("active")}
         />
-        <FilterBtn
-          active={filter === "completed"}
-          label="Completed"
-          count={counts.completed}
-          onPress={() => setFilter("completed")}
+        <FilterPill
+          active={filter === "done"}
+          label="Done"
+          count={counts.done}
+          onPress={() => setFilter("done")}
         />
       </View>
 
@@ -1338,140 +1227,69 @@ export default function ClientProjects() {
         }
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Show skeleton loader during initial load or focus refresh to prevent chip flicker */}
         {isLoading && <ProjectsPageSkeleton paddingTop={0} />}
-        {/* Needs Attention Section */}
-        {!isLoading && shouldShowSection("needsAttention") && projects.needsAttention.length > 0 && (
-          <>
-            <SectionHeader
-              title="Needs attention"
-              icon="alert-circle"
-              count={projects.needsAttention.length}
-            />
-            {projects.needsAttention.map((project) => (
-              <ProjectCard
-                key={project.id}
-                item={project}
-                statusType={project.statusType}
-                onPress={() => {
-                  // For pending quotes, always go to request page to see all quotes
-                  // Client needs to see Your Request + all Quotes received before deciding
-                  router.push(`/(dashboard)/myquotes/request/${project.requestId}`);
-                }}
-              />
-            ))}
-            <Spacer height={16} />
-          </>
-        )}
 
-        {/* Waiting for Quotes Section */}
-        {!isLoading && shouldShowSection("waiting") && projects.waitingForQuotes.length > 0 && (
-          <>
-            <SectionHeader
-              title="Waiting for quotes"
-              icon="hourglass"
-              count={projects.waitingForQuotes.length}
-            />
-            {projects.waitingForQuotes.map((project) => (
+        {!isLoading && filteredProjects.length > 0 && (
+          <View style={styles.projectsList}>
+            {filteredProjects.map((project) => (
               <ProjectCard
                 key={project.id}
                 item={project}
-                statusType={project.statusType}
                 onPress={() => {
-                  // For waiting/pending quotes, always go to request page
-                  // Client needs to see Your Request + any Quotes received
-                  router.push(`/(dashboard)/myquotes/request/${project.requestId}`);
-                }}
-              />
-            ))}
-            <Spacer height={16} />
-          </>
-        )}
-
-        {/* Active Jobs Section */}
-        {!isLoading && shouldShowSection("active") && projects.activeJobs.length > 0 && (
-          <>
-            <SectionHeader
-              title="Active jobs"
-              icon="construct"
-              count={projects.activeJobs.length}
-            />
-            {projects.activeJobs.map((project) => (
-              <ProjectCard
-                key={project.id}
-                item={project}
-                statusType={project.statusType}
-                onPress={() => {
-                  // Active jobs - go directly to Quote Overview
-                  const quoteId = project.quoteId || (project.trades && project.trades[0]?.quoteId);
-                  const tradesCount = project.trades?.length || 0;
-                  if (quoteId) {
-                    router.push(`/(dashboard)/myquotes/${quoteId}`);
-                  } else if (tradesCount > 1) {
-                    router.push(`/(dashboard)/myquotes/quotes/${project.requestId}`);
+                  if (project.quoteId) {
+                    router.push(`/(dashboard)/myquotes/${project.quoteId}`);
                   } else {
-                    // Fallback to request page
-                    router.push(`/(dashboard)/myquotes/request/${project.requestId}`);
+                    router.push(
+                      `/(dashboard)/myquotes/request/${project.requestId}`
+                    );
                   }
                 }}
               />
             ))}
-            <Spacer height={16} />
-          </>
+          </View>
         )}
 
-        {/* Completed Section */}
-        {!isLoading && shouldShowSection("completed") && projects.completedProjects.length > 0 && (
-          <>
-            <SectionHeader
-              title="Completed"
-              icon="checkmark-done-circle"
-              count={projects.completedProjects.length}
-            />
-            {projects.completedProjects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                item={project}
-                statusType={project.statusType}
-                onPress={() => {
-                  // Completed projects - go to Quote Overview
-                  const quoteId = project.quoteId || (project.trades && project.trades[0]?.quoteId);
-                  if (quoteId) {
-                    router.push(`/(dashboard)/myquotes/${quoteId}`);
-                  }
-                }}
-              />
-            ))}
-            <Spacer height={16} />
-          </>
-        )}
-
-        {/* Empty states */}
-        {!isLoading && filter === "all" && counts.all === 0 && (
+        {!isLoading && filteredProjects.length === 0 && filter === "all" && (
           <EmptyState
-            icon="briefcase-outline"
+            icon="clipboard-outline"
             title="No projects yet"
-            subtitle="Create a request to receive quotes from trades."
-            actionLabel="Browse Services"
-            onAction={() => router.push("/create")}
+            subtitle="Get quotes from verified local tradespeople"
+            primaryAction={{
+              label: "Get Quotes",
+              onPress: () => router.push("/create"),
+            }}
+            secondaryAction={{
+              label: "Find a Business",
+              onPress: () => router.push("/(dashboard)/client/find-business"),
+            }}
           />
         )}
 
-        {!isLoading && filter === "active" && counts.active === 0 && (
+        {!isLoading && filteredProjects.length === 0 && filter === "quotes" && (
+          <EmptyState
+            icon="document-text-outline"
+            title="No quotes"
+            subtitle="Create a request to receive quotes"
+            primaryAction={{
+              label: "Get Quotes",
+              onPress: () => router.push("/create"),
+            }}
+          />
+        )}
+
+        {!isLoading && filteredProjects.length === 0 && filter === "active" && (
+          <EmptyState
+            icon="construct-outline"
+            title="No active jobs"
+            subtitle="Accept a quote to start a job"
+          />
+        )}
+
+        {!isLoading && filteredProjects.length === 0 && filter === "done" && (
           <EmptyState
             icon="checkmark-circle-outline"
-            title="No active projects"
-            subtitle="When you receive or accept quotes, they'll appear here."
-            actionLabel="Request a Quote"
-            onAction={() => router.push("/create")}
-          />
-        )}
-
-        {!isLoading && filter === "completed" && counts.completed === 0 && (
-          <EmptyState
-            icon="archive-outline"
-            title="No completed projects yet"
-            subtitle="Your project history will appear here."
+            title="No completed projects"
+            subtitle="Your completed jobs will appear here"
           />
         )}
 
@@ -1486,8 +1304,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
-  // Profile-style header
   header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 20,
     paddingBottom: 12,
     backgroundColor: "#FFFFFF",
@@ -1496,55 +1316,63 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "700",
   },
+  addButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   filterRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 8,
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 12,
+    paddingBottom: 16,
   },
-  filterBtn: {
+  filterPill: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     borderRadius: 20,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-  filterBtnActive: {
+  filterPillActive: {
     backgroundColor: TINT,
     borderColor: TINT,
   },
-  filterLabel: {
+  filterPillText: {
     fontSize: 14,
     fontWeight: "500",
     color: "#6B7280",
   },
-  filterLabelActive: {
+  filterPillTextActive: {
     color: "#FFFFFF",
   },
+  filterPillCount: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#9CA3AF",
+    marginLeft: 4,
+  },
+  filterPillCountActive: {
+    color: "rgba(255,255,255,0.8)",
+  },
   scrollContent: {
-    paddingTop: 8,
     paddingBottom: 20,
   },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  projectsList: {
     paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
+    gap: 12,
   },
   projectCard: {
-    marginHorizontal: 20,
-    marginBottom: 12,
-    padding: 16,
-    borderRadius: 16,
     backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
     borderColor: "#E5E7EB",
     shadowColor: "#000",
@@ -1553,164 +1381,64 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  // New card design styles
-  cardHeader: {
+  cardTitleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  cardTitleContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    flex: 1,
+    gap: 8,
   },
-  noTradeIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#F3F4F6",
+  directBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#EDE9FE",
     alignItems: "center",
     justifyContent: "center",
   },
-  cardPrimaryInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  cardPrimaryText: {
+  cardServiceTitle: {
     fontSize: 16,
     fontWeight: "600",
     color: "#111827",
+    flex: 1,
   },
-  cardSecondaryText: {
+  menuButton: {
+    padding: 4,
+  },
+  cardCategory: {
     fontSize: 14,
     color: "#6B7280",
+    marginTop: 2,
   },
-  cardTertiaryRow: {
+  contextLine: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 8,
+  },
+  statusRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-  },
-  cardTertiaryText: {
-    fontSize: 13,
-    color: "#9CA3AF",
-  },
-  priceRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "#F9FAFB",
-    borderRadius: 10,
-  },
-  priceLabel: {
-    fontSize: 13,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
-  priceValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  appointmentRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 10,
-  },
-  appointmentText: {
-    fontSize: 14,
-    color: TINT,
-    fontWeight: "600",
-  },
-  additionalAppointmentsHint: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginTop: 6,
-    marginLeft: 24, // Align with appointment text
-  },
-  helperText: {
-    fontSize: 13,
-    color: "#9CA3AF",
     marginTop: 8,
   },
-  warningRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: "#FEF3C7",
-    borderRadius: 8,
-  },
-  warningText: {
-    fontSize: 13,
-    color: "#F59E0B",
-    fontWeight: "500",
-  },
-  badge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-  },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  // Legacy styles kept for compatibility
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  cardSubtitle: {
+  statusText: {
     fontSize: 14,
-    marginTop: 2,
-  },
-  cardContent: {
-    gap: 8,
-  },
-  amountRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: "#F9FAFB",
-    borderRadius: 8,
-  },
-  amountLabel: {
-    fontSize: 13,
-    color: "#6B7280",
     fontWeight: "500",
   },
-  amountValue: {
-    fontSize: 18,
+  detailLine: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 2,
+    marginLeft: 22,
+  },
+  priceText: {
+    fontSize: 16,
     fontWeight: "700",
     color: "#111827",
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  infoText: {
-    fontSize: 14,
-    color: "#6B7280",
-  },
-  metaText: {
-    fontSize: 13,
-    color: "#9CA3AF",
-    marginTop: 4,
-  },
-  helperText: {
-    fontSize: 13,
-    color: "#6B7280",
     marginTop: 8,
   },
   cardActions: {
@@ -1734,12 +1462,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-  actionBtnText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
-    textAlign: "center",
-  },
   actionBtnTextPrimary: {
     color: "#FFFFFF",
     fontSize: 14,
@@ -1749,6 +1471,17 @@ const styles = StyleSheet.create({
     color: "#374151",
     fontSize: 14,
     fontWeight: "600",
+  },
+  reviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 12,
+  },
+  reviewLabel: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginLeft: 4,
   },
   emptyState: {
     alignItems: "center",
@@ -1776,11 +1509,36 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: "#6B7280",
   },
-  emptyActionBtn: {
-    minWidth: 160,
+  emptyPrimaryBtn: {
     backgroundColor: TINT,
     borderRadius: 999,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    minWidth: 180,
+    alignItems: "center",
+  },
+  emptyPrimaryBtnText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  emptyOrText: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    marginVertical: 12,
+  },
+  emptySecondaryBtn: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 999,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    minWidth: 180,
+    alignItems: "center",
+  },
+  emptySecondaryBtnText: {
+    color: "#374151",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
