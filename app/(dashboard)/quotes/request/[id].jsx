@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import Spacer from "../../../../components/Spacer";
+import { RequestDetailSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
 import { useUser } from "../../../../hooks/useUser";
 import { supabase } from "../../../../lib/supabase";
@@ -1020,10 +1021,7 @@ export default function RequestDetails() {
       </View>
 
       {loading ? (
-        <>
-          <Spacer />
-          <ThemedText>Loading…</ThemedText>
-        </>
+        <RequestDetailSkeleton paddingTop={0} />
       ) : err ? (
         <>
           <Spacer />
@@ -1041,26 +1039,6 @@ export default function RequestDetails() {
           contentInsetAdjustmentBehavior="always"
           keyboardShouldPersistTaps="handled"
         >
-          {/* Status chips */}
-          <View style={styles.chipsRow}>
-            <Chip tone="waiting" icon="information-circle">
-              {(tgt?.invited_by || "").toLowerCase() === "client"
-                ? "Direct request"
-                : "Open request"}
-            </Chip>
-            <Chip tone={statusTone(status)}>
-              {status === "open"
-                ? "Action needed"
-                : status[0].toUpperCase() + status.slice(1)}
-            </Chip>
-            {!!req?.budget_band && (
-              <Chip tone="muted" icon="cash-outline">{req.budget_band}</Chip>
-            )}
-            {req?.timing_options?.is_emergency && (
-              <Chip tone="negative" icon="warning">Emergency</Chip>
-            )}
-          </View>
-
           {/* Actions - shown when request is open */}
           {status === "open" && (
             <View style={styles.actionButtonsContainer}>
@@ -1623,10 +1601,10 @@ const styles = StyleSheet.create({
     color: "#374151",
   },
   acceptButton: {
-    flex: 2,
+    flex: 1,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: Colors.primary, // Purple primary color
+    backgroundColor: Colors.primary,
     alignItems: "center",
     justifyContent: "center",
   },

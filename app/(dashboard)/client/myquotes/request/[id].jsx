@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ThemedView from "../../../../../components/ThemedView";
 import ThemedText from "../../../../../components/ThemedText";
 import Spacer from "../../../../../components/Spacer";
+import { RequestDetailSkeleton } from "../../../../../components/Skeleton";
 import { Colors } from "../../../../../constants/Colors";
 import { useUser } from "../../../../../hooks/useUser";
 import { supabase } from "../../../../../lib/supabase";
@@ -541,10 +542,7 @@ export default function ClientRequestDetails() {
       </View>
 
       {loading ? (
-        <>
-          <Spacer />
-          <ThemedText style={{ textAlign: "center" }}>Loading...</ThemedText>
-        </>
+        <RequestDetailSkeleton paddingTop={0} />
       ) : err ? (
         <>
           <Spacer />
@@ -562,22 +560,6 @@ export default function ClientRequestDetails() {
           contentInsetAdjustmentBehavior="always"
           keyboardShouldPersistTaps="handled"
         >
-          {/* Status chips */}
-          <View style={styles.chipsRow}>
-            <Chip tone="muted" icon="information-circle">
-              {isDirectRequest ? "Direct request" : "Open request"}
-            </Chip>
-            <Chip tone={statusTone(status)}>
-              {statusText(status)}
-            </Chip>
-            {!!req?.budget_band && (
-              <Chip tone="muted" icon="cash-outline">{req.budget_band}</Chip>
-            )}
-            {req?.timing_options?.is_emergency && (
-              <Chip tone="negative" icon="warning">Emergency</Chip>
-            )}
-          </View>
-
           {/* Appointments Section - always shown */}
           <View style={styles.sectionHeaderRow}>
             <ThemedText style={styles.sectionHeaderTitle}>Appointments</ThemedText>

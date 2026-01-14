@@ -19,6 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
+import { ProfilePageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
@@ -96,9 +97,7 @@ export default function TradeProfileScreen() {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
         <StatusBar style="dark" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator />
-        </View>
+        <ProfilePageSkeleton paddingTop={16} />
       </ThemedView>
     );
   }

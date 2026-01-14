@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import Spacer from "../../../../components/Spacer";
+import { QuoteOverviewSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
 import { supabase } from "../../../../lib/supabase";
 import { useUser } from "../../../../hooks/useUser";
@@ -231,15 +232,8 @@ export default function CompletionResponse() {
 
   if (loading) {
     return (
-      <ThemedView style={styles.container}>
-        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-          <Pressable onPress={() => router.back()} hitSlop={10}>
-            <Ionicons name="chevron-back" size={24} color="#111827" />
-          </Pressable>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ThemedText>Loading...</ThemedText>
-        </View>
+      <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
+        <QuoteOverviewSkeleton paddingTop={16} />
       </ThemedView>
     );
   }

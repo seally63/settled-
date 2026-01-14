@@ -27,6 +27,7 @@ import { supabase } from "../../../lib/supabase";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
+import { QuoteOverviewSkeleton } from "../../../components/Skeleton";
 import {
   listRequestImagePaths,
   getSignedUrls,
@@ -1448,9 +1449,8 @@ export default function QuoteDetails() {
 
   if (loading) {
     return (
-      <ThemedView style={styles.container}>
-        <Spacer />
-        <ThemedText>Loading…</ThemedText>
+      <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
+        <QuoteOverviewSkeleton paddingTop={16} />
       </ThemedView>
     );
   }
