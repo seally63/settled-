@@ -113,6 +113,14 @@ const CELL = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const PRIMARY = "#6849a7";
 
+// Helper to get last 4 characters of quote ID for display
+// This ensures both trade and client see the same quote identifier
+function getQuoteShortId(quoteId) {
+  if (!quoteId) return "0000";
+  const idStr = String(quoteId);
+  return idStr.slice(-4).toUpperCase();
+}
+
 export default function QuoteDetails() {
   const params = useLocalSearchParams();
   const router = useRouter();
@@ -1681,7 +1689,7 @@ export default function QuoteDetails() {
         {/* Header */}
         <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
           <View style={styles.headerRow}>
-            <ThemedText style={styles.headerTitle}>Quote Overview</ThemedText>
+            <ThemedText style={styles.headerTitle}>Quote #{getQuoteShortId(Array.isArray(params.id) ? params.id[0] : params.id)}</ThemedText>
             <Pressable
               onPress={() => {
                 if (fromAppointments) {
@@ -3025,7 +3033,7 @@ export default function QuoteDetails() {
       {/* Header - Profile-style like client version */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerRow}>
-          <ThemedText style={styles.headerTitle}>Quote Overview</ThemedText>
+          <ThemedText style={styles.headerTitle}>Quote #{getQuoteShortId(Array.isArray(params.id) ? params.id[0] : params.id)}</ThemedText>
           <Pressable
             onPress={() => {
               if (fromAppointments) {

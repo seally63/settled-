@@ -62,13 +62,14 @@ export default function ProgressBar({ stages, progressPosition, activeStageIndex
       {/* Stage labels */}
       <View style={styles.labels}>
         {stages.map((label, idx) => {
-          const isCurrentOrPast = computedActiveIndex >= idx || clampedProgress >= stagePositions[idx];
+          // Only highlight label if progress has actually reached that stage's dot position
+          const isReached = clampedProgress >= stagePositions[idx];
           return (
             <View key={idx} style={styles.labelContainer}>
               <ThemedText
                 style={[
                   styles.label,
-                  isCurrentOrPast ? styles.labelActive : styles.labelInactive,
+                  isReached ? styles.labelActive : styles.labelInactive,
                 ]}
                 numberOfLines={1}
               >

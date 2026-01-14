@@ -28,6 +28,14 @@ import { listRequestImagePaths } from "../../../../../lib/api/attachments";
 const BUCKET = "request-attachments";
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
+// Helper to get last 4 characters of quote ID for display
+// This ensures both trade and client see the same quote identifier
+function getQuoteShortId(quoteId) {
+  if (!quoteId) return "0000";
+  const idStr = String(quoteId);
+  return idStr.slice(-4).toUpperCase();
+}
+
 function parseDetails(details) {
   const res = {
     title: null,
@@ -689,12 +697,12 @@ export default function ClientRequestDetails() {
                     });
                   }}
                 >
-                  {/* Trade name */}
+                  {/* Quote ID header */}
                   <View style={styles.quoteCardHeader}>
                     <View style={styles.quoteCardTradeRow}>
-                      <Ionicons name="person-circle-outline" size={20} color="#6849a7" />
+                      <Ionicons name="document-text-outline" size={20} color="#6849a7" />
                       <ThemedText style={styles.quoteCardTradeName}>
-                        {quote.tradeName}
+                        Quote #{getQuoteShortId(quote.id)}
                       </ThemedText>
                     </View>
                     {isAccepted && (
@@ -725,10 +733,10 @@ export default function ClientRequestDetails() {
                     <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
                   </View>
 
-                  {/* Project title if available */}
-                  {quote.project_title && (
+                  {/* Trade business name */}
+                  {quote.tradeName && (
                     <ThemedText style={styles.quoteCardProject} numberOfLines={1}>
-                      {quote.project_title}
+                      {quote.tradeName}
                     </ThemedText>
                   )}
                 </Pressable>

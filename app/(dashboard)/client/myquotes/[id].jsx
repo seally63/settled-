@@ -37,6 +37,14 @@ const PRIMARY = Colors?.primary || "#6849a7";
 const TINT = Colors?.light?.tint || "#6849a7";
 const WARNING = Colors?.warning || "#cc475a";
 
+// Helper to get last 4 characters of quote ID for display
+// This ensures both trade and client see the same quote identifier
+function getQuoteShortId(quoteId) {
+  if (!quoteId) return "0000";
+  const idStr = String(quoteId);
+  return idStr.slice(-4).toUpperCase();
+}
+
 // Format number with thousand separators (commas)
 function formatNumber(num) {
   if (num == null || isNaN(num)) return "0.00";
@@ -1140,7 +1148,7 @@ export default function ClientMyQuoteDetail() {
       {/* Header - Profile-style */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerRow}>
-          <ThemedText style={styles.headerTitle}>Quote Overview</ThemedText>
+          <ThemedText style={styles.headerTitle}>Quote #{getQuoteShortId(id)}</ThemedText>
           <Pressable
             onPress={() => {
               // Always try router.back() first for proper back animation

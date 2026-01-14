@@ -77,28 +77,37 @@ function parseTitle(suggestedTitle) {
 }
 
 // Calculate client progress position
+// ProgressBar stage dots at: 12.5%, 37.5%, 62.5%, 87.5%
+// Progress fills from 0% left toward 100% right
+// To light up a stage dot, progress must reach that dot's position
 function getClientProgressPosition(stage, subStatus) {
   switch (stage) {
     case "POSTED":
-      return 12;
+      // Stage 0 (Posted): Dot at 12.5%
+      return 12.5;
     case "QUOTES":
-      if (subStatus === "quotes_received") return 45;
-      if (subStatus === "appointment_confirmed") return 35;
-      if (subStatus === "appointment_pending") return 30;
-      if (subStatus === "preparing") return 25;
-      return 20;
+      // Stage 1 (Quotes): Dot at 37.5%
+      // Progress ranges from 12.5% (posted) to 37.5% (quotes received)
+      if (subStatus === "quotes_received") return 37.5; // Reached Quotes stage
+      if (subStatus === "appointment_confirmed") return 32;
+      if (subStatus === "appointment_pending") return 28;
+      if (subStatus === "preparing") return 22;
+      return 18; // Default: just past Posted
     case "HIRED":
-      if (subStatus === "issue_resolved_pending") return 88;
-      if (subStatus === "issue_reported") return 85;
-      if (subStatus === "awaiting_completion") return 90;
-      if (subStatus === "work_in_progress") return 75;
-      if (subStatus === "work_confirmed") return 70;
-      if (subStatus === "work_pending") return 65;
-      return 60;
+      // Stage 2 (Hired): Dot at 62.5%
+      // Progress ranges from 37.5% (quotes) to 62.5% (hired)
+      if (subStatus === "awaiting_completion") return 75; // Past Hired, heading to Done
+      if (subStatus === "issue_resolved_pending") return 70;
+      if (subStatus === "issue_reported") return 68;
+      if (subStatus === "work_in_progress") return 65;
+      if (subStatus === "work_confirmed") return 62.5; // Reached Hired stage
+      if (subStatus === "work_pending") return 55;
+      return 50; // Default: working toward Hired stage
     case "DONE":
-      return 100;
+      // Stage 3 (Settled): Dot at 87.5%
+      return 87.5;
     default:
-      return 12;
+      return 12.5;
   }
 }
 
@@ -800,6 +809,19 @@ export default function ClientProjects() {
 
     Object.values(quotesByRequest).forEach((group) => {
       const quotesCount = group.quotes.length;
+
+      // Check if all quotes are from the same trade (direct request with multiple quote options)
+      // A single trade can send up to 3 quotes for a direct request
+      // First try trade_id, fallback to trade_business_name for RPC results that don't include trade_id
+      const uniqueTradeIds = [...new Set(group.quotes.map(q => q.trade_id).filter(Boolean))];
+      const uniqueTradeNames = [...new Set(group.quotes.map(q => q.trade_business_name).filter(Boolean))];
+
+      // If we have trade_ids, use those; otherwise use trade names as proxy
+      const isSingleTrade = uniqueTradeIds.length > 0
+        ? uniqueTradeIds.length === 1
+        : uniqueTradeNames.length === 1;
+      const isDirectRequest = isSingleTrade; // Direct request = all quotes from same trade
+
       const oldestQuote = group.quotes.reduce((oldest, q) => {
         const qDate = new Date(q.issued_at);
         return !oldest || qDate < new Date(oldest.issued_at) ? q : oldest;
@@ -812,12 +834,14 @@ export default function ClientProjects() {
       let statusText =
         quotesCount === 1
           ? "Quote received"
-          : `${quotesCount} quotes ready`;
+          : isDirectRequest
+            ? `${quotesCount} quote options received` // Same trade sent multiple options
+            : `${quotesCount} quotes ready`; // Multiple trades
       let statusDetail = null;
 
       if (expiresSoon) {
         statusText = `Quote expires in ${expiryDays} day${expiryDays !== 1 ? "s" : ""}`;
-        if (quotesCount === 1 && group.tradeName) {
+        if (isDirectRequest && group.tradeName) {
           statusDetail = `${group.tradeName} · £${formatNumber(group.lowestPrice)}`;
         }
       }
@@ -831,10 +855,10 @@ export default function ClientProjects() {
         }
       }
 
-      const contextLine =
-        quotesCount === 1 && group.tradeName
-          ? `Direct request · ${group.tradeName}`
-          : `Open request · ${quotesCount} quote${quotesCount !== 1 ? "s" : ""}`;
+      // Context line: show trade name for direct requests, quote count for open requests
+      const contextLine = isDirectRequest
+        ? `Direct request · ${group.tradeName || "Trade"}`
+        : `Open request · ${quotesCount} quote${quotesCount !== 1 ? "s" : ""}`;
 
       // Remove any existing request/preparing card for this request
       const existingIdx = allProjects.findIndex(
@@ -846,6 +870,13 @@ export default function ClientProjects() {
         allProjects.splice(existingIdx, 1);
       }
 
+      // Action button label depends on whether it's same trade (options) or different trades (compare)
+      const actionLabel = quotesCount === 1
+        ? "View Quote"
+        : isDirectRequest
+          ? "View Options" // Same trade sent multiple quote options
+          : "Compare Quotes"; // Multiple different trades
+
       allProjects.push({
         id: `quotes-${group.requestId}`,
         type: "quotes",
@@ -854,7 +885,7 @@ export default function ClientProjects() {
         progressPosition: getClientProgressPosition("QUOTES", "quotes_received"),
         requestId: group.requestId,
         title: group.title,
-        requestType: quotesCount === 1 ? "direct" : "open",
+        requestType: isDirectRequest ? "direct" : "open",
         contextLine,
         statusType,
         statusText,
@@ -862,7 +893,7 @@ export default function ClientProjects() {
         priceInfo,
         actions: [
           {
-            label: quotesCount > 1 ? "Compare Quotes" : "View Quote",
+            label: actionLabel,
             primary: true,
             onPress: () =>
               router.push(`/(dashboard)/myquotes/request/${group.requestId}`),
@@ -1076,7 +1107,7 @@ export default function ClientProjects() {
         subStatus = "work_pending";
         actions = [
           {
-            label: "Suggest New Time",
+            label: "Suggest Time",
             primary: false,
             onPress: () =>
               router.push({
@@ -1088,10 +1119,7 @@ export default function ClientProjects() {
             label: "Confirm",
             primary: true,
             onPress: () =>
-              router.push({
-                pathname: "/(dashboard)/myquotes/appointment-response",
-                params: { appointmentId: nextAppt.id, quoteId: group.quoteId },
-              }),
+              router.push(`/(dashboard)/myquotes/${group.quoteId}`),
           },
         ];
       } else if (apptStatus === "confirmed") {
