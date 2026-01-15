@@ -1,6 +1,6 @@
 // app/(dashboard)/client/myquotes/leave-review.jsx
 // Leave a review screen - client reviews trade
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -11,11 +11,16 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  Modal,
+  ActivityIndicator,
+  Keyboard,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import ImageViewing from "react-native-image-viewing";
 
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
@@ -25,6 +30,30 @@ import { supabase } from "../../../../lib/supabase";
 
 const PRIMARY = Colors?.light?.tint || "#6849a7";
 const STAR_COLOR = "#F59E0B";
+const MIN_PREP_MS = 600; // Minimum overlay display time for smooth UX
+
+// Process images - resize to reasonable size without base64 encoding (avoids freezes)
+async function makeThumbnails(uris) {
+  const out = [];
+  for (const uri of uris) {
+    try {
+      const { uri: processedUri } = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 1200 } }],
+        {
+          compress: 0.8,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: false, // Don't generate base64 - this causes freezes
+        }
+      );
+      out.push({ uri: processedUri });
+    } catch (e) {
+      console.warn("makeThumbnails error:", e);
+      out.push({ uri }); // Fallback to original
+    }
+  }
+  return out;
+}
 
 const RATING_LABELS = {
   1: "Terrible",
@@ -49,6 +78,29 @@ export default function LeaveReview() {
   const [reviewText, setReviewText] = useState("");
   const [photos, setPhotos] = useState([]); // Array of { uri, uploading }
   const [busy, setBusy] = useState(false);
+
+  // Full-screen image viewer
+  const [viewer, setViewer] = useState({ open: false, index: 0 });
+
+  // ScrollView ref for keyboard handling
+  const scrollViewRef = useRef(null);
+
+  // Scroll to input when focused
+  const handleInputFocus = (yOffset) => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({ y: yOffset, animated: true });
+    }, 300);
+  };
+
+  // Upload overlay state
+  const [uploading, setUploading] = useState(false);
+  const [uploadIdx, setUploadIdx] = useState(0);
+  const [uploadTotal, setUploadTotal] = useState(0);
+
+  // Photo preparation overlay state
+  const [prepVisible, setPrepVisible] = useState(false);
+  const [prepStartedAt, setPrepStartedAt] = useState(0);
+  const [prepTotal, setPrepTotal] = useState(0);
 
   // Get initials for avatar placeholder
   const getInitials = (name) => {
@@ -76,12 +128,25 @@ export default function LeaveReview() {
       quality: 0.8,
     });
 
-    if (!result.canceled && result.assets) {
-      const newPhotos = result.assets.map((asset) => ({
-        uri: asset.uri,
-        uploading: false,
-      }));
-      setPhotos((prev) => [...prev, ...newPhotos].slice(0, 5));
+    if (result.canceled) return;
+
+    const newUris = (result.assets || []).slice(0, 5 - photos.length).map((a) => a.uri);
+    if (!newUris.length) return;
+
+    // Show processing overlay BEFORE processing starts
+    setPrepVisible(true);
+    setPrepTotal(newUris.length);
+    setPrepStartedAt(Date.now());
+
+    try {
+      // Process images with ImageManipulator (resize, compress)
+      const thumbs = await makeThumbnails(newUris);
+      setPhotos((prev) => [...prev, ...thumbs].slice(0, 5));
+    } finally {
+      // Keep overlay visible for minimum time for smooth UX
+      const elapsed = Date.now() - prepStartedAt;
+      const remain = Math.max(0, MIN_PREP_MS - elapsed);
+      setTimeout(() => setPrepVisible(false), remain > 0 ? remain : 300);
     }
   };
 
@@ -93,8 +158,14 @@ export default function LeaveReview() {
   // Upload photos to storage and return URLs
   const uploadPhotos = async () => {
     const uploadedUrls = [];
+    setUploadTotal(photos.length);
+    setUploadIdx(0);
+    setUploading(true);
 
-    for (const photo of photos) {
+    for (let i = 0; i < photos.length; i++) {
+      const photo = photos[i];
+      setUploadIdx(i + 1);
+
       try {
         const filename = `review_${quoteId}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
         const path = `reviews/${filename}`;
@@ -131,6 +202,7 @@ export default function LeaveReview() {
       }
     }
 
+    setUploading(false);
     return uploadedUrls;
   };
 
@@ -154,7 +226,7 @@ export default function LeaveReview() {
         p_quote_id: quoteId,
         p_rating: rating,
         p_content: reviewText.trim() || null,
-        p_reviewee_type: revieweeType,
+        p_reviewer_type: revieweeType === "trade" ? "client" : "trade",
         p_photos: photoUrls,
       });
 
@@ -162,7 +234,7 @@ export default function LeaveReview() {
 
       // Navigate to success screen
       router.replace({
-        pathname: "/(dashboard)/client/myquotes/review-success",
+        pathname: "/(dashboard)/myquotes/review-success",
         params: { returnTo: "projects" },
       });
     } catch (err) {
@@ -189,9 +261,11 @@ export default function LeaveReview() {
         style={{ flex: 1 }}
       >
         <ScrollView
+          ref={scrollViewRef}
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
         >
           {/* Trade/User Card */}
           <View style={styles.revieweeCard}>
@@ -258,6 +332,7 @@ export default function LeaveReview() {
             numberOfLines={5}
             textAlignVertical="top"
             editable={!busy}
+            onFocus={() => handleInputFocus(280)}
           />
 
           <Spacer size={24} />
@@ -267,15 +342,23 @@ export default function LeaveReview() {
           <Spacer size={8} />
           <View style={styles.photosContainer}>
             {photos.map((photo, index) => (
-              <View key={index} style={styles.photoWrapper}>
+              <Pressable
+                key={index}
+                style={styles.photoWrapper}
+                onPress={() => setViewer({ open: true, index })}
+              >
                 <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
                 <Pressable
                   style={styles.removePhotoBtn}
-                  onPress={() => removePhoto(index)}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    removePhoto(index);
+                  }}
+                  hitSlop={8}
                 >
                   <Ionicons name="close-circle" size={24} color="#EF4444" />
                 </Pressable>
-              </View>
+              </Pressable>
             ))}
             {photos.length < 5 && (
               <Pressable style={styles.addPhotoBtn} onPress={pickImages}>
@@ -285,7 +368,7 @@ export default function LeaveReview() {
             )}
           </View>
           <ThemedText style={styles.photoCountText}>
-            {photos.length > 0 ? `${photos.length} of 5 photos` : "Up to 5 photos"}
+            {photos.length > 0 ? `${photos.length} of 5 photos · Tap to preview` : "Up to 5 photos"}
           </ThemedText>
 
           <Spacer size={32} />
@@ -302,6 +385,97 @@ export default function LeaveReview() {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Full-screen Image Viewer */}
+      <ImageViewing
+        images={photos.map((p) => ({ uri: p.uri }))}
+        imageIndex={viewer.index}
+        visible={viewer.open}
+        onRequestClose={() => setViewer({ open: false, index: 0 })}
+        FooterComponent={({ imageIndex }) => (
+          <View style={styles.viewerFooter}>
+            {/* Navigation dots */}
+            <View style={styles.viewerDots}>
+              {photos.map((_, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.viewerDot,
+                    i === imageIndex && styles.viewerDotActive,
+                  ]}
+                />
+              ))}
+            </View>
+            {/* Delete button */}
+            <Pressable
+              style={styles.viewerDeleteBtn}
+              hitSlop={10}
+              onPress={() => {
+                const idx = imageIndex;
+                removePhoto(idx);
+                const remaining = photos.length - 1;
+                if (remaining <= 0) {
+                  setViewer({ open: false, index: 0 });
+                } else {
+                  setViewer((prev) => ({
+                    ...prev,
+                    index: Math.min(idx, remaining - 1),
+                  }));
+                }
+              }}
+            >
+              <Ionicons name="trash-outline" size={20} color="#FFF" />
+              <ThemedText style={styles.viewerDeleteText}>Delete</ThemedText>
+            </Pressable>
+          </View>
+        )}
+      />
+
+      {/* Loading Overlay - for preparing photos, uploading, or submitting */}
+      {(prepVisible || uploading || busy) && (
+        <Modal
+          visible
+          transparent
+          animationType="none"
+          statusBarTranslucent
+          hardwareAccelerated
+          presentationStyle="overFullScreen"
+          onRequestClose={() => {}}
+        >
+          <View style={styles.uploadBackdrop}>
+            <View style={styles.uploadCard}>
+              <ActivityIndicator size="large" color={PRIMARY} />
+              <ThemedText style={styles.uploadTitle}>
+                {prepVisible
+                  ? "Preparing your photos..."
+                  : uploading
+                  ? "Uploading photos..."
+                  : "Submitting review..."}
+              </ThemedText>
+              {prepVisible && prepTotal > 0 && (
+                <ThemedText style={styles.uploadSub}>
+                  {prepTotal} photo{prepTotal !== 1 ? "s" : ""}
+                </ThemedText>
+              )}
+              {!prepVisible && uploading && uploadTotal > 0 && (
+                <>
+                  <ThemedText style={styles.uploadSub}>
+                    {uploadIdx} of {uploadTotal}
+                  </ThemedText>
+                  <View style={styles.uploadBar}>
+                    <View
+                      style={[
+                        styles.uploadFill,
+                        { width: `${Math.round((uploadIdx / uploadTotal) * 100)}%` },
+                      ]}
+                    />
+                  </View>
+                </>
+              )}
+            </View>
+          </View>
+        </Modal>
+      )}
     </ThemedView>
   );
 }
@@ -459,5 +633,79 @@ const styles = StyleSheet.create({
   },
   btnDisabled: {
     opacity: 0.7,
+  },
+  // Image viewer styles
+  viewerFooter: {
+    alignItems: "center",
+    paddingBottom: 40,
+  },
+  viewerDots: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 20,
+  },
+  viewerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(255,255,255,0.4)",
+  },
+  viewerDotActive: {
+    backgroundColor: "#fff",
+  },
+  viewerDeleteBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: "rgba(239,68,68,0.9)",
+    borderRadius: 24,
+  },
+  viewerDeleteText: {
+    color: "#FFF",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  // Upload overlay styles
+  uploadBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  uploadCard: {
+    width: "86%",
+    maxWidth: 360,
+    borderRadius: 16,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    backgroundColor: "#fff",
+    alignItems: "center",
+  },
+  uploadTitle: {
+    marginTop: 16,
+    fontWeight: "600",
+    fontSize: 17,
+    color: "#111827",
+  },
+  uploadSub: {
+    marginTop: 8,
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  uploadBar: {
+    marginTop: 16,
+    width: "100%",
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(0,0,0,0.08)",
+    overflow: "hidden",
+  },
+  uploadFill: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: PRIMARY,
   },
 });

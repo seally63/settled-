@@ -8,11 +8,15 @@ import {
   Image,
   ActivityIndicator,
   Pressable,
+  FlatList,
+  Modal,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+
+import ImageViewing from "react-native-image-viewing";
 
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
@@ -22,6 +26,7 @@ import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
 import { getMyRole, getMyProfile } from "../../../lib/api/profile";
+import { getTradeReviews } from "../../../lib/api/trust";
 
 const PRIMARY = Colors?.light?.tint || "#7C3AED";
 
@@ -67,7 +72,9 @@ export default function ProfileScreen() {
   const [role, setRole] = useState(null);
   const [roleLoading, setRoleLoading] = useState(true);
   const [profile, setProfile] = useState(null);
+  const [reviews, setReviews] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [showAllReviews, setShowAllReviews] = useState(false);
 
   // Determine role
   useEffect(() => {
@@ -89,13 +96,19 @@ export default function ProfileScreen() {
     return () => { alive = false; };
   }, [user?.id, authChecked]);
 
-  // Load profile data
+  // Load profile data and reviews
   const loadProfile = useCallback(async () => {
     if (!user?.id) return;
     try {
       setLoadingData(true);
       const me = await getMyProfile();
       setProfile(me || null);
+
+      // Fetch reviews for trade profiles
+      if (me?.id) {
+        const reviewsData = await getTradeReviews(me.id, { limit: 20 });
+        setReviews(reviewsData || []);
+      }
     } finally {
       setLoadingData(false);
     }
@@ -140,9 +153,11 @@ export default function ProfileScreen() {
     credentials: "not_started",
   };
 
-  // Review data
-  const reviewCount = profile?.review_count || 0;
-  const averageRating = profile?.average_rating || 0;
+  // Review data - calculate from actual reviews array if available, fallback to profile fields
+  const reviewCount = reviews.length > 0 ? reviews.length : (profile?.review_count || 0);
+  const averageRating = reviews.length > 0
+    ? reviews.reduce((sum, r) => sum + (r.rating || 0), 0) / reviews.length
+    : (profile?.average_rating || 0);
 
   // Client data
   const projectCount = profile?.project_count || 0;
@@ -187,8 +202,43 @@ export default function ProfileScreen() {
           />
         )}
 
+        {/* Bio Section (Trades only) - No header for clean look */}
+        {isTrades && profile?.bio && (
+          <View style={styles.bioSection}>
+            <ThemedText style={styles.bioText}>{profile.bio}</ThemedText>
+          </View>
+        )}
+
+        {/* Divider between bio and reviews */}
+        {isTrades && profile?.bio && (
+          <View style={styles.bioDivider} />
+        )}
+
+        {/* Reviews Section (Trades only) */}
+        {isTrades && (
+          <ReviewsSection
+            reviews={reviews}
+            reviewCount={reviewCount}
+            averageRating={averageRating}
+            businessName={businessName}
+            onShowAll={() => setShowAllReviews(true)}
+          />
+        )}
+
         <Spacer height={insets.bottom > 0 ? insets.bottom + 24 : 40} />
       </ScrollView>
+
+      {/* All Reviews Modal */}
+      {isTrades && (
+        <AllReviewsModal
+          visible={showAllReviews}
+          onClose={() => setShowAllReviews(false)}
+          reviews={reviews}
+          reviewCount={reviewCount}
+          averageRating={averageRating}
+          insets={insets}
+        />
+      )}
     </ThemedView>
   );
 }
@@ -364,6 +414,347 @@ function VerificationBadge({ icon, label, status }) {
         {label}
       </ThemedText>
     </View>
+  );
+}
+
+// Format relative time
+function formatRelativeTime(date) {
+  if (!date) return "";
+  const now = new Date();
+  const reviewDate = new Date(date);
+  const diffMs = now - reviewDate;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? "s" : ""} ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? "s" : ""} ago`;
+  return `${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? "s" : ""} ago`;
+}
+
+// Reviews Section Component - Horizontal scrolling Airbnb style
+function ReviewsSection({ reviews, reviewCount, averageRating, businessName, onShowAll }) {
+  const hasReviews = reviews.length > 0;
+
+  // State for full-screen photo viewer
+  const [photoViewer, setPhotoViewer] = useState({ open: false, images: [], index: 0 });
+
+  // Star rating display
+  const renderStars = (rating, size = 14) => {
+    return (
+      <View style={styles.starsRow}>
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Ionicons
+            key={star}
+            name={star <= rating ? "star" : "star-outline"}
+            size={size}
+            color="#F59E0B"
+          />
+        ))}
+      </View>
+    );
+  };
+
+  // Open photo viewer for a review
+  const openPhotoViewer = (photos, startIndex = 0) => {
+    const images = photos.map((url) => ({ uri: url }));
+    setPhotoViewer({ open: true, images, index: startIndex });
+  };
+
+  // Single review card
+  const ReviewCard = ({ review }) => {
+    const reviewerName = review.reviewer?.full_name || "Client";
+    const reviewerPhoto = review.reviewer?.photo_url;
+    const hasPhotos = review.photos && review.photos.length > 0;
+
+    return (
+      <View style={styles.reviewCard}>
+        {/* Reviewer Info */}
+        <View style={styles.reviewerRow}>
+          {reviewerPhoto ? (
+            <Image source={{ uri: reviewerPhoto }} style={styles.reviewerAvatar} />
+          ) : (
+            <View style={[styles.reviewerAvatar, styles.reviewerAvatarFallback]}>
+              <ThemedText style={styles.reviewerInitials}>
+                {getInitials(reviewerName)}
+              </ThemedText>
+            </View>
+          )}
+          <View style={styles.reviewerInfo}>
+            <ThemedText style={styles.reviewerName} numberOfLines={1}>
+              {reviewerName}
+            </ThemedText>
+            <ThemedText style={styles.reviewDate}>
+              {formatRelativeTime(review.created_at)}
+            </ThemedText>
+          </View>
+        </View>
+
+        {/* Rating */}
+        <View style={styles.reviewRatingRow}>
+          {renderStars(review.rating)}
+        </View>
+
+        {/* Review Text */}
+        {review.content && (
+          <ThemedText style={styles.reviewContent} numberOfLines={4}>
+            {review.content}
+          </ThemedText>
+        )}
+
+        {/* Review Photos - Show all photos in a row, tap to zoom */}
+        {hasPhotos && (
+          <View style={styles.reviewPhotosRow}>
+            {review.photos.map((photoUrl, idx) => (
+              <Pressable
+                key={idx}
+                onPress={() => openPhotoViewer(review.photos, idx)}
+              >
+                <Image
+                  source={{ uri: photoUrl }}
+                  style={styles.reviewPhoto}
+                />
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  // Format header title
+  const headerTitle = hasReviews
+    ? businessName
+      ? `${businessName}'s reviews (${reviewCount})`
+      : `${averageRating.toFixed(1)} (${reviewCount} review${reviewCount !== 1 ? "s" : ""})`
+    : businessName
+      ? `${businessName}'s reviews`
+      : "Reviews";
+
+  return (
+    <View style={styles.reviewsSection}>
+      {/* Header */}
+      <View style={styles.reviewsSectionHeader}>
+        <ThemedText style={styles.reviewsSectionTitle}>
+          {headerTitle}
+        </ThemedText>
+      </View>
+
+      {/* Reviews List */}
+      {hasReviews ? (
+        <>
+          <FlatList
+            data={reviews.slice(0, 5)}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => <ReviewCard review={item} />}
+            contentContainerStyle={styles.reviewsList}
+            snapToInterval={340 + 12}
+            decelerationRate="fast"
+          />
+
+          {/* Show All Reviews Button - always visible when reviews exist */}
+          <Pressable style={styles.showMoreBtn} onPress={onShowAll}>
+            <ThemedText style={styles.showMoreText}>
+              Show all reviews
+            </ThemedText>
+          </Pressable>
+        </>
+      ) : (
+        <View style={styles.noReviewsContainer}>
+          <Ionicons name="chatbubble-outline" size={32} color="#D1D5DB" />
+          <ThemedText style={styles.noReviewsMessage}>
+            No reviews yet
+          </ThemedText>
+          <ThemedText style={styles.noReviewsSubtext}>
+            Reviews from clients will appear here
+          </ThemedText>
+        </View>
+      )}
+
+      {/* Full-screen Image Viewer */}
+      <ImageViewing
+        images={photoViewer.images}
+        imageIndex={photoViewer.index}
+        visible={photoViewer.open}
+        onRequestClose={() => setPhotoViewer({ open: false, images: [], index: 0 })}
+        FooterComponent={({ imageIndex }) => (
+          <View style={styles.viewerFooter}>
+            <View style={styles.viewerDots}>
+              {photoViewer.images.map((_, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.viewerDot,
+                    i === imageIndex && styles.viewerDotActive,
+                  ]}
+                />
+              ))}
+            </View>
+          </View>
+        )}
+      />
+    </View>
+  );
+}
+
+// All Reviews Modal (Bottom Sheet Style)
+function AllReviewsModal({ visible, onClose, reviews, reviewCount, averageRating, insets }) {
+  // State for full-screen photo viewer
+  const [photoViewer, setPhotoViewer] = useState({ open: false, images: [], index: 0 });
+
+  // Open photo viewer for a review
+  const openPhotoViewer = (photos, startIndex = 0) => {
+    const images = photos.map((url) => ({ uri: url }));
+    setPhotoViewer({ open: true, images, index: startIndex });
+  };
+
+  // Star rating display
+  const renderStars = (rating, size = 14) => {
+    return (
+      <View style={styles.starsRow}>
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Ionicons
+            key={star}
+            name={star <= rating ? "star" : "star-outline"}
+            size={size}
+            color="#F59E0B"
+          />
+        ))}
+      </View>
+    );
+  };
+
+  // Full review item - Airbnb style
+  const FullReviewItem = ({ review }) => {
+    const reviewerName = review.reviewer?.full_name || "Client";
+    const reviewerPhoto = review.reviewer?.photo_url;
+    const hasPhotos = review.photos && review.photos.length > 0;
+
+    return (
+      <View style={styles.fullReviewItem}>
+        {/* Reviewer Info Row */}
+        <View style={styles.fullReviewerRow}>
+          {reviewerPhoto ? (
+            <Image source={{ uri: reviewerPhoto }} style={styles.fullReviewerAvatar} />
+          ) : (
+            <View style={[styles.fullReviewerAvatar, styles.reviewerAvatarFallback]}>
+              <ThemedText style={styles.fullReviewerInitials}>
+                {getInitials(reviewerName)}
+              </ThemedText>
+            </View>
+          )}
+          <View style={styles.fullReviewerInfo}>
+            <ThemedText style={styles.fullReviewerName}>
+              {reviewerName}
+            </ThemedText>
+          </View>
+        </View>
+
+        {/* Stars and Date Row */}
+        <View style={styles.fullReviewMeta}>
+          {renderStars(review.rating, 12)}
+          <ThemedText style={styles.fullReviewMetaDot}> · </ThemedText>
+          <ThemedText style={styles.fullReviewDate}>
+            {formatRelativeTime(review.created_at)}
+          </ThemedText>
+        </View>
+
+        {/* Review Text - Full content, no truncation */}
+        {review.content && (
+          <ThemedText style={styles.fullReviewContent}>
+            {review.content}
+          </ThemedText>
+        )}
+
+        {/* Review Photos - Tap to zoom */}
+        {hasPhotos && (
+          <View style={styles.fullReviewPhotosRow}>
+            {review.photos.map((photoUrl, idx) => (
+              <Pressable
+                key={idx}
+                onPress={() => openPhotoViewer(review.photos, idx)}
+              >
+                <Image
+                  source={{ uri: photoUrl }}
+                  style={styles.fullReviewPhoto}
+                />
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
+          {/* Handle bar */}
+          <View style={styles.modalHandle} />
+
+          {/* Header - Airbnb style with X on right */}
+          <View style={styles.modalHeader}>
+            <ThemedText style={styles.modalTitle}>
+              {reviewCount} review{reviewCount !== 1 ? "s" : ""}
+            </ThemedText>
+            <Pressable
+              onPress={onClose}
+              hitSlop={10}
+              style={styles.modalCloseBtn}
+            >
+              <Ionicons name="close" size={20} color="#111827" />
+            </Pressable>
+          </View>
+
+          {/* Divider after header */}
+          <View style={styles.modalDivider} />
+
+          {/* Reviews List */}
+          <FlatList
+            data={reviews}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => <FullReviewItem review={item} />}
+            contentContainerStyle={styles.fullReviewsList}
+            showsVerticalScrollIndicator={false}
+            ItemSeparatorComponent={() => <View style={styles.reviewSeparator} />}
+          />
+        </View>
+      </View>
+    </Modal>
+
+    {/* Full-screen Image Viewer */}
+    <ImageViewing
+      images={photoViewer.images}
+      imageIndex={photoViewer.index}
+      visible={photoViewer.open}
+      onRequestClose={() => setPhotoViewer({ open: false, images: [], index: 0 })}
+      FooterComponent={({ imageIndex }) => (
+        <View style={styles.viewerFooter}>
+          <View style={styles.viewerDots}>
+            {photoViewer.images.map((_, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.viewerDot,
+                  i === imageIndex && styles.viewerDotActive,
+                ]}
+              />
+            ))}
+          </View>
+        </View>
+      )}
+    />
+    </>
   );
 }
 
@@ -569,5 +960,277 @@ const styles = StyleSheet.create({
   clientCardInfo: {
     marginLeft: 16,
     flex: 1,
+  },
+  // Bio Section
+  bioSection: {
+    marginTop: 20,
+    paddingHorizontal: 4,
+  },
+  bioText: {
+    fontSize: 18, // 2 sizes larger than review content (14px)
+    color: "#374151",
+    lineHeight: 26,
+  },
+  bioDivider: {
+    height: 1,
+    backgroundColor: Colors.light.border,
+    marginTop: 20,
+    marginHorizontal: 4,
+  },
+  // Reviews Section
+  reviewsSection: {
+    marginTop: 24,
+  },
+  reviewsSectionHeader: {
+    marginBottom: 16,
+  },
+  reviewsTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  reviewsSectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: Colors.light.title,
+  },
+  starsRow: {
+    flexDirection: "row",
+    gap: 2,
+  },
+  reviewsList: {
+    paddingRight: 20,
+  },
+  // Review Card (Horizontal) - wider to fit 5 photos without scrolling
+  reviewCard: {
+    width: 340,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+  },
+  reviewerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  reviewerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  reviewerAvatarFallback: {
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewerInitials: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  reviewerInfo: {
+    marginLeft: 10,
+    flex: 1,
+  },
+  reviewerName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.light.title,
+  },
+  reviewDate: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    marginTop: 2,
+  },
+  reviewRatingRow: {
+    marginBottom: 8,
+  },
+  reviewRatingBadge: {
+    marginLeft: "auto",
+  },
+  reviewContent: {
+    fontSize: 14,
+    color: "#374151",
+    lineHeight: 20,
+  },
+  reviewPhotosScroll: {
+    marginTop: 12,
+  },
+  reviewPhotosRow: {
+    flexDirection: "row",
+    marginTop: 12,
+  },
+  reviewPhoto: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  // Show More Button - Airbnb style grey pill
+  showMoreBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    marginTop: 16,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+    alignSelf: "center",
+  },
+  showMoreText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  // No Reviews State
+  noReviewsContainer: {
+    alignItems: "center",
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 16,
+  },
+  noReviewsMessage: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#6B7280",
+    marginTop: 12,
+  },
+  noReviewsSubtext: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    marginTop: 4,
+    textAlign: "center",
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: "80%",
+    paddingTop: 12,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: "#D1D5DB",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalDivider: {
+    height: 1,
+    backgroundColor: Colors.light.border,
+    marginHorizontal: 24,
+  },
+  fullReviewsList: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+  },
+  fullReviewItem: {
+    paddingVertical: 20,
+  },
+  // Full review item styles - Airbnb style
+  fullReviewerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  fullReviewerAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  fullReviewerInitials: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  fullReviewerInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  fullReviewerName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  fullReviewMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  fullReviewMetaDot: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  fullReviewDate: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  fullReviewContent: {
+    fontSize: 16,
+    color: "#374151",
+    lineHeight: 24,
+  },
+  fullReviewPhotosRow: {
+    flexDirection: "row",
+    marginTop: 12,
+  },
+  fullReviewPhoto: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  reviewSeparator: {
+    height: 1,
+    backgroundColor: Colors.light.border,
+  },
+  // Image viewer styles
+  viewerFooter: {
+    alignItems: "center",
+    paddingBottom: 40,
+  },
+  viewerDots: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  viewerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(255,255,255,0.4)",
+  },
+  viewerDotActive: {
+    backgroundColor: "#fff",
   },
 });
