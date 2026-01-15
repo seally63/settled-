@@ -9,6 +9,7 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  Keyboard,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -171,9 +172,10 @@ export default function FindBusinessIndex() {
             onChangeText={setQuery}
             style={styles.searchInput}
             returnKeyType="search"
+            onSubmitEditing={() => Keyboard.dismiss()}
           />
           {!!query && (
-            <Pressable onPress={() => setQuery("")} hitSlop={8}>
+            <Pressable onPress={() => { setQuery(""); Keyboard.dismiss(); }} hitSlop={8}>
               <Ionicons name="close-circle" size={18} color="#9aa0a6" />
             </Pressable>
           )}
@@ -193,6 +195,8 @@ export default function FindBusinessIndex() {
               keyExtractor={(it) => String(it.id)}
               renderItem={renderItem}
               ItemSeparatorComponent={() => <Spacer height={6} />}
+              keyboardShouldPersistTaps="handled"
+              onScrollBeginDrag={() => Keyboard.dismiss()}
               ListHeaderComponent={
                 <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
                   <ThemedText title style={{ fontSize: 18, fontWeight: "800" }}>
@@ -218,6 +222,8 @@ export default function FindBusinessIndex() {
               keyExtractor={(it) => String(it.id)}
               renderItem={renderItem}
               ItemSeparatorComponent={() => <Spacer height={6} />}
+              keyboardShouldPersistTaps="handled"
+              onScrollBeginDrag={() => Keyboard.dismiss()}
               ListHeaderComponent={
                 <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
                   <ThemedText title style={{ fontSize: 18, fontWeight: "800" }}>

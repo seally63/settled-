@@ -9,6 +9,8 @@ import {
   Alert,
   ActivityIndicator,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -315,11 +317,15 @@ export default function CredentialsScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
         {/* Step: Introduction */}
         {currentStep === "intro" && (
           <IntroStep
@@ -400,6 +406,7 @@ export default function CredentialsScreen() {
 
         <Spacer height={insets.bottom > 0 ? insets.bottom + 24 : 40} />
       </ScrollView>
+      </KeyboardAvoidingView>
     </ThemedView>
   );
 }

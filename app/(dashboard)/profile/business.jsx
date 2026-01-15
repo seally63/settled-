@@ -10,6 +10,8 @@ import {
   Alert,
   Modal,
   Linking,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -221,11 +223,15 @@ export default function BusinessInfoScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
         {/* Business Name (Read-only, tappable) */}
         <ThemedText style={styles.label}>Business name</ThemedText>
         <Pressable
@@ -353,6 +359,7 @@ export default function BusinessInfoScreen() {
 
         <Spacer height={insets.bottom > 0 ? insets.bottom + 16 : 32} />
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Job Titles Bottom Sheet */}
       <Modal
