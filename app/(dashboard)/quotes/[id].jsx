@@ -200,7 +200,6 @@ export default function QuoteDetails() {
   const [issueResolveBusy, setIssueResolveBusy] = useState(false);
 
   // Review state
-  const [tradeReview, setTradeReview] = useState(null); // Review left by trade about client
   const [clientReview, setClientReview] = useState(null); // Review left by client about trade
 
   // Reschedule state
@@ -482,23 +481,6 @@ export default function QuoteDetails() {
           }
         }
 
-        // 6) Load trade's review for this quote (if any)
-        try {
-          const { data: reviewData, error: reviewErr } = await supabase.rpc(
-            "rpc_get_my_review_for_quote",
-            { p_quote_id: row?.id }
-          );
-          if (!mounted) return;
-          // Check if reviewData is actually a valid review (has a rating)
-          // RPC may return empty array/object/null when no review exists
-          if (!reviewErr && reviewData && reviewData.rating) {
-            setTradeReview(reviewData);
-          } else {
-            setTradeReview(null);
-          }
-        } catch (e) {
-          if (mounted) setTradeReview(null);
-        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -1851,96 +1833,6 @@ export default function QuoteDetails() {
             </View>
           )}
 
-          {/* Review Prompt Card - Only show if no review left yet */}
-          {status === "completed" && (!tradeReview || !tradeReview.rating) && (
-            <View style={styles.reviewPromptCard}>
-              {/* Client Avatar + Name */}
-              <View style={styles.reviewTradeRow}>
-                <View style={styles.reviewTradeAvatarPlaceholder}>
-                  <ThemedText style={styles.reviewTradeAvatarText}>
-                    {getInitials(displayName || "Client")}
-                  </ThemedText>
-                </View>
-                <ThemedText style={styles.reviewTradeName}>{displayName || "Client"}</ThemedText>
-              </View>
-              <Spacer size={16} />
-              <ThemedText style={styles.reviewPromptTitle}>
-                How was working with {displayName ? displayName.split(" ")[0] : "the client"}?
-              </ThemedText>
-              <ThemedText style={styles.reviewPromptSubtitle}>
-                Your review helps build trust in the community.
-              </ThemedText>
-              <Spacer size={16} />
-              <Pressable
-                style={styles.leaveReviewBtn}
-                onPress={() => {
-                  router.push({
-                    pathname: "/(dashboard)/quotes/leave-review",
-                    params: {
-                      quoteId: quote?.id,
-                      revieweeName: displayName || "Client",
-                      revieweeType: "client",
-                      jobTitle: request?.suggested_title || quote?.project_title || "",
-                    },
-                  });
-                }}
-              >
-                <ThemedText style={styles.leaveReviewBtnText}>Leave a review</ThemedText>
-              </Pressable>
-            </View>
-          )}
-
-          {/* Trade's Review Display - Show if trade has left a review */}
-          {status === "completed" && tradeReview && tradeReview.rating && (
-            <View style={styles.reviewDisplayCard}>
-              <ThemedText style={styles.reviewDisplayTitle}>Your review</ThemedText>
-              <Spacer size={12} />
-              {/* Star rating */}
-              <View style={styles.reviewStarsRow}>
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <Ionicons
-                    key={star}
-                    name={star <= tradeReview.rating ? "star" : "star-outline"}
-                    size={24}
-                    color="#F59E0B"
-                  />
-                ))}
-              </View>
-              {tradeReview.content && (
-                <>
-                  <Spacer size={12} />
-                  <ThemedText style={styles.reviewDisplayContent}>
-                    "{tradeReview.content}"
-                  </ThemedText>
-                </>
-              )}
-              {/* Review Photos */}
-              {tradeReview.photos && tradeReview.photos.length > 0 && (
-                <>
-                  <Spacer size={12} />
-                  <View style={styles.reviewPhotosRow}>
-                    {tradeReview.photos.map((photoUrl, idx) => (
-                      <Image
-                        key={idx}
-                        source={{ uri: photoUrl }}
-                        style={styles.reviewPhoto}
-                      />
-                    ))}
-                  </View>
-                </>
-              )}
-              <Spacer size={12} />
-              <ThemedText style={styles.reviewDisplayDate}>
-                {tradeReview.created_at
-                  ? `Posted ${new Date(tradeReview.created_at).toLocaleDateString(undefined, {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}`
-                  : ""}
-              </ThemedText>
-            </View>
-          )}
 
           {/* Section Divider */}
           <View style={styles.sectionDivider} />
@@ -5595,57 +5487,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-  },
-  reviewDisplayCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 20,
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  reviewDisplayTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  reviewDisplayContent: {
-    fontSize: 14,
-    color: "#374151",
-    fontStyle: "italic",
-    lineHeight: 20,
-  },
-  reviewDisplayDate: {
-    fontSize: 13,
-    color: "#9CA3AF",
-  },
-  reviewTradeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  reviewTradeAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-  },
-  reviewTradeAvatarPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#E5E7EB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  reviewTradeAvatarText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#6B7280",
-  },
-  reviewTradeName: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#111827",
   },
   reviewStarsRow: {
     flexDirection: "row",

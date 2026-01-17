@@ -1058,19 +1058,7 @@ export default function TradesmanProjects() {
         statusText = "Completed";
         statusDetail = formatDate(item.completion_confirmed_at || item.issued_at);
         subStatus = null;
-        actions = item.trade_review_rating
-          ? null
-          : [
-              {
-                label: "Leave Review",
-                primary: true,
-                onPress: () =>
-                  router.push({
-                    pathname: "/quotes/leave-review",
-                    params: { quoteId: item.acceptedQuoteId || item.id },
-                  }),
-              },
-            ];
+        actions = null;
       } else if (status === "declined") {
         stage = "DONE";
         stageIndex = 3;
