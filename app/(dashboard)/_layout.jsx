@@ -207,7 +207,6 @@ export default function DashboardLayout() {
 
         {/* Hidden routes - these are still accessible but not shown in tabs */}
         <Tabs.Screen name="sales" options={{ href: null }} />
-        <Tabs.Screen name="appointments" options={{ href: null }} />
       </Tabs>
     </UserOnly>
   );
