@@ -298,6 +298,67 @@ export function RequestDetailSkeleton({ paddingTop }) {
   );
 }
 
+// Pipeline page skeleton (trade dashboard)
+export function PipelinePageSkeleton({ paddingTop }) {
+  return (
+    <View style={[styles.pageContainer, { paddingTop: paddingTop ?? 16 }]}>
+      {/* Header */}
+      <View style={styles.pipelineHeader}>
+        <SkeletonBox width={24} height={24} borderRadius={4} />
+        <SkeletonText width={80} height={20} />
+        <View style={{ width: 24 }} />
+      </View>
+
+      {/* Summary cards */}
+      <View style={styles.pipelineSummaryRow}>
+        <View style={styles.pipelineSummaryCard}>
+          <View style={styles.pipelineSummaryCardHeader}>
+            <SkeletonBox width={20} height={20} borderRadius={4} />
+            <SkeletonText width={90} height={13} />
+          </View>
+          <SkeletonText width={80} height={24} style={{ marginTop: 8 }} />
+          <SkeletonText width={100} height={12} style={{ marginTop: 4 }} />
+        </View>
+        <View style={styles.pipelineSummaryCard}>
+          <View style={styles.pipelineSummaryCardHeader}>
+            <SkeletonBox width={20} height={20} borderRadius={4} />
+            <SkeletonText width={70} height={13} />
+          </View>
+          <SkeletonText width={80} height={24} style={{ marginTop: 8 }} />
+          <SkeletonText width={100} height={12} style={{ marginTop: 4 }} />
+        </View>
+      </View>
+
+      {/* Filter tabs */}
+      <View style={styles.pipelineFilterRow}>
+        <SkeletonBox width={50} height={32} borderRadius={16} />
+        <SkeletonBox width={70} height={32} borderRadius={16} />
+        <SkeletonBox width={80} height={32} borderRadius={16} />
+        <SkeletonBox width={80} height={32} borderRadius={16} />
+      </View>
+
+      {/* Project cards */}
+      {[1, 2, 3].map((i) => (
+        <View key={i} style={styles.pipelineProjectCard}>
+          <SkeletonBox width={100} height={24} borderRadius={12} />
+          <SkeletonText width="70%" height={16} style={{ marginTop: 8 }} />
+          <View style={styles.pipelineProjectMeta}>
+            <SkeletonText width={80} height={14} />
+            <SkeletonText width={60} height={14} />
+          </View>
+          <View style={styles.pipelineProjectFooter}>
+            <View>
+              <SkeletonText width={80} height={16} />
+              <SkeletonText width={100} height={12} style={{ marginTop: 2 }} />
+            </View>
+            <SkeletonBox width={20} height={20} borderRadius={4} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // Quote overview page skeleton
 export function QuoteOverviewSkeleton({ paddingTop }) {
   return (
@@ -534,6 +595,62 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: Colors.light.border,
+  },
+  // Pipeline page
+  pipelineHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.border,
+    marginBottom: 20,
+    marginHorizontal: -20,
+    paddingHorizontal: 20,
+  },
+  pipelineSummaryRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 20,
+  },
+  pipelineSummaryCard: {
+    flex: 1,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 16,
+  },
+  pipelineSummaryCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  pipelineFilterRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 20,
+  },
+  pipelineProjectCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    marginBottom: 12,
+  },
+  pipelineProjectMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  pipelineProjectFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    paddingTop: 12,
   },
 });
 

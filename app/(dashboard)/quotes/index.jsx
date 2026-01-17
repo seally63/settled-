@@ -112,8 +112,8 @@ function getTradeProgressPosition(stage, subStatus) {
       if (subStatus === "accepted_no_appt") return 45; // Quote accepted, need to schedule work
       return 50; // Default: working toward Work stage
     case "DONE":
-      // Stage 3 (Settled): Dot at 87.5%
-      return 87.5;
+      // Stage 3 (Settled): Dot at 87.5%, but fill to 100% to show completion
+      return 100;
     default:
       return 12.5;
   }
