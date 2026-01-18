@@ -136,7 +136,7 @@ function ProfileEditBody({ role }) {
         setBaseLocked(!!hasBase);
         setBasePostcode(p.base_postcode ?? "");
         setBaseAddr1(p.base_addr1 ?? "");
-        setBaseCity(p.base_city ?? "");
+        setBaseCity(p.town_city ?? "");
         if (p.service_radius_km != null) setServiceRadiusKm(Number(p.service_radius_km));
       }
     } catch (e) {
@@ -187,23 +187,33 @@ function ProfileEditBody({ role }) {
   // ===== TRADES set base address (one-time) =====
   async function onSetBaseAddress() {
     try {
-      if (!baseAddr1.trim() || !baseCity.trim() || !basePostcode.trim()) {
-        Alert.alert("Missing address", "Please fill Address line 1, Town/City, and Postcode.");
+      if (!basePostcode.trim()) {
+        Alert.alert("Missing postcode", "Please enter your postcode.");
         return;
       }
       setSavingBase(true);
 
-      const { lat, lon } = await geocodeUkPostcode(basePostcode.trim());
+      // Geocode the postcode - this also returns the city/town name
+      const { lat, lon, city: geocodedCity } = await geocodeUkPostcode(basePostcode.trim());
+
+      // Use user-entered city if provided, otherwise use geocoded city
+      const finalCity = baseCity.trim() || geocodedCity || "";
+
       await setBaseAddressOnce({
         addr1: baseAddr1.trim(),
-        city: baseCity.trim(),
+        city: finalCity,
         postcode: basePostcode.trim(),
         lat,
         lon,
       });
 
+      // Update local state with the city name
+      if (!baseCity.trim() && finalCity) {
+        setBaseCity(finalCity);
+      }
+
       setBaseLocked(true);
-      Alert.alert("Saved", "Base address set. You can’t change it later here.");
+      Alert.alert("Saved", "Base address set. You can't change it later here.");
     } catch (e) {
       Alert.alert("Error", e.message || "Failed to set base address");
     } finally {

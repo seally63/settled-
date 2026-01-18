@@ -1,4 +1,4 @@
-// app/(dashboard)/client/myquotes/completion-success.jsx
+// app/(dashboard)/myquotes/completion-success.jsx
 // Success screen shown after client confirms job completion
 import { StyleSheet, View, Pressable, Image } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -76,7 +76,7 @@ export default function CompletionSuccess() {
   // Navigate to leave review screen
   const leaveReview = () => {
     router.push({
-      pathname: "/(dashboard)/client/myquotes/leave-review",
+      pathname: "/(dashboard)/myquotes/leave-review",
       params: {
         quoteId,
         revieweeName: tradeName,

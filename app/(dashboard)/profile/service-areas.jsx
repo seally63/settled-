@@ -220,10 +220,13 @@ export default function ServiceAreasScreen() {
         <View style={styles.sheetOverlay}>
           <Pressable style={styles.sheetBackdrop} onPress={() => setShowRadiusSheet(false)} />
           <View style={styles.sheetContent}>
+            {/* Handle bar */}
+            <View style={styles.sheetHandle} />
+
             <View style={styles.sheetHeader}>
               <ThemedText style={styles.sheetTitle}>Travel radius</ThemedText>
-              <Pressable onPress={() => setShowRadiusSheet(false)} hitSlop={10}>
-                <Ionicons name="close" size={24} color={Colors.light.title} />
+              <Pressable onPress={() => setShowRadiusSheet(false)} hitSlop={10} style={styles.sheetCloseBtn}>
+                <Ionicons name="close" size={20} color="#111827" />
               </Pressable>
             </View>
 
@@ -427,8 +430,16 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
-    paddingTop: 24,
-    maxHeight: "60%",
+    paddingTop: 12,
+    maxHeight: "80%",
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: "#D1D5DB",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 20,
   },
   sheetHeader: {
     flexDirection: "row",
@@ -436,10 +447,18 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   sheetTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111827",
     flex: 1,
+  },
+  sheetCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
   },
   sheetSubtitle: {
     fontSize: 14,

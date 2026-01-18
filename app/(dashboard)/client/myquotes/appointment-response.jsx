@@ -1,4 +1,4 @@
-// app/(dashboard)/client/myquotes/appointment-response.jsx
+// app/(dashboard)/myquotes/appointment-response.jsx
 // Client appointment response screen - confirm or suggest alternative time
 import { useState, useEffect, useCallback } from "react";
 import {

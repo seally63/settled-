@@ -8,6 +8,8 @@ import {
   RefreshControl,
   Modal,
   Dimensions,
+  Linking,
+  Platform,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
@@ -22,11 +24,12 @@ import { HomePageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
+import { getTradeReviews } from "../../../lib/api/trust";
 
 const TINT = Colors?.light?.tint || "#6849a7";
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-// Status colors matching Projects tab
+// Status colors
 const STATUS_COLORS = {
   issue: "#DC2626",      // Red
   direct: "#7C3AED",     // Purple
@@ -36,20 +39,21 @@ const STATUS_COLORS = {
   waiting: "#6B7280",    // Gray
 };
 
+// Appointment type icons
+const APPOINTMENT_ICONS = {
+  work: { icon: "hammer", label: "Work visit" },
+  survey: { icon: "search", label: "Survey visit" },
+  design: { icon: "color-palette", label: "Design consultation" },
+  followup: { icon: "refresh", label: "Follow-up" },
+  final: { icon: "checkmark-circle", label: "Final inspection" },
+};
+
 // Format currency
 function formatCurrency(amount) {
   if (amount == null || isNaN(amount)) return "£0";
   return `£${Number(amount).toLocaleString("en-GB", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  })}`;
-}
-
-function formatCurrencyFull(amount) {
-  if (amount == null || isNaN(amount)) return "£0.00";
-  return `£${Number(amount).toLocaleString("en-GB", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
   })}`;
 }
 
@@ -86,13 +90,24 @@ function formatDate(date) {
   });
 }
 
+function formatDateFull(date) {
+  if (!date) return "";
+  const d = new Date(date);
+  return d.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
 function formatTime(date) {
   if (!date) return "";
   const d = new Date(date);
   return d.toLocaleTimeString("en-GB", {
-    hour: "2-digit",
+    hour: "numeric",
     minute: "2-digit",
-  });
+    hour12: true,
+  }).toLowerCase();
 }
 
 function formatDateShort(date) {
@@ -119,60 +134,139 @@ function getFirstDayOfMonth(year, month) {
   return new Date(year, month, 1).getDay();
 }
 
+// Open maps for directions
+function openDirections(postcode) {
+  if (!postcode) return;
+  const query = encodeURIComponent(postcode);
+  const url = Platform.select({
+    ios: `maps:?daddr=${query}`,
+    android: `google.navigation:q=${query}`,
+    default: `https://www.google.com/maps/dir/?api=1&destination=${query}`,
+  });
+  Linking.openURL(url);
+}
+
 // ============================================
 // HERO SECTION
 // ============================================
-function HeroSection({ firstName, actionItemsCount, hasIssues }) {
+function HeroSection({ firstName, isNewTrade }) {
   const getGreeting = () => {
     const hour = new Date().getHours();
+    if (isNewTrade) return "Welcome";
     if (hour < 12) return "Good morning";
     if (hour < 18) return "Good afternoon";
     return "Good evening";
   };
-
-  const getSubtitle = () => {
-    if (hasIssues) {
-      return { text: `${actionItemsCount} item${actionItemsCount !== 1 ? "s" : ""} need your attention`, color: STATUS_COLORS.issue };
-    }
-    if (actionItemsCount > 0) {
-      return { text: `${actionItemsCount} item${actionItemsCount !== 1 ? "s" : ""} need your attention`, color: STATUS_COLORS.action };
-    }
-    return { text: "You're all caught up!", color: STATUS_COLORS.scheduled };
-  };
-
-  const subtitle = getSubtitle();
 
   return (
     <View style={styles.heroSection}>
       <ThemedText style={styles.heroGreeting}>
         {getGreeting()}, {firstName}
       </ThemedText>
-      <ThemedText style={[styles.heroSubtitle, { color: subtitle.color }]}>
-        {subtitle.text}
-      </ThemedText>
     </View>
+  );
+}
+
+// ============================================
+// PROFILE COMPLETION BANNER
+// ============================================
+function ProfileCompletionBanner({ profile, onPress }) {
+  // Calculate completion percentage
+  const calculateCompletion = () => {
+    if (!profile) return { percentage: 0, missing: [] };
+
+    const checks = [
+      { field: 'full_name', label: 'Name', weight: 10 },
+      { field: 'business_name', label: 'Business name', weight: 10 },
+      { field: 'photo_url', label: 'Profile photo', weight: 15 },
+      { field: 'bio', label: 'Bio', weight: 10 },
+      { field: 'job_titles', label: 'Job titles', weight: 10, check: (v) => v && v.length > 0 },
+      { field: 'base_postcode', label: 'Location', weight: 10 },
+      { field: 'service_radius_km', label: 'Service area', weight: 5 },
+    ];
+
+    // Verification checks
+    const verification = profile.verification || {};
+    const verificationChecks = [
+      { status: verification.photo_id, label: 'Photo ID', weight: 10 },
+      { status: verification.insurance, label: 'Insurance', weight: 10 },
+      { status: verification.credentials, label: 'Credentials', weight: 10 },
+    ];
+
+    let total = 0;
+    const missing = [];
+
+    checks.forEach(({ field, label, weight, check }) => {
+      const value = profile[field];
+      const isComplete = check ? check(value) : !!value;
+      if (isComplete) {
+        total += weight;
+      } else {
+        missing.push(label);
+      }
+    });
+
+    verificationChecks.forEach(({ status, label, weight }) => {
+      if (status === 'verified') {
+        total += weight;
+      } else {
+        missing.push(label);
+      }
+    });
+
+    return { percentage: total, missing };
+  };
+
+  const { percentage, missing } = calculateCompletion();
+
+  // Don't show if 100% complete
+  if (percentage >= 100) return null;
+
+  const isAlmostDone = percentage >= 80;
+  const nextItem = missing[0];
+
+  return (
+    <Pressable style={styles.completionBanner} onPress={onPress}>
+      <View style={styles.completionHeader}>
+        <ThemedText style={styles.completionTitle}>
+          {isAlmostDone ? "Almost there!" : "Complete your profile"}
+        </ThemedText>
+      </View>
+
+      <View style={styles.progressBarContainer}>
+        <View style={[styles.progressBarFill, { width: `${percentage}%` }]} />
+      </View>
+      <ThemedText style={styles.progressPercentage}>{percentage}%</ThemedText>
+
+      <ThemedText style={styles.completionSubtext}>
+        {isAlmostDone && nextItem
+          ? `Just add your ${nextItem.toLowerCase()} to get verified`
+          : "Verified trades get 3x more leads"}
+      </ThemedText>
+
+      <View style={styles.completionButton}>
+        <ThemedText style={styles.completionButtonText}>Complete</ThemedText>
+        <Ionicons name="chevron-forward" size={16} color="#111827" />
+      </View>
+    </Pressable>
   );
 }
 
 // ============================================
 // SUMMARY CARDS
 // ============================================
-function SummaryCards({ counts, onPress }) {
+function SummaryCards({ stats, onJobsPress, onScheduledPress, onQuotesPress, onCompletedPress }) {
   const cards = [
-    { key: "action", label: "Action", count: counts.action, color: STATUS_COLORS.action, filter: "all" },
-    { key: "scheduled", label: "Scheduled", count: counts.scheduled, color: STATUS_COLORS.scheduled, filter: "active" },
-    { key: "pending", label: "Pending", count: counts.pending, color: STATUS_COLORS.waiting, filter: "active" },
-    { key: "new", label: "New", count: counts.new, color: STATUS_COLORS.new, filter: "new" },
+    { key: "active", label: "Active", count: stats.activeJobs, color: STATUS_COLORS.action, onPress: onJobsPress },
+    { key: "scheduled", label: "Scheduled", count: stats.scheduledCount, color: STATUS_COLORS.scheduled, onPress: onScheduledPress },
+    { key: "quotes", label: "Quotes", count: stats.pendingQuotes, color: STATUS_COLORS.new, onPress: onQuotesPress },
+    { key: "done", label: "Done", count: stats.completedThisMonth, color: STATUS_COLORS.waiting, onPress: onCompletedPress },
   ];
 
   return (
     <View style={styles.summaryCardsRow}>
       {cards.map((card) => (
-        <Pressable
-          key={card.key}
-          style={styles.summaryCard}
-          onPress={() => onPress(card.filter)}
-        >
+        <Pressable key={card.key} style={styles.summaryCard} onPress={card.onPress}>
           <ThemedText style={styles.summaryCardCount}>{card.count}</ThemedText>
           <ThemedText style={styles.summaryCardLabel} numberOfLines={1}>{card.label}</ThemedText>
           <View style={[styles.summaryCardIndicator, { backgroundColor: card.color }]} />
@@ -182,61 +276,413 @@ function SummaryCards({ counts, onPress }) {
   );
 }
 
+// ============================================
+// PERFORMANCE INFO MODAL
+// ============================================
+function PerformanceInfoModal({ visible, onClose }) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={onClose}
+    >
+      <View style={styles.infoModalOverlay}>
+        <View style={[styles.infoModalSheet, { paddingBottom: insets.bottom + 20 }]}>
+          {/* Handle bar */}
+          <View style={styles.infoModalHandle} />
+
+          <View style={styles.infoModalHeader}>
+            <ThemedText style={styles.infoModalTitle}>Performance Metrics</ThemedText>
+            <Pressable onPress={onClose} hitSlop={10} style={styles.infoModalCloseBtn}>
+              <Ionicons name="close" size={20} color="#111827" />
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.infoModalContent} showsVerticalScrollIndicator={false}>
+          {/* Response Time */}
+          <View style={styles.infoSection}>
+            <View style={styles.infoSectionHeader}>
+              <Ionicons name="flash" size={20} color={TINT} />
+              <ThemedText style={styles.infoSectionTitle}>Response Time</ThemedText>
+            </View>
+            <ThemedText style={styles.infoSectionText}>
+              This measures how quickly you respond to new quote requests and messages from clients.
+            </ThemedText>
+            <View style={styles.infoTipBox}>
+              <ThemedText style={styles.infoTipTitle}>Why it matters</ThemedText>
+              <ThemedText style={styles.infoTipText}>
+                Clients often reach out to multiple tradespeople. Those who respond within a few hours are much more likely to win the job. Aim to respond within 4 hours during business hours.
+              </ThemedText>
+            </View>
+          </View>
+
+          {/* Quote Rate */}
+          <View style={styles.infoSection}>
+            <View style={styles.infoSectionHeader}>
+              <Ionicons name="checkmark" size={20} color={TINT} />
+              <ThemedText style={styles.infoSectionTitle}>Quote Rate</ThemedText>
+            </View>
+            <ThemedText style={styles.infoSectionText}>
+              This shows the percentage of requests you've accepted that resulted in you sending a quote to the client.
+            </ThemedText>
+            <View style={styles.infoTipBox}>
+              <ThemedText style={styles.infoTipTitle}>How it's calculated</ThemedText>
+              <ThemedText style={styles.infoTipText}>
+                If you accept 10 requests and send quotes for 8 of them, your quote rate is 80%. A higher quote rate shows you're actively pursuing work and following through with clients.
+              </ThemedText>
+            </View>
+          </View>
+
+          {/* Rating */}
+          <View style={styles.infoSection}>
+            <View style={styles.infoSectionHeader}>
+              <Ionicons name="star" size={20} color="#F59E0B" />
+              <ThemedText style={styles.infoSectionTitle}>Rating</ThemedText>
+            </View>
+            <ThemedText style={styles.infoSectionText}>
+              Your average rating from completed jobs, as rated by your clients.
+            </ThemedText>
+            <View style={styles.infoTipBox}>
+              <ThemedText style={styles.infoTipTitle}>Building trust</ThemedText>
+              <ThemedText style={styles.infoTipText}>
+                Ratings are one of the first things clients look at when choosing a tradesperson. Great communication, quality work, and punctuality all contribute to 5-star reviews.
+              </ThemedText>
+            </View>
+          </View>
+
+          <Spacer height={20} />
+        </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 // ============================================
-// ACTION ITEMS SECTION
+// PERFORMANCE SECTION
 // ============================================
-function ActionItemsSection({ items, onItemPress }) {
+function PerformanceSection({ stats, isNewTrade, onInfoPress }) {
+  const hasData = stats.responseTimeHours !== null || stats.quoteRate !== null || stats.averageRating > 0;
+
+  const formatResponseTime = (hours) => {
+    if (hours === null || hours === undefined) return "--";
+    if (hours < 1) return `${Math.round(hours * 60)} min`;
+    if (hours < 24) return `${hours.toFixed(1)} hrs`;
+    return `${Math.round(hours / 24)} days`;
+  };
+
+  const getPerformanceMessage = () => {
+    if (isNewTrade || !hasData) {
+      return "Complete your first job to see stats";
+    }
+
+    if (stats.responseTimeHours !== null && stats.responseTimeHours < 4) {
+      return "You're faster than 78% of trades";
+    }
+
+    if (stats.responseTimeHours !== null && stats.responseTimeHours > 12) {
+      return "Tip: Faster responses = more jobs";
+    }
+
+    if (stats.quoteRate !== null && stats.quoteRate >= 80) {
+      return "Great quote rate! Keep it up";
+    }
+
+    return null;
+  };
+
+  const performanceMessage = getPerformanceMessage();
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeaderRow}>
+        <ThemedText style={styles.sectionTitle}>Your Performance</ThemedText>
+        <Pressable onPress={onInfoPress} hitSlop={10} style={styles.infoButton}>
+          <Ionicons name="information-circle-outline" size={20} color="#6B7280" />
+        </Pressable>
+      </View>
+
+      <View style={styles.performanceCard}>
+        <View style={styles.performanceRow}>
+          <View style={styles.performanceItem}>
+            <View style={styles.performanceIconRow}>
+              <Ionicons name="flash" size={14} color={TINT} />
+              <ThemedText style={styles.performanceValue}>
+                {formatResponseTime(stats.responseTimeHours)}
+              </ThemedText>
+            </View>
+            <ThemedText style={styles.performanceLabel}>Response</ThemedText>
+          </View>
+
+          <View style={styles.performanceDivider} />
+
+          <View style={styles.performanceItem}>
+            <View style={styles.performanceIconRow}>
+              <Ionicons name="checkmark" size={14} color={TINT} />
+              <ThemedText style={styles.performanceValue}>
+                {stats.quoteRate !== null ? `${stats.quoteRate}%` : "--"}
+              </ThemedText>
+            </View>
+            <ThemedText style={styles.performanceLabel}>Quote rate</ThemedText>
+          </View>
+
+          <View style={styles.performanceDivider} />
+
+          <View style={styles.performanceItem}>
+            <View style={styles.performanceIconRow}>
+              <Ionicons name="star" size={14} color="#F59E0B" />
+              <ThemedText style={styles.performanceValue}>
+                {stats.averageRating > 0 ? stats.averageRating.toFixed(1) : "--"}
+              </ThemedText>
+            </View>
+            <ThemedText style={styles.performanceLabel}>Rating</ThemedText>
+          </View>
+        </View>
+
+        {performanceMessage && (
+          <View style={styles.performanceFooter}>
+            <ThemedText style={styles.performanceMessage}>
+              {performanceMessage}
+            </ThemedText>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ============================================
+// TODAY SECTION
+// ============================================
+function TodaySection({ todayAppointments, tomorrowAppointments, onSeeAll, onItemPress, onMessage, conversationsByRequest }) {
+  const today = new Date();
+  const todayStr = formatDateFull(today);
+
+  const getAppointmentIcon = (type) => {
+    const config = APPOINTMENT_ICONS[type] || APPOINTMENT_ICONS.work;
+    return config;
+  };
+
+  const AppointmentCard = ({ appointment, showActions = true }) => {
+    const iconConfig = getAppointmentIcon(appointment.type);
+    const conversationId = conversationsByRequest[appointment.request_id];
+
+    return (
+      <Pressable
+        style={styles.appointmentCard}
+        onPress={() => onItemPress(appointment)}
+      >
+        <View style={styles.appointmentHeader}>
+          <View style={styles.appointmentTimeRow}>
+            <Ionicons name={iconConfig.icon} size={16} color={TINT} />
+            <ThemedText style={styles.appointmentTime}>
+              {formatTime(appointment.scheduled_at)} · {iconConfig.label}
+            </ThemedText>
+          </View>
+        </View>
+
+        <ThemedText style={styles.appointmentTitle} numberOfLines={1}>
+          {appointment.serviceType || appointment.title}
+        </ThemedText>
+
+        <ThemedText style={styles.appointmentMeta} numberOfLines={1}>
+          {appointment.clientName} · {appointment.location}
+        </ThemedText>
+
+        {showActions && (
+          <View style={styles.appointmentActions}>
+            <Pressable
+              style={styles.appointmentActionBtn}
+              onPress={(e) => {
+                e.stopPropagation();
+                openDirections(appointment.location);
+              }}
+            >
+              <ThemedText style={styles.appointmentActionText}>Get Directions</ThemedText>
+            </Pressable>
+
+            <Pressable
+              style={styles.appointmentActionBtn}
+              onPress={(e) => {
+                e.stopPropagation();
+                if (conversationId) {
+                  onMessage(conversationId);
+                }
+              }}
+            >
+              <ThemedText style={styles.appointmentActionText}>Message</ThemedText>
+            </Pressable>
+          </View>
+        )}
+      </Pressable>
+    );
+  };
+
+  const hasAnyAppointments = todayAppointments.length > 0 || tomorrowAppointments.length > 0;
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeaderRow}>
+        <ThemedText style={styles.sectionTitle}>Today · {todayStr}</ThemedText>
+        <Pressable onPress={onSeeAll} style={styles.seeAllButton}>
+          <ThemedText style={styles.seeAllText}>See all</ThemedText>
+          <Ionicons name="chevron-forward" size={16} color="#111827" />
+        </Pressable>
+      </View>
+
+      {todayAppointments.length === 0 ? (
+        <View style={styles.emptyStateCard}>
+          <ThemedText style={styles.emptyStateText}>
+            No appointments today
+          </ThemedText>
+        </View>
+      ) : (
+        <View style={styles.appointmentsList}>
+          {todayAppointments.slice(0, 3).map((appt) => (
+            <AppointmentCard key={appt.id} appointment={appt} showActions={true} />
+          ))}
+        </View>
+      )}
+
+      {tomorrowAppointments.length > 0 && (
+        <>
+          <View style={styles.tomorrowDivider}>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <ThemedText style={styles.tomorrowLabel}>
+            Tomorrow · {formatDateFull(new Date(Date.now() + 86400000))}
+          </ThemedText>
+
+          <View style={styles.appointmentsList}>
+            {tomorrowAppointments.slice(0, 2).map((appt) => (
+              <AppointmentCard key={appt.id} appointment={appt} showActions={false} />
+            ))}
+          </View>
+        </>
+      )}
+    </View>
+  );
+}
+
+// ============================================
+// PIPELINE SECTION
+// ============================================
+function PipelineSummarySection({ stats, onPress }) {
+  if (stats.completedJobs === 0 && stats.earned === 0 && stats.activeJobs === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.pipelineSummaryHeader}>
+        <View style={styles.pipelineSummaryHeaderLeft}>
+          <Ionicons name="stats-chart-outline" size={20} color="#111827" />
+          <ThemedText style={styles.sectionTitle}>Pipeline</ThemedText>
+        </View>
+        <Pressable onPress={onPress} style={styles.seeAllButton}>
+          <ThemedText style={styles.seeAllText}>See all</ThemedText>
+          <Ionicons name="chevron-forward" size={16} color="#111827" />
+        </Pressable>
+      </View>
+
+      <Pressable style={styles.pipelineSummaryCard} onPress={onPress}>
+        <View style={styles.pipelineSummaryRow}>
+          <View style={styles.pipelineSummaryItem}>
+            <ThemedText style={styles.pipelineSummaryValue}>{stats.activeJobs}</ThemedText>
+            <ThemedText style={styles.pipelineSummaryLabel}>Active</ThemedText>
+          </View>
+          <View style={styles.pipelineSummaryDivider} />
+          <View style={styles.pipelineSummaryItem}>
+            <ThemedText style={styles.pipelineSummaryValue}>{stats.completedJobs}</ThemedText>
+            <ThemedText style={styles.pipelineSummaryLabel}>Completed</ThemedText>
+          </View>
+          <View style={styles.pipelineSummaryDivider} />
+          <View style={styles.pipelineSummaryItem}>
+            <ThemedText style={styles.pipelineSummaryValue}>{formatCurrency(stats.earned)}</ThemedText>
+            <ThemedText style={styles.pipelineSummaryLabel}>Earned</ThemedText>
+          </View>
+        </View>
+        <View style={styles.pipelineSummaryFooter}>
+          <ThemedText style={styles.pipelineSummaryFooterText}>
+            Tap to view all projects and details
+          </ThemedText>
+          <Ionicons name="arrow-forward" size={16} color="#6B7280" />
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
+// ============================================
+// ACTION ITEMS SECTION (Needs Attention)
+// ============================================
+function ActionItemsSection({ items, onItemPress, onSeeAll }) {
+  const getItemConfig = (type) => {
+    switch (type) {
+      case "issue":
+        return { icon: "alert-circle", color: STATUS_COLORS.issue, label: "Issue reported" };
+      case "direct_request":
+        return { icon: "chatbubble", color: STATUS_COLORS.direct, label: "Direct request" };
+      case "open_request":
+        return { icon: "download", color: STATUS_COLORS.new, label: "Open request" };
+      case "send_quote":
+        return { icon: "document-text", color: STATUS_COLORS.action, label: "Send quote" };
+      case "no_response":
+        return { icon: "time", color: STATUS_COLORS.action, label: "No response" };
+      case "schedule_work":
+        return { icon: "calendar", color: STATUS_COLORS.action, label: "Schedule work" };
+      default:
+        return { icon: "ellipse", color: STATUS_COLORS.waiting, label: "Action needed" };
+    }
+  };
+
+  // Empty state
   if (items.length === 0) {
     return (
       <View style={styles.section}>
-        <View style={styles.sectionHeaderLeft}>
-          <Ionicons name="checkmark-circle-outline" size={20} color="#111827" />
-          <ThemedText style={styles.sectionTitle}>All Caught Up</ThemedText>
+        <View style={styles.sectionHeaderRow}>
+          <ThemedText style={styles.sectionTitle}>Needs Attention</ThemedText>
         </View>
+
         <View style={styles.emptyStateCard}>
           <ThemedText style={styles.emptyStateText}>
-            No urgent items need your attention right now.
+            No items need your attention right now.
           </ThemedText>
         </View>
       </View>
     );
   }
 
-  const getItemIcon = (type) => {
-    switch (type) {
-      case "issue": return { icon: "alert-circle", color: STATUS_COLORS.issue };
-      case "direct_request": return { icon: "person", color: STATUS_COLORS.direct };
-      case "no_response": return { icon: "time", color: STATUS_COLORS.action };
-      case "schedule_work": return { icon: "calendar", color: STATUS_COLORS.action };
-      case "stale_request": return { icon: "alert", color: STATUS_COLORS.action };
-      case "expiring": return { icon: "hourglass", color: STATUS_COLORS.action };
-      case "awaiting_completion": return { icon: "checkmark-circle-outline", color: STATUS_COLORS.waiting };
-      default: return { icon: "ellipse", color: STATUS_COLORS.action };
-    }
-  };
-
   return (
     <View style={styles.section}>
-      <View style={styles.sectionHeaderLeft}>
-        <Ionicons name="notifications" size={20} color={STATUS_COLORS.action} />
-        <ThemedText style={styles.sectionTitle}>Needs Attention</ThemedText>
+      <View style={styles.sectionHeaderRow}>
+        <ThemedText style={styles.sectionTitle}>
+          Needs Attention ({items.length})
+        </ThemedText>
+        <Pressable onPress={onSeeAll} style={styles.seeAllButton}>
+          <ThemedText style={styles.seeAllText}>See all</ThemedText>
+          <Ionicons name="chevron-forward" size={16} color="#111827" />
+        </Pressable>
       </View>
 
       <View style={styles.actionItemsList}>
-        {items.slice(0, 5).map((item, index) => {
-          const iconConfig = getItemIcon(item.type);
+        {items.slice(0, 3).map((item, index) => {
+          const config = getItemConfig(item.type);
           return (
             <Pressable
               key={`${item.type}-${item.requestId}-${index}`}
               style={styles.actionItem}
               onPress={() => onItemPress(item)}
             >
-              <View style={[styles.actionItemIndicator, { backgroundColor: iconConfig.color }]}>
-                <Ionicons name={iconConfig.icon} size={14} color="#FFFFFF" />
+              <View style={[styles.actionItemIndicator, { backgroundColor: config.color }]}>
+                <Ionicons name={config.icon} size={14} color="#FFFFFF" />
               </View>
               <View style={styles.actionItemContent}>
-                <ThemedText style={styles.actionItemLabel}>{item.label}</ThemedText>
+                <ThemedText style={styles.actionItemLabel}>{config.label}</ThemedText>
                 <ThemedText style={styles.actionItemTitle} numberOfLines={1}>
                   {item.title} · {item.clientName}
                 </ThemedText>
@@ -251,14 +697,25 @@ function ActionItemsSection({ items, onItemPress }) {
           );
         })}
       </View>
+    </View>
+  );
+}
 
-      {items.length > 5 && (
-        <Pressable style={styles.grayButton} onPress={() => onItemPress({ goToProjects: true })}>
-          <ThemedText style={styles.grayButtonText}>
-            View all {items.length} items in Projects
-          </ThemedText>
-        </Pressable>
-      )}
+// ============================================
+// EMPTY STATE FOR NEW TRADES
+// ============================================
+function NewTradeActionItems() {
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeaderRow}>
+        <ThemedText style={styles.sectionTitle}>Needs Attention</ThemedText>
+      </View>
+
+      <View style={styles.emptyStateCard}>
+        <ThemedText style={styles.emptyStateText}>
+          New requests will appear here when clients find your profile.
+        </ThemedText>
+      </View>
     </View>
   );
 }
@@ -266,8 +723,6 @@ function ActionItemsSection({ items, onItemPress }) {
 // ============================================
 // CALENDAR MODAL
 // ============================================
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-
 function CalendarModal({ visible, onClose, appointments, onItemPress }) {
   const insets = useSafeAreaInsets();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -316,10 +771,6 @@ function CalendarModal({ visible, onClose, appointments, onItemPress }) {
 
   const goToNextMonth = () => {
     setCurrentDate(new Date(year, month + 1, 1));
-  };
-
-  const goToToday = () => {
-    setCurrentDate(new Date());
   };
 
   const today = new Date();
@@ -483,153 +934,6 @@ function CalendarModal({ visible, onClose, appointments, onItemPress }) {
 }
 
 // ============================================
-// SCHEDULE SECTION
-// ============================================
-function ScheduleSection({ appointments, allAppointments, onItemPress, onSeeAll }) {
-  // Group appointments by day
-  const groupedAppointments = useMemo(() => {
-    const groups = {};
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    appointments.forEach((appt) => {
-      const apptDate = new Date(appt.scheduled_at);
-      apptDate.setHours(0, 0, 0, 0);
-
-      const diffDays = Math.floor((apptDate - today) / (1000 * 60 * 60 * 24));
-      let label;
-      if (diffDays === 0) label = "Today";
-      else if (diffDays === 1) label = "Tomorrow";
-      else label = formatDate(appt.scheduled_at);
-
-      if (!groups[label]) {
-        groups[label] = { label, isToday: diffDays === 0, appointments: [] };
-      }
-      groups[label].appointments.push(appt);
-    });
-
-    return Object.values(groups).sort((a, b) => {
-      if (a.isToday) return -1;
-      if (b.isToday) return 1;
-      return 0;
-    });
-  }, [appointments]);
-
-  return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeaderRow}>
-        <View style={styles.sectionHeaderLeftInline}>
-          <Ionicons name="calendar-outline" size={20} color="#111827" />
-          <ThemedText style={styles.sectionTitle}>This Week</ThemedText>
-        </View>
-        <Pressable onPress={onSeeAll} style={styles.seeAllButton}>
-          <ThemedText style={styles.seeAllText}>See all</ThemedText>
-          <Ionicons name="chevron-forward" size={16} color="#111827" />
-        </Pressable>
-      </View>
-
-      {groupedAppointments.length === 0 ? (
-        <View style={styles.emptyStateCard}>
-          <ThemedText style={styles.emptyStateText}>
-            No appointments scheduled for the next 7 days.
-          </ThemedText>
-        </View>
-      ) : (
-        <View style={styles.scheduleGroups}>
-          {groupedAppointments.map((group) => (
-            <View key={group.label} style={styles.scheduleGroup}>
-              <ThemedText style={styles.scheduleGroupLabel}>{group.label}</ThemedText>
-              {group.appointments.map((appt) => (
-                <Pressable
-                  key={appt.id}
-                  style={styles.scheduleItem}
-                  onPress={() => onItemPress(appt)}
-                >
-                  <View style={styles.scheduleItemDot}>
-                    <View style={[
-                      styles.scheduleDot,
-                      group.isToday ? styles.scheduleDotFilled : styles.scheduleDotOutline
-                    ]} />
-                  </View>
-                  <View style={styles.scheduleItemTime}>
-                    <ThemedText style={styles.scheduleTimeText}>
-                      {formatTime(appt.scheduled_at)}
-                    </ThemedText>
-                  </View>
-                  <View style={styles.scheduleItemContent}>
-                    <ThemedText style={styles.scheduleItemType}>
-                      {appt.type === "survey" ? "Survey visit" : "Work visit"}
-                    </ThemedText>
-                    <ThemedText style={styles.scheduleItemTitle} numberOfLines={1}>
-                      {appt.title} · {appt.clientName}
-                    </ThemedText>
-                    {appt.location && (
-                      <View style={styles.scheduleItemLocation}>
-                        <Ionicons name="location-outline" size={12} color="#9CA3AF" />
-                        <ThemedText style={styles.scheduleLocationText}>{appt.location}</ThemedText>
-                      </View>
-                    )}
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
-// ============================================
-// PIPELINE SUMMARY SECTION
-// ============================================
-function PipelineSummarySection({ stats, onPress }) {
-  if (stats.completedJobs === 0 && stats.earned === 0 && stats.activeJobs === 0) {
-    return null;
-  }
-
-  return (
-    <View style={styles.section}>
-      <View style={styles.pipelineSummaryHeader}>
-        <View style={styles.pipelineSummaryHeaderLeft}>
-          <Ionicons name="stats-chart-outline" size={20} color="#111827" />
-          <ThemedText style={styles.sectionTitle}>Pipeline</ThemedText>
-        </View>
-        <Pressable onPress={onPress} style={styles.seeAllButton}>
-          <ThemedText style={styles.seeAllText}>See all</ThemedText>
-          <Ionicons name="chevron-forward" size={16} color="#111827" />
-        </Pressable>
-      </View>
-
-      <Pressable style={styles.pipelineSummaryCard} onPress={onPress}>
-        <View style={styles.pipelineSummaryRow}>
-          <View style={styles.pipelineSummaryItem}>
-            <ThemedText style={styles.pipelineSummaryValue}>{stats.activeJobs}</ThemedText>
-            <ThemedText style={styles.pipelineSummaryLabel}>Active</ThemedText>
-          </View>
-          <View style={styles.pipelineSummaryDivider} />
-          <View style={styles.pipelineSummaryItem}>
-            <ThemedText style={styles.pipelineSummaryValue}>{stats.completedJobs}</ThemedText>
-            <ThemedText style={styles.pipelineSummaryLabel}>Completed</ThemedText>
-          </View>
-          <View style={styles.pipelineSummaryDivider} />
-          <View style={styles.pipelineSummaryItem}>
-            <ThemedText style={styles.pipelineSummaryValue}>{formatCurrency(stats.earned)}</ThemedText>
-            <ThemedText style={styles.pipelineSummaryLabel}>Earned</ThemedText>
-          </View>
-        </View>
-        <View style={styles.pipelineSummaryFooter}>
-          <ThemedText style={styles.pipelineSummaryFooterText}>
-            Tap to view all projects and details
-          </ThemedText>
-          <Ionicons name="arrow-forward" size={16} color="#6B7280" />
-        </View>
-      </Pressable>
-    </View>
-  );
-}
-
-// ============================================
 // MAIN COMPONENT
 // ============================================
 export default function TradesmanHome() {
@@ -640,14 +944,29 @@ export default function TradesmanHome() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [calendarVisible, setCalendarVisible] = useState(false);
+  const [performanceInfoVisible, setPerformanceInfoVisible] = useState(false);
 
   // Data states
   const [profile, setProfile] = useState(null);
   const [inboxRows, setInboxRows] = useState([]);
   const [sentRows, setSentRows] = useState([]);
-  const [weekAppointments, setWeekAppointments] = useState([]);
+  const [todayAppointments, setTodayAppointments] = useState([]);
+  const [tomorrowAppointments, setTomorrowAppointments] = useState([]);
   const [allAppointments, setAllAppointments] = useState([]);
-  const [monthlyStats, setMonthlyStats] = useState({ completedJobs: 0, activeJobs: 0, earned: 0 });
+  const [conversationsByRequest, setConversationsByRequest] = useState({});
+  const [reviews, setReviews] = useState([]);
+  const [monthlyStats, setMonthlyStats] = useState({
+    completedJobs: 0,
+    activeJobs: 0,
+    activeValue: 0,
+    completedThisMonth: 0,
+    earnedThisMonth: 0,
+  });
+  const [performanceStats, setPerformanceStats] = useState({
+    responseTimeHours: null,
+    quoteRate: null,
+    averageRating: 0,
+  });
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -658,10 +977,14 @@ export default function TradesmanHome() {
       // Fetch profile
       const { data: profileData } = await supabase
         .from("profiles")
-        .select("full_name, business_name")
+        .select("full_name, business_name, photo_url, bio, job_titles, base_postcode, service_radius_km, verification")
         .eq("id", myId)
         .single();
       setProfile(profileData);
+
+      // Fetch reviews for rating
+      const reviewsData = await getTradeReviews(myId, { limit: 50 });
+      setReviews(reviewsData || []);
 
       // Fetch request targets (inbox)
       const { data: targets, error: tErr } = await supabase
@@ -696,27 +1019,32 @@ export default function TradesmanHome() {
         const { data: reqs } = await supabase
           .from("quote_requests")
           .select(
-            "id, details, created_at, status, postcode, budget_band, suggested_title, requester_id"
+            "id, details, created_at, status, postcode, budget_band, suggested_title, requester_id, service_type"
           )
           .in("id", reqIds);
         (reqs || []).forEach((r) => (reqById[r.id] = r));
       }
 
-      // Fetch client names via conversations
+      // Fetch client names and conversation IDs via conversations
       let clientNameByRequestId = {};
-      let clientContactByRequestId = {};
+      let convByRequestId = {};
       const { data: convData } = await supabase.rpc("rpc_list_conversations", {
         p_limit: 100,
       });
       if (convData) {
         convData.forEach((conv) => {
-          if (conv.request_id && conv.other_party_name) {
-            clientNameByRequestId[conv.request_id] = conv.other_party_name;
+          if (conv.request_id) {
+            if (conv.other_party_name) {
+              clientNameByRequestId[conv.request_id] = conv.other_party_name;
+            }
+            convByRequestId[conv.request_id] = conv.conversation_id;
           }
         });
       }
+      setConversationsByRequest(convByRequestId);
 
       // Fetch client contact visibility
+      let clientContactByRequestId = {};
       for (const reqId of reqIds) {
         try {
           const { data: contactData } = await supabase.rpc(
@@ -737,31 +1065,60 @@ export default function TradesmanHome() {
         { p_only_upcoming: false }
       );
 
-      // Filter for this week
+      // Filter for today and tomorrow
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const nextWeek = new Date(today);
-      nextWeek.setDate(nextWeek.getDate() + 7);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dayAfterTomorrow = new Date(today);
+      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
 
-      const filteredAppointments = (apptData || [])
+      const todayAppts = (apptData || [])
         .filter((a) => {
           const apptDate = new Date(a.scheduled_at);
-          return apptDate >= today && apptDate < nextWeek && a.status !== "cancelled";
+          return apptDate >= today && apptDate < tomorrow && a.status !== "cancelled";
         })
-        .map((a) => ({
-          id: a.appointment_id || a.id,
-          quote_id: a.quote_id,
-          request_id: a.request_id,
-          scheduled_at: a.scheduled_at,
-          title: a.title || a.project_title,
-          status: a.status,
-          location: a.postcode || a.job_outcode,
-          type: a.type || (a.title?.toLowerCase().includes("survey") ? "survey" : "work"),
-          clientName: clientNameByRequestId[a.request_id] || "Client",
-        }))
+        .map((a) => {
+          const req = reqById[a.request_id];
+          return {
+            id: a.appointment_id || a.id,
+            quote_id: a.quote_id,
+            request_id: a.request_id,
+            scheduled_at: a.scheduled_at,
+            title: a.title || a.project_title,
+            serviceType: req?.service_type || a.title || a.project_title,
+            status: a.status,
+            location: a.postcode || a.job_outcode,
+            type: a.type || (a.title?.toLowerCase().includes("survey") ? "survey" : "work"),
+            clientName: clientNameByRequestId[a.request_id] || "Client",
+          };
+        })
         .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
 
-      setWeekAppointments(filteredAppointments);
+      const tomorrowAppts = (apptData || [])
+        .filter((a) => {
+          const apptDate = new Date(a.scheduled_at);
+          return apptDate >= tomorrow && apptDate < dayAfterTomorrow && a.status !== "cancelled";
+        })
+        .map((a) => {
+          const req = reqById[a.request_id];
+          return {
+            id: a.appointment_id || a.id,
+            quote_id: a.quote_id,
+            request_id: a.request_id,
+            scheduled_at: a.scheduled_at,
+            title: a.title || a.project_title,
+            serviceType: req?.service_type || a.title || a.project_title,
+            status: a.status,
+            location: a.postcode || a.job_outcode,
+            type: a.type || (a.title?.toLowerCase().includes("survey") ? "survey" : "work"),
+            clientName: clientNameByRequestId[a.request_id] || "Client",
+          };
+        })
+        .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+
+      setTodayAppointments(todayAppts);
+      setTomorrowAppointments(tomorrowAppts);
 
       // Store all future appointments for calendar
       const allFutureAppointments = (apptData || [])
@@ -819,6 +1176,16 @@ export default function TradesmanHome() {
           const stateStr = (t.state || "").toLowerCase();
           const isAccepted = stateStr.includes("accepted");
 
+          // Check if survey completed (has past survey appointment)
+          const reqAppts = appointmentsByRequest[t.request_id] || [];
+          const pastSurveys = reqAppts.filter((a) =>
+            a.type === "survey" && new Date(a.scheduled_at) < new Date()
+          );
+          const surveyCompleted = pastSurveys.length > 0;
+          const surveyCompletedDaysAgo = surveyCompleted
+            ? daysSince(pastSurveys[0].scheduled_at)
+            : 0;
+
           return {
             request_id: t.request_id,
             invited_at: t.created_at,
@@ -830,6 +1197,8 @@ export default function TradesmanHome() {
             postcode: r?.postcode || null,
             requestAge,
             isStale: requestAge >= 3,
+            surveyCompleted,
+            surveyCompletedDaysAgo,
             clientName: getClientDisplayName(clientFullName, contactUnlocked),
           };
         });
@@ -867,7 +1236,7 @@ export default function TradesmanHome() {
           const validUntil = primaryQuote.valid_until ? new Date(primaryQuote.valid_until) : null;
           const daysToExpiryVal = validUntil ? daysUntil(validUntil) : issuedAt ? 14 - daysSince(issuedAt) : null;
           const daysSinceIssued = issuedAt ? daysSince(issuedAt) : 0;
-          const clientNotResponding = primaryStatus === "sent" && daysSinceIssued >= 7;
+          const clientNotResponding = primaryStatus === "sent" && daysSinceIssued >= 8;
 
           const allQuoteAppointments = requestQuotes.flatMap(
             (q) => appointmentsByQuote[q.id] || []
@@ -915,24 +1284,64 @@ export default function TradesmanHome() {
       setSentRows(sent);
 
       // Calculate pipeline stats
-      const completedQuotes = (quotes || []).filter(
-        (q) => q.status?.toLowerCase() === "completed"
-      );
+      const now = new Date();
+      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
       const activeQuotes = (quotes || []).filter(
         (q) => ["accepted", "awaiting_completion"].includes(q.status?.toLowerCase())
       );
-      const completedCount = completedQuotes.length;
-      const activeCount = activeQuotes.length;
-      const earnedTotal = completedQuotes.reduce(
-        (sum, q) => sum + (q.grand_total || 0),
-        0
+      const completedQuotesThisMonth = (quotes || []).filter(
+        (q) => q.status?.toLowerCase() === "completed" && new Date(q.issued_at) >= firstOfMonth
+      );
+      const allCompletedQuotes = (quotes || []).filter(
+        (q) => q.status?.toLowerCase() === "completed"
       );
 
+      const activeCount = activeQuotes.length;
+      const activeValue = activeQuotes.reduce((sum, q) => sum + (q.grand_total || 0), 0);
+      const completedThisMonthCount = completedQuotesThisMonth.length;
+      const earnedThisMonth = completedQuotesThisMonth.reduce((sum, q) => sum + (q.grand_total || 0), 0);
+
       setMonthlyStats({
-        completedJobs: completedCount,
+        completedJobs: allCompletedQuotes.length,
         activeJobs: activeCount,
-        earned: earnedTotal,
+        activeValue,
+        completedThisMonth: completedThisMonthCount,
+        earnedThisMonth,
       });
+
+      // Calculate pipeline stages
+      // Calculate scheduled count (upcoming appointments)
+      const upcomingApptsCount = allFutureAppointments.filter(
+        (a) => new Date(a.scheduled_at) >= today
+      ).length;
+
+      // Calculate performance stats
+      const avgRating = reviewsData && reviewsData.length > 0
+        ? reviewsData.reduce((sum, r) => sum + (r.rating || 0), 0) / reviewsData.length
+        : 0;
+
+      // Quote rate: unique requests with quotes / total requests accepted
+      // This measures what % of accepted requests actually got a quote sent
+      const acceptedRequests = (targets || []).filter((t) =>
+        t.state?.toLowerCase().includes("accepted")
+      ).length;
+      const requestsWithQuotes = new Set(
+        (quotes || [])
+          .filter((q) => ["sent", "accepted", "declined", "expired", "completed", "awaiting_completion"].includes(q.status?.toLowerCase()))
+          .map((q) => q.request_id)
+      ).size;
+      const quoteRate = acceptedRequests > 0
+        ? Math.min(100, Math.round((requestsWithQuotes / acceptedRequests) * 100))
+        : null;
+
+      setPerformanceStats({
+        responseTimeHours: null, // Would need backend RPC for this
+        quoteRate,
+        averageRating: avgRating,
+        scheduledCount: upcomingApptsCount,
+      });
+
     } catch (e) {
       console.error("Load error:", e);
     } finally {
@@ -981,60 +1390,16 @@ export default function TradesmanHome() {
     setRefreshing(false);
   };
 
-  // Compute summary counts
-  const summaryCounts = useMemo(() => {
-    let action = 0;
-    let scheduled = 0;
-    let pending = 0;
-    let newCount = 0;
-
-    // From inbox
-    inboxRows.forEach((item) => {
-      if (!item.isAccepted) {
-        newCount++;
-        if (item.request_type === "client" || item.isStale) {
-          action++;
-        }
-      } else {
-        action++;
-      }
-    });
-
-    // From sent
-    sentRows.forEach((item) => {
-      const status = item.status;
-      if (status === "issue_reported" || status === "issue_resolved_pending") {
-        action++;
-      } else if (item.clientNotResponding || item.isExpiringSoon) {
-        action++;
-      } else if (status === "accepted") {
-        const hasWorkAppt = item.nextAppointment?.quote_id != null;
-        if (hasWorkAppt) {
-          scheduled++;
-        } else {
-          action++;
-        }
-      } else if (status === "sent" || status === "created") {
-        pending++;
-      } else if (status === "awaiting_completion") {
-        pending++;
-      }
-    });
-
-    return { action, scheduled, pending, new: newCount };
-  }, [inboxRows, sentRows]);
-
-  // Compute action items
+  // Compute action items with priority sorting
   const actionItems = useMemo(() => {
     const items = [];
 
-    // Priority 1: Issues
+    // Priority 1: Issues reported
     sentRows
       .filter((q) => q.status === "issue_reported")
       .forEach((q) => items.push({
         priority: 1,
         type: "issue",
-        label: "Issue reported",
         title: q.title,
         clientName: q.clientName || "Client",
         subtitle: "Client reported a problem",
@@ -1043,40 +1408,61 @@ export default function TradesmanHome() {
         hasAcceptedQuote: q.hasAcceptedQuote,
       }));
 
-    // Priority 2: Direct requests
+    // Priority 2: Direct requests (new, not accepted)
     inboxRows
       .filter((i) => i.request_type === "client" && !i.isAccepted)
       .forEach((i) => items.push({
         priority: 2,
         type: "direct_request",
-        label: "Direct request",
         title: i.title,
         clientName: i.clientName || "Client",
         subtitle: i.budget_band ? `Budget: ${i.budget_band}` : null,
         requestId: i.request_id,
       }));
 
-    // Priority 3: No response 7+ days
+    // Priority 3: Open requests (new, from system)
+    inboxRows
+      .filter((i) => i.request_type !== "client" && !i.isAccepted && !i.isStale)
+      .forEach((i) => items.push({
+        priority: 3,
+        type: "open_request",
+        title: i.title,
+        clientName: i.clientName || "Client",
+        subtitle: i.budget_band ? `Budget: ${i.budget_band}` : null,
+        requestId: i.request_id,
+      }));
+
+    // Priority 4: Send quote needed (survey completed)
+    inboxRows
+      .filter((i) => i.surveyCompleted && i.isAccepted)
+      .forEach((i) => items.push({
+        priority: 4,
+        type: "send_quote",
+        title: i.title,
+        clientName: i.clientName || "Client",
+        subtitle: `Survey completed ${i.surveyCompletedDaysAgo} day${i.surveyCompletedDaysAgo !== 1 ? "s" : ""} ago`,
+        requestId: i.request_id,
+      }));
+
+    // Priority 5: No response (quote sent 8+ days ago)
     sentRows
       .filter((q) => q.clientNotResponding)
       .forEach((q) => items.push({
-        priority: 3,
+        priority: 5,
         type: "no_response",
-        label: `No response · ${q.daysSinceIssued} days`,
         title: q.title,
         clientName: q.clientName || "Client",
-        subtitle: `Expires in ${q.daysToExpiry || 0} days`,
+        subtitle: `Sent ${q.daysSinceIssued} days ago`,
         requestId: q.request_id,
         quoteId: q.id,
       }));
 
-    // Priority 4: Accepted but no work scheduled
+    // Priority 6: Schedule work needed (accepted but no work scheduled)
     sentRows
       .filter((q) => q.status === "accepted" && !q.nextAppointment?.quote_id)
       .forEach((q) => items.push({
-        priority: 4,
+        priority: 6,
         type: "schedule_work",
-        label: "Schedule work",
         title: q.title,
         clientName: q.clientName || "Client",
         subtitle: `Quote: ${formatCurrency(q.acceptedQuoteTotal || q.grand_total)}`,
@@ -1085,71 +1471,35 @@ export default function TradesmanHome() {
         hasAcceptedQuote: true,
       }));
 
-    // Priority 5: Stale inbox
-    inboxRows
-      .filter((i) => i.isStale && !i.isAccepted && i.request_type !== "client")
-      .forEach((i) => items.push({
-        priority: 5,
-        type: "stale_request",
-        label: `Getting stale · ${i.requestAge} days`,
-        title: i.title,
-        clientName: i.clientName || "Client",
-        subtitle: i.budget_band ? `Budget: ${i.budget_band}` : null,
-        requestId: i.request_id,
-      }));
-
-    // Priority 6: Expiring soon
-    sentRows
-      .filter((q) => q.isExpiringSoon && !q.clientNotResponding)
-      .forEach((q) => items.push({
-        priority: 6,
-        type: "expiring",
-        label: `Expires in ${q.daysToExpiry} days`,
-        title: q.title,
-        clientName: q.clientName || "Client",
-        subtitle: `Quote: ${formatCurrency(q.grand_total)}`,
-        requestId: q.request_id,
-        quoteId: q.id,
-      }));
-
-    // Priority 7: Awaiting completion
-    sentRows
-      .filter((q) => q.status === "awaiting_completion")
-      .forEach((q) => items.push({
-        priority: 7,
-        type: "awaiting_completion",
-        label: "Awaiting client confirmation",
-        title: q.title,
-        clientName: q.clientName || "Client",
-        requestId: q.request_id,
-        quoteId: q.acceptedQuoteId || q.id,
-        hasAcceptedQuote: true,
-      }));
-
     return items.sort((a, b) => a.priority - b.priority);
   }, [inboxRows, sentRows]);
 
-  const hasIssues = actionItems.some((item) => item.type === "issue");
-  const firstName = profile?.full_name?.split(" ")[0] || "there";
+  const firstName = profile?.full_name?.split(" ")[0] || user?.user_metadata?.full_name?.split(" ")[0] || "there";
+  const isNewTrade = monthlyStats.completedJobs === 0 &&
+                     monthlyStats.activeJobs === 0 &&
+                     inboxRows.length === 0 &&
+                     sentRows.length === 0;
 
   // Navigation handlers
-  const handleSummaryCardPress = (filter) => {
-    router.push({ pathname: "/quotes", params: { filter } });
+  const handleJobsPress = () => {
+    router.push({ pathname: "/quotes", params: { filter: "active" } });
+  };
+
+  const handleScheduledPress = () => {
+    setCalendarVisible(true);
   };
 
   const handleActionItemPress = (item) => {
-    if (item.goToProjects) {
-      router.push("/quotes");
-      return;
-    }
     if (item.hasAcceptedQuote && item.quoteId) {
+      router.push(`/quotes/${item.quoteId}`);
+    } else if (item.quoteId) {
       router.push(`/quotes/${item.quoteId}`);
     } else {
       router.push(`/quotes/request/${item.requestId}`);
     }
   };
 
-  const handleScheduleItemPress = (appt) => {
+  const handleAppointmentPress = (appt) => {
     if (appt.quote_id) {
       router.push(`/quotes/${appt.quote_id}`);
     } else {
@@ -1157,12 +1507,26 @@ export default function TradesmanHome() {
     }
   };
 
+  const handleMessagePress = (conversationId) => {
+    if (conversationId) {
+      router.push(`/messages/${conversationId}`);
+    }
+  };
+
   const handleSeeAllSchedule = () => {
     setCalendarVisible(true);
   };
 
+  const handleSeeAllActions = () => {
+    router.push("/quotes");
+  };
+
   const handlePipelinePress = () => {
     router.push("/trades/pipeline");
+  };
+
+  const handleProfileCompletion = () => {
+    router.push("/profile/settings");
   };
 
   if (loading) {
@@ -1183,29 +1547,61 @@ export default function TradesmanHome() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
       >
-        <HeroSection
-          firstName={firstName}
-          actionItemsCount={actionItems.length}
-          hasIssues={hasIssues}
-        />
+        <HeroSection firstName={firstName} isNewTrade={isNewTrade} />
 
-        <SummaryCards counts={summaryCounts} onPress={handleSummaryCardPress} />
+        <SummaryCards
+          stats={{
+            activeJobs: monthlyStats.activeJobs,
+            scheduledCount: performanceStats.scheduledCount || 0,
+            pendingQuotes: sentRows.filter(q => q.status === "sent").length,
+            completedThisMonth: monthlyStats.completedThisMonth,
+          }}
+          onJobsPress={handleJobsPress}
+          onScheduledPress={handleScheduledPress}
+          onQuotesPress={() => router.push({ pathname: "/quotes", params: { filter: "sent" } })}
+          onCompletedPress={() => router.push({ pathname: "/quotes", params: { filter: "completed" } })}
+        />
 
         <Spacer height={24} />
 
+        {/* Needs Attention - first priority */}
+        {isNewTrade ? (
+          <NewTradeActionItems />
+        ) : (
+          <ActionItemsSection
+            items={actionItems}
+            onItemPress={handleActionItemPress}
+            onSeeAll={handleSeeAllActions}
+          />
+        )}
+
+        <TodaySection
+          todayAppointments={todayAppointments}
+          tomorrowAppointments={tomorrowAppointments}
+          onSeeAll={handleSeeAllSchedule}
+          onItemPress={handleAppointmentPress}
+          onMessage={handleMessagePress}
+          conversationsByRequest={conversationsByRequest}
+        />
+
         <PipelineSummarySection
-          stats={monthlyStats}
+          stats={{
+            activeJobs: monthlyStats.activeJobs,
+            completedJobs: monthlyStats.completedJobs,
+            earned: monthlyStats.earnedThisMonth,
+          }}
           onPress={handlePipelinePress}
         />
 
-        <ActionItemsSection items={actionItems} onItemPress={handleActionItemPress} />
-
-        <ScheduleSection
-          appointments={weekAppointments}
-          allAppointments={allAppointments}
-          onItemPress={handleScheduleItemPress}
-          onSeeAll={handleSeeAllSchedule}
+        {/* Your Performance - at the bottom */}
+        <PerformanceSection
+          stats={performanceStats}
+          isNewTrade={isNewTrade}
+          onInfoPress={() => setPerformanceInfoVisible(true)}
         />
+
+        {/* Complete Profile - very bottom */}
+        <ProfileCompletionBanner profile={profile} onPress={handleProfileCompletion} />
 
         <Spacer height={40} />
       </ScrollView>
@@ -1214,7 +1610,12 @@ export default function TradesmanHome() {
         visible={calendarVisible}
         onClose={() => setCalendarVisible(false)}
         appointments={allAppointments}
-        onItemPress={handleScheduleItemPress}
+        onItemPress={handleAppointmentPress}
+      />
+
+      <PerformanceInfoModal
+        visible={performanceInfoVisible}
+        onClose={() => setPerformanceInfoVisible(false)}
       />
     </ThemedView>
   );
@@ -1236,30 +1637,74 @@ const styles = StyleSheet.create({
 
   // Hero Section
   heroSection: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   heroGreeting: {
     fontSize: 28,
     fontWeight: "700",
     color: "#111827",
+  },
+
+  // Profile Completion Banner
+  completionBanner: {
+    backgroundColor: "#FFFBEB",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+  },
+  completionHeader: {
+    marginBottom: 8,
+  },
+  completionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#92400E",
+  },
+  progressBarContainer: {
+    height: 6,
+    backgroundColor: "#FEF3C7",
+    borderRadius: 3,
     marginBottom: 4,
   },
-  heroSubtitle: {
-    fontSize: 16,
-    fontWeight: "500",
+  progressBarFill: {
+    height: 6,
+    backgroundColor: "#F59E0B",
+    borderRadius: 3,
+  },
+  progressPercentage: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#92400E",
+    marginBottom: 8,
+  },
+  completionSubtext: {
+    fontSize: 13,
+    color: "#B45309",
+    marginBottom: 12,
+  },
+  completionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-end",
+  },
+  completionButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111827",
   },
 
   // Summary Cards
   summaryCardsRow: {
     flexDirection: "row",
-    gap: 6,
+    gap: 10,
   },
   summaryCard: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 8,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -1270,16 +1715,15 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   summaryCardCount: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: "700",
     color: "#111827",
   },
   summaryCardLabel: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "500",
     color: "#6B7280",
     marginTop: 2,
-    textAlign: "center",
   },
   summaryCardIndicator: {
     width: 18,
@@ -1287,7 +1731,6 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     marginTop: 5,
   },
-
   // Section Headers
   section: {
     marginBottom: 24,
@@ -1298,16 +1741,93 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
-  sectionHeaderLeft: {
+  infoButton: {
+    padding: 4,
+  },
+
+  // Performance Info Modal (80% height bottom sheet)
+  infoModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  infoModalSheet: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: "80%",
+    paddingTop: 12,
+  },
+  infoModalHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: "#D1D5DB",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  infoModalHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    justifyContent: "space-between",
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+  },
+  infoModalTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  infoModalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  infoModalContent: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+  },
+  infoSection: {
+    marginBottom: 28,
+  },
+  infoSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+  },
+  infoSectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  infoSectionText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#4B5563",
     marginBottom: 12,
   },
-  sectionHeaderLeftInline: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  infoTipBox: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 10,
+    padding: 14,
+    borderLeftWidth: 3,
+    borderLeftColor: TINT,
+  },
+  infoTipTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 6,
+  },
+  infoTipText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#6B7280",
   },
   sectionTitle: {
     fontSize: 16,
@@ -1325,74 +1845,124 @@ const styles = StyleSheet.create({
     color: "#111827",
   },
 
-  // Gray Button (matching profile showMoreBtn)
-  grayButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    marginTop: 16,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 8,
-    alignSelf: "center",
+  // Performance Section
+  performanceCard: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 16,
   },
-  grayButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
-  },
-
-  // Action Items
-  actionItemsList: {
-    gap: 8,
-  },
-  actionItem: {
+  performanceRow: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  performanceItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  performanceIconRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  performanceValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  performanceLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  performanceDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: "#E5E7EB",
+  },
+  performanceFooter: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    alignItems: "center",
+  },
+  performanceMessage: {
+    fontSize: 13,
+    color: "#6B7280",
+  },
+
+  // Today Section
+  appointmentsList: {
+    gap: 10,
+  },
+  appointmentCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    gap: 12,
   },
-  actionItemIndicator: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  appointmentHeader: {
+    marginBottom: 6,
+  },
+  appointmentTimeRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 6,
   },
-  actionItemContent: {
-    flex: 1,
-  },
-  actionItemLabel: {
-    fontSize: 13,
+  appointmentTime: {
+    fontSize: 14,
     fontWeight: "600",
-    color: "#6B7280",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    color: TINT,
   },
-  actionItemTitle: {
+  appointmentTitle: {
     fontSize: 15,
     fontWeight: "500",
     color: "#111827",
-    marginTop: 2,
+    marginBottom: 2,
   },
-  actionItemSubtitle: {
+  appointmentMeta: {
     fontSize: 13,
-    color: "#9CA3AF",
-    marginTop: 1,
+    color: "#6B7280",
+    marginBottom: 12,
+  },
+  appointmentActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  appointmentActionBtn: {
+    flex: 1,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  appointmentActionText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  tomorrowDivider: {
+    marginVertical: 16,
+  },
+  dividerLine: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+  },
+  tomorrowLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#6B7280",
+    marginBottom: 10,
   },
 
-  // Empty State
+  // Empty State Card
   emptyStateCard: {
     backgroundColor: "#F9FAFB",
     borderRadius: 12,
-    padding: 16,
+    padding: 24,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 60,
   },
   emptyStateText: {
     fontSize: 14,
@@ -1400,80 +1970,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // Schedule Section
-  scheduleGroups: {
-    gap: 16,
-  },
-  scheduleGroup: {},
-  scheduleGroupLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#6B7280",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  scheduleItem: {
-    flexDirection: "row",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  scheduleItemDot: {
-    width: 20,
-    alignItems: "center",
-    paddingTop: 4,
-  },
-  scheduleDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  scheduleDotFilled: {
-    backgroundColor: TINT,
-  },
-  scheduleDotOutline: {
-    borderWidth: 2,
-    borderColor: TINT,
-    backgroundColor: "transparent",
-  },
-  scheduleItemTime: {
-    width: 70,
-    paddingTop: 2,
-  },
-  scheduleTimeText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: TINT,
-  },
-  scheduleItemContent: {
-    flex: 1,
-  },
-  scheduleItemType: {
-    fontSize: 13,
-    color: "#6B7280",
-  },
-  scheduleItemTitle: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#111827",
-    marginTop: 2,
-  },
-  scheduleItemLocation: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 4,
-  },
-  scheduleLocationText: {
-    fontSize: 12,
-    color: "#9CA3AF",
-  },
-
-  // Pipeline Summary
+  // Pipeline Section
   pipelineSummaryHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1528,6 +2025,47 @@ const styles = StyleSheet.create({
     color: "#6B7280",
   },
 
+  // Action Items (Needs Attention)
+  actionItemsList: {
+    gap: 8,
+  },
+  actionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    gap: 12,
+  },
+  actionItemIndicator: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionItemContent: {
+    flex: 1,
+  },
+  actionItemLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  actionItemTitle: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#111827",
+    marginTop: 2,
+  },
+  actionItemSubtitle: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    marginTop: 1,
+  },
+
   // Calendar Modal
   calendarModal: {
     flex: 1,
@@ -1547,11 +2085,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
     color: "#111827",
-  },
-  calendarTodayBtn: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: TINT,
   },
   calendarMonthNav: {
     flexDirection: "row",

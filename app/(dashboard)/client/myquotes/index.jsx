@@ -104,8 +104,8 @@ function getClientProgressPosition(stage, subStatus) {
       if (subStatus === "work_pending") return 55;
       return 50; // Default: working toward Hired stage
     case "DONE":
-      // Stage 3 (Settled): Dot at 87.5%
-      return 87.5;
+      // Stage 3 (Settled): Fill to 100% for completed jobs
+      return 100;
     default:
       return 12.5;
   }
@@ -491,6 +491,41 @@ export default function ClientProjects() {
       setInitialLoading(false);
     }
   }, [user?.id]);
+
+  // Confirm job completion with overlay
+  const confirmJobComplete = useCallback(async (quoteId, tradeName) => {
+    Alert.alert(
+      "Confirm Completion",
+      "Are you sure the job has been completed to your satisfaction?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Confirm",
+          style: "default",
+          onPress: async () => {
+            try {
+              const { error } = await supabase.rpc("rpc_client_confirm_complete", {
+                p_quote_id: quoteId,
+              });
+              if (error) throw error;
+
+              // Refresh data after confirmation
+              fetchAllData();
+
+              // Navigate to completion success / leave review
+              router.push({
+                pathname: "/(dashboard)/myquotes/completion-success",
+                params: { quoteId, tradeName },
+              });
+            } catch (err) {
+              console.error("Error confirming completion:", err);
+              Alert.alert("Error", err.message || "Could not confirm completion.");
+            }
+          },
+        },
+      ]
+    );
+  }, [fetchAllData, router]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -965,7 +1000,13 @@ export default function ClientProjects() {
                   onPress: () =>
                     router.push({
                       pathname: "/(dashboard)/myquotes/leave-review",
-                      params: { quoteId: q.quote_id },
+                      params: {
+                        quoteId: q.quote_id,
+                        revieweeName: q.trade_business_name || "Tradesperson",
+                        revieweeType: "trade",
+                        tradePhotoUrl: q.trade_photo_url || "",
+                        jobTitle: q.request_suggested_title || q.project_title || "Job",
+                      },
                     }),
                 },
               ],
@@ -1045,18 +1086,14 @@ export default function ClientProjects() {
             primary: false,
             onPress: () =>
               router.push({
-                pathname: "/(dashboard)/myquotes/completion-response",
-                params: { quoteId: group.quoteId },
+                pathname: "/(dashboard)/myquotes/report-issue",
+                params: { quoteId: group.quoteId, requestId: group.requestId, tradeName: group.tradeName },
               }),
           },
           {
-            label: "Confirm Complete",
+            label: "Confirm",
             primary: true,
-            onPress: () =>
-              router.push({
-                pathname: "/(dashboard)/myquotes/completion-response",
-                params: { quoteId: group.quoteId },
-              }),
+            onPress: () => confirmJobComplete(group.quoteId, group.tradeName),
           },
         ];
       } else if (group.status === "issue_reported") {
@@ -1175,6 +1212,7 @@ export default function ClientProjects() {
     daysSince,
     formatDate,
     formatTime,
+    confirmJobComplete,
   ]);
 
   // Filter projects
@@ -1222,7 +1260,11 @@ export default function ClientProjects() {
       </View>
 
       {/* Filter pills */}
-      <View style={styles.filterRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterRow}
+      >
         <FilterPill
           active={filter === "all"}
           label="All"
@@ -1247,7 +1289,7 @@ export default function ClientProjects() {
           count={counts.done}
           onPress={() => setFilter("done")}
         />
-      </View>
+      </ScrollView>
 
       <ScrollView
         refreshControl={
