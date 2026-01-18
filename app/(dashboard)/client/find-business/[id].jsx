@@ -163,7 +163,7 @@ function TradeProfileCard({
   averageRating,
   verification,
   jobTitles,
-  basePostcode,
+  locationDisplay,
 }) {
   const hasReviews = reviewCount > 0;
 
@@ -234,12 +234,12 @@ function TradeProfileCard({
           {/* Divider */}
           <View style={styles.horizontalDivider} />
 
-          {/* Location */}
+          {/* Location - City · X mi format */}
           <View style={styles.rightSection}>
             <View style={styles.locationRow}>
               <Ionicons name="location" size={16} color={Colors.light.title} />
               <ThemedText style={styles.locationText} numberOfLines={1}>
-                {basePostcode || "No location set"}
+                {locationDisplay || "No location set"}
               </ThemedText>
             </View>
           </View>
@@ -569,8 +569,21 @@ export default function TradeProfileClient() {
   const bio = trade?.bio;
   const jobTitles = trade?.job_titles || [];
   const basePostcode = trade?.base_postcode;
+  // The database column is "town_city"
+  const baseCity = trade?.town_city;
+  const serviceRadiusKm = trade?.service_radius_km;
   const ratingAvg = Number(trade?.average_rating || 0);
   const ratingCount = Number(trade?.review_count || 0);
+
+  // Convert km to miles for display (1 km = 0.621371 miles)
+  const serviceRadiusMiles = serviceRadiusKm
+    ? Math.round(serviceRadiusKm * 0.621371)
+    : null;
+
+  // Format location display: "City · X mi" or just "City" or fallback to postcode
+  const locationDisplay = baseCity
+    ? (serviceRadiusMiles ? `${baseCity} · ${serviceRadiusMiles} mi` : baseCity)
+    : basePostcode || null;
 
   // Use trade's verification data, or fall back to badges mapping
   const verification = trade?.verification || (badges ? {
@@ -611,7 +624,7 @@ export default function TradeProfileClient() {
           averageRating={ratingAvg}
           verification={verification}
           jobTitles={jobTitles}
-          basePostcode={basePostcode}
+          locationDisplay={locationDisplay}
         />
 
         {/* About Section */}

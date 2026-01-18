@@ -27,6 +27,7 @@ import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { getMyRole, getMyProfile } from "../../../lib/api/profile";
 import { getTradeReviews } from "../../../lib/api/trust";
+import { supabase } from "../../../lib/supabase";
 
 const PRIMARY = Colors?.light?.tint || "#7C3AED";
 
@@ -75,6 +76,11 @@ export default function ProfileScreen() {
   const [reviews, setReviews] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
   const [showAllReviews, setShowAllReviews] = useState(false);
+  const [performanceStats, setPerformanceStats] = useState({
+    responseTimeHours: null,
+    quoteRate: null,
+  });
+  const [performanceInfoVisible, setPerformanceInfoVisible] = useState(false);
 
   // Determine role
   useEffect(() => {
@@ -108,6 +114,39 @@ export default function ProfileScreen() {
       if (me?.id) {
         const reviewsData = await getTradeReviews(me.id, { limit: 20 });
         setReviews(reviewsData || []);
+
+        // Load performance stats (quote rate) for trades
+        const myId = user.id;
+
+        // Fetch request targets
+        const { data: targets } = await supabase
+          .from("request_targets")
+          .select("request_id, state")
+          .eq("trade_id", myId);
+
+        // Fetch quotes
+        const { data: quotes } = await supabase
+          .from("tradify_native_app_db")
+          .select("id, request_id, status")
+          .eq("trade_id", myId);
+
+        // Calculate quote rate: unique requests with quotes / total requests accepted
+        const acceptedRequests = (targets || []).filter((t) =>
+          t.state?.toLowerCase().includes("accepted")
+        ).length;
+        const requestsWithQuotes = new Set(
+          (quotes || [])
+            .filter((q) => ["sent", "accepted", "declined", "expired", "completed", "awaiting_completion"].includes(q.status?.toLowerCase()))
+            .map((q) => q.request_id)
+        ).size;
+        const quoteRate = acceptedRequests > 0
+          ? Math.min(100, Math.round((requestsWithQuotes / acceptedRequests) * 100))
+          : null;
+
+        setPerformanceStats({
+          responseTimeHours: null, // Would need backend RPC for this
+          quoteRate,
+        });
       }
     } finally {
       setLoadingData(false);
@@ -145,6 +184,19 @@ export default function ProfileScreen() {
   const photoUrl = profile?.photo_url;
   const jobTitles = profile?.job_titles || [];
   const basePostcode = profile?.base_postcode;
+  // The database column is "town_city" (not base_city or base_town_city)
+  const baseCity = profile?.town_city;
+  const serviceRadiusKm = profile?.service_radius_km;
+
+  // Convert km to miles for display (1 km = 0.621371 miles)
+  const serviceRadiusMiles = serviceRadiusKm
+    ? Math.round(serviceRadiusKm * 0.621371)
+    : null;
+
+  // Format location display: "City · X mi" or just "City" or fallback to postcode
+  const locationDisplay = baseCity
+    ? (serviceRadiusMiles ? `${baseCity} · ${serviceRadiusMiles} mi` : baseCity)
+    : basePostcode || null;
 
   // Verification status
   const verification = profile?.verification || {
@@ -188,11 +240,9 @@ export default function ProfileScreen() {
             photoUrl={photoUrl}
             businessName={businessName}
             displayName={displayName}
-            reviewCount={reviewCount}
-            averageRating={averageRating}
             verification={verification}
             jobTitles={jobTitles}
-            basePostcode={basePostcode}
+            locationDisplay={locationDisplay}
           />
         ) : (
           <ClientProfileCard
@@ -200,6 +250,65 @@ export default function ProfileScreen() {
             displayName={displayName}
             projectCount={projectCount}
           />
+        )}
+
+        {/* Performance Section (Trades only - horizontal 3-column layout) */}
+        {isTrades && (
+          <View style={styles.performanceSection}>
+            {/* Info Button positioned top-right */}
+            <Pressable
+              style={styles.performanceInfoButtonTopRight}
+              onPress={() => setPerformanceInfoVisible(true)}
+              hitSlop={10}
+            >
+              <Ionicons name="information-circle-outline" size={18} color="#9CA3AF" />
+            </Pressable>
+
+            {/* Horizontal 3-column layout: Rating | Response | Quotes */}
+            <View style={styles.performanceRowThreeCol}>
+              {/* Rating */}
+              <View style={styles.performanceColItem}>
+                <View style={styles.performanceValueRow}>
+                  <Ionicons name="star" size={16} color="#F59E0B" />
+                  <ThemedText style={styles.performanceValueText}>
+                    {averageRating > 0 ? averageRating.toFixed(1) : "--"}
+                  </ThemedText>
+                </View>
+                <ThemedText style={styles.performanceColLabel}>
+                  {reviewCount > 0 ? `${reviewCount} review${reviewCount !== 1 ? "s" : ""}` : "No reviews"}
+                </ThemedText>
+              </View>
+
+              {/* Response Time */}
+              <View style={styles.performanceColItem}>
+                <View style={styles.performanceValueRow}>
+                  <Ionicons name="flash" size={16} color={PRIMARY} />
+                  <ThemedText style={styles.performanceValueText}>
+                    {performanceStats.responseTimeHours !== null
+                      ? `${performanceStats.responseTimeHours} hrs`
+                      : "--"}
+                  </ThemedText>
+                </View>
+                <ThemedText style={styles.performanceColLabel}>response</ThemedText>
+              </View>
+
+              {/* Quote Rate */}
+              <View style={styles.performanceColItem}>
+                <View style={styles.performanceValueRow}>
+                  <Ionicons name="checkmark" size={16} color={PRIMARY} />
+                  <ThemedText style={styles.performanceValueText}>
+                    {performanceStats.quoteRate !== null ? `${performanceStats.quoteRate}%` : "--"}
+                  </ThemedText>
+                </View>
+                <ThemedText style={styles.performanceColLabel}>quotes</ThemedText>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Divider before Bio (Trades only) */}
+        {isTrades && (
+          <View style={styles.sectionDivider} />
         )}
 
         {/* Bio Section (Trades only) - No header for clean look */}
@@ -239,23 +348,28 @@ export default function ProfileScreen() {
           insets={insets}
         />
       )}
+
+      {/* Performance Info Modal */}
+      {isTrades && (
+        <PerformanceInfoModal
+          visible={performanceInfoVisible}
+          onClose={() => setPerformanceInfoVisible(false)}
+          insets={insets}
+        />
+      )}
     </ThemedView>
   );
 }
 
-// Trade Profile Card Component - Two column layout
+// Trade Profile Card Component - Two column layout with 2 rows on right
 function TradeProfileCard({
   photoUrl,
   businessName,
   displayName,
-  reviewCount,
-  averageRating,
   verification,
   jobTitles,
-  basePostcode,
+  locationDisplay,
 }) {
-  const hasReviews = reviewCount > 0;
-
   return (
     <View style={styles.profileCard}>
       <View style={styles.cardColumns}>
@@ -307,12 +421,12 @@ function TradeProfileCard({
         {/* Vertical Divider */}
         <View style={styles.verticalDivider} />
 
-        {/* Right Column: Job Titles, Location, Reviews */}
+        {/* Right Column: Job Titles, Location (2 rows only) */}
         <View style={styles.cardRightColumn}>
-          {/* Job Titles */}
-          <View style={styles.rightSection}>
+          {/* Job Titles - more space for content */}
+          <View style={styles.rightSectionLarge}>
             {jobTitles.length > 0 ? (
-              <ThemedText style={styles.jobTitlesText} numberOfLines={2}>
+              <ThemedText style={styles.jobTitlesText} numberOfLines={3}>
                 {jobTitles.join(" · ")}
               </ThemedText>
             ) : (
@@ -323,31 +437,13 @@ function TradeProfileCard({
           {/* Divider */}
           <View style={styles.horizontalDivider} />
 
-          {/* Location */}
-          <View style={styles.rightSection}>
+          {/* Location - City · X mi format */}
+          <View style={styles.rightSectionLarge}>
             <View style={styles.locationRow}>
               <Ionicons name="location" size={16} color={Colors.light.title} />
               <ThemedText style={styles.locationText} numberOfLines={1}>
-                {basePostcode || "No location set"}
+                {locationDisplay || "No location set"}
               </ThemedText>
-            </View>
-          </View>
-
-          {/* Divider */}
-          <View style={styles.horizontalDivider} />
-
-          {/* Reviews */}
-          <View style={styles.rightSection}>
-            <View style={styles.reviewsRow}>
-              <Ionicons name="star" size={16} color={Colors.light.title} />
-              {hasReviews ? (
-                <ThemedText style={styles.reviewsText}>
-                  <ThemedText style={styles.ratingValue}>{averageRating.toFixed(1)}</ThemedText>
-                  {" "}({reviewCount} review{reviewCount !== 1 ? "s" : ""})
-                </ThemedText>
-              ) : (
-                <ThemedText style={styles.noReviewsText}>No reviews yet</ThemedText>
-              )}
             </View>
           </View>
         </View>
@@ -597,6 +693,68 @@ function ReviewsSection({ reviews, reviewCount, averageRating, businessName, onS
         )}
       />
     </View>
+  );
+}
+
+// Performance Info Modal Component (3rd person language for profile view)
+function PerformanceInfoModal({ visible, onClose, insets }) {
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.perfInfoModalContent80, { paddingBottom: (insets?.bottom || 0) + 20 }]}>
+          {/* Handle bar */}
+          <View style={styles.modalHandle} />
+
+          <View style={styles.perfInfoModalHeader}>
+            <ThemedText style={styles.perfInfoModalTitle}>Performance Metrics</ThemedText>
+            <Pressable onPress={onClose} hitSlop={10} style={styles.modalCloseBtn}>
+              <Ionicons name="close" size={20} color="#111827" />
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.perfInfoModalScrollContent} showsVerticalScrollIndicator={false}>
+          {/* Response Time */}
+          <View style={styles.perfInfoSection}>
+            <View style={styles.perfInfoSectionHeader}>
+              <Ionicons name="flash" size={20} color={PRIMARY} />
+              <ThemedText style={styles.perfInfoSectionTitle}>Response Time</ThemedText>
+            </View>
+            <ThemedText style={styles.perfInfoSectionText}>
+              This measures how quickly the business responds to new quote requests and messages from clients.
+            </ThemedText>
+            <View style={styles.perfInfoTipBox}>
+              <ThemedText style={styles.perfInfoTipTitle}>Why it matters</ThemedText>
+              <ThemedText style={styles.perfInfoTipText}>
+                Clients often reach out to multiple businesses. Those who respond within a few hours are much more likely to win the job. A fast response time indicates a reliable and attentive service provider.
+              </ThemedText>
+            </View>
+          </View>
+
+          {/* Quote Rate */}
+          <View style={styles.perfInfoSection}>
+            <View style={styles.perfInfoSectionHeader}>
+              <Ionicons name="checkmark" size={20} color={PRIMARY} />
+              <ThemedText style={styles.perfInfoSectionTitle}>Quote Rate</ThemedText>
+            </View>
+            <ThemedText style={styles.perfInfoSectionText}>
+              This shows the percentage of accepted quote requests that received a formal quote from the business.
+            </ThemedText>
+            <View style={styles.perfInfoTipBox}>
+              <ThemedText style={styles.perfInfoTipTitle}>How it's calculated</ThemedText>
+              <ThemedText style={styles.perfInfoTipText}>
+                A high quote rate means the business follows through on enquiries and provides clear pricing. This helps clients compare options and make informed decisions.
+              </ThemedText>
+            </View>
+          </View>
+        </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -906,6 +1064,11 @@ const styles = StyleSheet.create({
   rightSection: {
     paddingVertical: 8,
   },
+  rightSectionLarge: {
+    paddingVertical: 12,
+    flex: 1,
+    justifyContent: "center",
+  },
   horizontalDivider: {
     height: 1,
     backgroundColor: Colors.light.border,
@@ -933,25 +1096,6 @@ const styles = StyleSheet.create({
     color: "#374151",
     flex: 1,
   },
-  // Reviews
-  reviewsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  reviewsText: {
-    fontSize: 14,
-    color: Colors.light.subtitle,
-  },
-  ratingValue: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.light.title,
-  },
-  noReviewsText: {
-    fontSize: 14,
-    color: Colors.light.subtitle,
-  },
   // Client card
   clientCardContent: {
     flexDirection: "row",
@@ -960,6 +1104,116 @@ const styles = StyleSheet.create({
   clientCardInfo: {
     marginLeft: 16,
     flex: 1,
+  },
+  // Performance Section - Horizontal 3-column layout
+  performanceSection: {
+    marginTop: 20,
+    marginBottom: 4,
+    position: "relative",
+  },
+  performanceInfoButtonTopRight: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    padding: 4,
+    zIndex: 1,
+  },
+  performanceRowThreeCol: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-around",
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  performanceColItem: {
+    alignItems: "center",
+    flex: 1,
+  },
+  performanceValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 4,
+  },
+  performanceValueText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  performanceColLabel: {
+    fontSize: 12,
+    color: Colors.light.subtitle,
+    textAlign: "center",
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: Colors.light.border,
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  // Performance Info Modal (80% height bottom sheet)
+  perfInfoModalContent80: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: "80%",
+    paddingTop: 12,
+  },
+  perfInfoModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+  perfInfoModalTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  perfInfoModalScrollContent: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+  },
+  perfInfoSection: {
+    marginBottom: 28,
+  },
+  perfInfoSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 12,
+  },
+  perfInfoSectionTitle: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  perfInfoSectionText: {
+    fontSize: 15,
+    color: "#374151",
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  perfInfoTipBox: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 10,
+    padding: 14,
+    borderLeftWidth: 3,
+    borderLeftColor: PRIMARY,
+  },
+  perfInfoTipTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 6,
+  },
+  perfInfoTipText: {
+    fontSize: 14,
+    color: "#4B5563",
+    lineHeight: 20,
   },
   // Bio Section
   bioSection: {

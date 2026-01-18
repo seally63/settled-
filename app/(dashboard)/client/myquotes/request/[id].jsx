@@ -1,4 +1,4 @@
-// app/(dashboard)/client/myquotes/request/[id].jsx
+// app/(dashboard)/myquotes/request/[id].jsx
 // Client view of their own request - read-only, no accept/decline actions
 import {
   StyleSheet,

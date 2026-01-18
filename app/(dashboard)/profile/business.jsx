@@ -374,10 +374,13 @@ export default function BusinessInfoScreen() {
             onPress={() => setShowJobTitlesSheet(false)}
           />
           <View style={styles.sheetContent}>
+            {/* Handle bar */}
+            <View style={styles.sheetHandle} />
+
             <View style={styles.sheetHeader}>
               <ThemedText style={styles.sheetTitle}>What's your job title?</ThemedText>
-              <Pressable onPress={() => setShowJobTitlesSheet(false)} hitSlop={10}>
-                <Ionicons name="close" size={24} color={Colors.light.title} />
+              <Pressable onPress={() => setShowJobTitlesSheet(false)} hitSlop={10} style={styles.sheetCloseBtn}>
+                <Ionicons name="close" size={20} color="#111827" />
               </Pressable>
             </View>
 
@@ -433,10 +436,13 @@ export default function BusinessInfoScreen() {
             onPress={() => setShowServicesSheet(false)}
           />
           <View style={[styles.sheetContent, styles.servicesSheetContent]}>
+            {/* Handle bar */}
+            <View style={styles.sheetHandle} />
+
             <View style={styles.sheetHeader}>
               <ThemedText style={styles.sheetTitle}>Add services</ThemedText>
-              <Pressable onPress={() => setShowServicesSheet(false)} hitSlop={10}>
-                <Ionicons name="close" size={24} color={Colors.light.title} />
+              <Pressable onPress={() => setShowServicesSheet(false)} hitSlop={10} style={styles.sheetCloseBtn}>
+                <Ionicons name="close" size={20} color="#111827" />
               </Pressable>
             </View>
 
@@ -564,6 +570,9 @@ export default function BusinessInfoScreen() {
             onPress={() => setShowLockedModal(false)}
           />
           <View style={styles.modalContent}>
+            {/* Handle bar */}
+            <View style={styles.sheetHandle} />
+
             <View style={styles.modalIconContainer}>
               <Ionicons name="lock-closed" size={32} color="#6B7280" />
             </View>
@@ -770,8 +779,24 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingTop: 12,
     maxHeight: "80%",
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: "#D1D5DB",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 20,
+  },
+  sheetCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
   },
   servicesSheetContent: {
     maxHeight: "85%",
@@ -899,7 +924,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
-    paddingTop: 32,
+    paddingTop: 12,
     alignItems: "center",
   },
   modalIconContainer: {

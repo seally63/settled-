@@ -1,6 +1,6 @@
-// app/(dashboard)/client/myquotes/report-issue.jsx
+// app/(dashboard)/myquotes/report-issue.jsx
 // Client report issue screen - select reason and provide details
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -10,8 +10,9 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, usePathname, useSegments } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -34,14 +35,45 @@ export default function ReportIssue() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+  const segments = useSegments();
 
   const quoteId = params.quoteId;
   const requestId = params.requestId;
   const tradeName = params.tradeName || "Tradesperson";
 
+  // Debug: Log navigation info on back press
+  const handleBack = () => {
+    console.log("=== REPORT ISSUE BACK BUTTON DEBUG ===");
+    console.log("Current pathname:", pathname);
+    console.log("Current segments:", segments);
+    console.log("router.canGoBack():", router.canGoBack?.());
+    console.log("quoteId:", quoteId);
+    console.log("requestId:", requestId);
+    console.log("========================================");
+
+    if (router.canGoBack?.()) {
+      console.log("Calling router.back()...");
+      router.back();
+    } else {
+      console.log("No back history, replacing to client/myquotes...");
+      router.replace("/(dashboard)/myquotes");
+    }
+  };
+
   const [selectedReason, setSelectedReason] = useState(null);
   const [details, setDetails] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // ScrollView ref for keyboard handling
+  const scrollViewRef = useRef(null);
+
+  // Scroll to input when focused
+  const handleInputFocus = (yOffset) => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({ y: yOffset, animated: true });
+    }, 300);
+  };
 
   // Submit issue
   const submitIssue = async () => {
@@ -93,7 +125,7 @@ export default function ReportIssue() {
     <ThemedView style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={() => router.back()} hitSlop={10}>
+        <Pressable onPress={handleBack} hitSlop={10}>
           <Ionicons name="chevron-back" size={24} color="#111827" />
         </Pressable>
         <ThemedText style={styles.headerTitle}>Report an issue</ThemedText>
@@ -105,9 +137,11 @@ export default function ReportIssue() {
         style={{ flex: 1 }}
       >
         <ScrollView
+          ref={scrollViewRef}
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
         >
           {/* Question */}
           <ThemedText style={styles.questionText}>
@@ -156,6 +190,7 @@ export default function ReportIssue() {
             numberOfLines={4}
             textAlignVertical="top"
             editable={!busy}
+            onFocus={() => handleInputFocus(200)}
           />
 
           <Spacer size={24} />

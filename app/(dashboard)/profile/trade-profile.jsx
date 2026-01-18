@@ -10,6 +10,7 @@ import {
   Pressable,
   FlatList,
   Dimensions,
+  Modal,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,6 +26,7 @@ import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { getMyProfile } from "../../../lib/api/profile";
 import { getServiceCategories, getServiceTypes } from "../../../lib/api/services";
+import { supabase } from "../../../lib/supabase";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -46,6 +48,11 @@ export default function TradeProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [serviceNames, setServiceNames] = useState({});
   const [loadingServices, setLoadingServices] = useState(false);
+  const [performanceStats, setPerformanceStats] = useState({
+    responseTimeHours: null,
+    quoteRate: null,
+  });
+  const [performanceInfoVisible, setPerformanceInfoVisible] = useState(false);
 
   // Load profile data
   const loadProfile = useCallback(async () => {
@@ -54,6 +61,39 @@ export default function TradeProfileScreen() {
       setLoading(true);
       const me = await getMyProfile();
       setProfile(me || null);
+
+      // Load performance stats (quote rate)
+      const myId = user.id;
+
+      // Fetch request targets
+      const { data: targets } = await supabase
+        .from("request_targets")
+        .select("request_id, state")
+        .eq("trade_id", myId);
+
+      // Fetch quotes
+      const { data: quotes } = await supabase
+        .from("tradify_native_app_db")
+        .select("id, request_id, status")
+        .eq("trade_id", myId);
+
+      // Calculate quote rate: unique requests with quotes / total requests accepted
+      const acceptedRequests = (targets || []).filter((t) =>
+        t.state?.toLowerCase().includes("accepted")
+      ).length;
+      const requestsWithQuotes = new Set(
+        (quotes || [])
+          .filter((q) => ["sent", "accepted", "declined", "expired", "completed", "awaiting_completion"].includes(q.status?.toLowerCase()))
+          .map((q) => q.request_id)
+      ).size;
+      const quoteRate = acceptedRequests > 0
+        ? Math.min(100, Math.round((requestsWithQuotes / acceptedRequests) * 100))
+        : null;
+
+      setPerformanceStats({
+        responseTimeHours: null, // Would need backend RPC for this
+        quoteRate,
+      });
     } finally {
       setLoading(false);
     }
@@ -110,6 +150,19 @@ export default function TradeProfileScreen() {
   const jobTitles = profile?.job_titles || [];
   const serviceTypeIds = profile?.service_type_ids || [];
   const basePostcode = profile?.base_postcode;
+  // The database column is "town_city"
+  const baseCity = profile?.town_city;
+  const serviceRadiusKm = profile?.service_radius_km;
+
+  // Convert km to miles for display (1 km = 0.621371 miles)
+  const serviceRadiusMiles = serviceRadiusKm
+    ? Math.round(serviceRadiusKm * 0.621371)
+    : null;
+
+  // Format location display: "City · X mi" or just "City" or fallback to postcode
+  const locationDisplay = baseCity
+    ? (serviceRadiusMiles ? `${baseCity} · ${serviceRadiusMiles} mi` : baseCity)
+    : basePostcode || null;
 
   // Verification status
   const verification = profile?.verification || {
@@ -210,6 +263,51 @@ export default function TradeProfileScreen() {
           )}
         </View>
 
+        {/* Performance Section (no header) */}
+        <View style={styles.performanceSection}>
+          <View style={styles.performanceRow}>
+            {/* Response Time */}
+            <View style={styles.performanceItem}>
+              <View style={styles.performanceIconContainer}>
+                <Ionicons name="flash-outline" size={18} color="#111827" />
+              </View>
+              <View>
+                <ThemedText style={styles.performanceValue}>
+                  {performanceStats.responseTimeHours !== null
+                    ? `${performanceStats.responseTimeHours}h`
+                    : "--"}
+                </ThemedText>
+                <ThemedText style={styles.performanceLabel}>Response</ThemedText>
+              </View>
+            </View>
+
+            {/* Quote Rate */}
+            <View style={styles.performanceItem}>
+              <View style={styles.performanceIconContainer}>
+                <Ionicons name="document-text-outline" size={18} color="#111827" />
+              </View>
+              <View>
+                <ThemedText style={styles.performanceValue}>
+                  {performanceStats.quoteRate !== null ? `${performanceStats.quoteRate}%` : "--"}
+                </ThemedText>
+                <ThemedText style={styles.performanceLabel}>Quote Rate</ThemedText>
+              </View>
+            </View>
+
+            {/* Info Button */}
+            <Pressable
+              style={styles.performanceInfoButton}
+              onPress={() => setPerformanceInfoVisible(true)}
+              hitSlop={10}
+            >
+              <Ionicons name="information-circle-outline" size={20} color="#6B7280" />
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Divider before About */}
+        <View style={styles.sectionDivider} />
+
         {/* About Section */}
         <ThemedText style={styles.sectionLabel}>ABOUT</ThemedText>
         <View style={styles.sectionCard}>
@@ -221,10 +319,10 @@ export default function TradeProfileScreen() {
           )}
 
           {/* Location */}
-          {basePostcode && (
+          {locationDisplay && (
             <View style={styles.locationRow}>
               <Ionicons name="location-outline" size={16} color={Colors.light.subtitle} />
-              <ThemedText style={styles.locationText}>{basePostcode}</ThemedText>
+              <ThemedText style={styles.locationText}>{locationDisplay}</ThemedText>
             </View>
           )}
 
@@ -236,7 +334,7 @@ export default function TradeProfileScreen() {
             </>
           )}
 
-          {!jobTitles.length && !basePostcode && !bio && (
+          {!jobTitles.length && !locationDisplay && !bio && (
             <ThemedText style={styles.emptyText}>No information added yet</ThemedText>
           )}
         </View>
@@ -298,6 +396,13 @@ export default function TradeProfileScreen() {
 
         <Spacer height={insets.bottom > 0 ? insets.bottom + 24 : 40} />
       </ScrollView>
+
+      {/* Performance Info Modal */}
+      <PerformanceInfoModal
+        visible={performanceInfoVisible}
+        onClose={() => setPerformanceInfoVisible(false)}
+        insets={insets}
+      />
     </ThemedView>
   );
 }
@@ -386,6 +491,68 @@ function formatTimeAgo(date) {
   if (days < 30) return `${Math.floor(days / 7)} week${Math.floor(days / 7) > 1 ? "s" : ""} ago`;
   if (days < 365) return `${Math.floor(days / 30)} month${Math.floor(days / 30) > 1 ? "s" : ""} ago`;
   return `${Math.floor(days / 365)} year${Math.floor(days / 365) > 1 ? "s" : ""} ago`;
+}
+
+// Performance Info Modal Component (3rd person language for profile view)
+function PerformanceInfoModal({ visible, onClose, insets }) {
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={onClose}
+    >
+      <View style={styles.infoModalOverlay}>
+        <View style={[styles.infoModalSheet, { paddingBottom: (insets?.bottom || 0) + 20 }]}>
+          {/* Handle bar */}
+          <View style={styles.infoModalHandle} />
+
+          <View style={styles.infoModalHeader}>
+            <ThemedText style={styles.infoModalTitle}>Performance Metrics</ThemedText>
+            <Pressable onPress={onClose} hitSlop={10} style={styles.infoModalCloseBtn}>
+              <Ionicons name="close" size={20} color="#111827" />
+            </Pressable>
+          </View>
+
+          <ScrollView style={styles.infoModalContent} showsVerticalScrollIndicator={false}>
+          {/* Response Time */}
+          <View style={styles.infoSection}>
+            <View style={styles.infoSectionHeader}>
+              <Ionicons name="flash-outline" size={20} color="#111827" />
+              <ThemedText style={styles.infoSectionTitle}>Response Time</ThemedText>
+            </View>
+            <ThemedText style={styles.infoSectionText}>
+              This measures how quickly the business responds to new quote requests and messages from clients.
+            </ThemedText>
+            <View style={styles.infoTipBox}>
+              <ThemedText style={styles.infoTipTitle}>Why it matters</ThemedText>
+              <ThemedText style={styles.infoTipText}>
+                Clients often reach out to multiple businesses. Those who respond within a few hours are much more likely to win the job. A fast response time indicates a reliable and attentive service provider.
+              </ThemedText>
+            </View>
+          </View>
+
+          {/* Quote Rate */}
+          <View style={styles.infoSection}>
+            <View style={styles.infoSectionHeader}>
+              <Ionicons name="document-text-outline" size={20} color="#111827" />
+              <ThemedText style={styles.infoSectionTitle}>Quote Rate</ThemedText>
+            </View>
+            <ThemedText style={styles.infoSectionText}>
+              This shows the percentage of accepted quote requests that received a formal quote from the business.
+            </ThemedText>
+            <View style={styles.infoTipBox}>
+              <ThemedText style={styles.infoTipTitle}>Why it matters</ThemedText>
+              <ThemedText style={styles.infoTipText}>
+                A high quote rate means the business follows through on enquiries and provides clear pricing. This helps clients compare options and make informed decisions.
+              </ThemedText>
+            </View>
+          </View>
+        </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -511,6 +678,47 @@ const styles = StyleSheet.create({
   noRatingText: {
     fontSize: 14,
     color: Colors.light.subtitle,
+  },
+  // Performance Section
+  performanceSection: {
+    marginBottom: 16,
+  },
+  performanceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 32,
+  },
+  performanceItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  performanceIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#111827",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  performanceValue: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  performanceLabel: {
+    fontSize: 12,
+    color: Colors.light.subtitle,
+  },
+  performanceInfoButton: {
+    padding: 4,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: Colors.light.border,
+    marginBottom: 16,
   },
   // Section
   sectionLabel: {
@@ -662,5 +870,87 @@ const styles = StyleSheet.create({
   reportText: {
     fontSize: 14,
     color: "#DC2626",
+  },
+  // Info Modal (80% height bottom sheet)
+  infoModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  infoModalSheet: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: "80%",
+    paddingTop: 12,
+  },
+  infoModalHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: "#D1D5DB",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  infoModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+  },
+  infoModalTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  infoModalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  infoModalContent: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+  },
+  infoSection: {
+    marginBottom: 28,
+  },
+  infoSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 12,
+  },
+  infoSectionTitle: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  infoSectionText: {
+    fontSize: 15,
+    color: "#374151",
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  infoTipBox: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 16,
+  },
+  infoTipTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: 6,
+  },
+  infoTipText: {
+    fontSize: 14,
+    color: "#4B5563",
+    lineHeight: 20,
   },
 });

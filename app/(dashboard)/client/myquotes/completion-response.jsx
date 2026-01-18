@@ -1,4 +1,4 @@
-// app/(dashboard)/client/myquotes/completion-response.jsx
+// app/(dashboard)/myquotes/completion-response.jsx
 // Client completion response screen - confirm job complete or report issue
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -101,17 +101,29 @@ export default function CompletionResponse() {
     try {
       setLoading(true);
 
-      // Fetch quote with request details for category/service_type/postcode
+      // Fetch quote
       const { data: quoteData, error: quoteErr } = await supabase
         .from("tradify_native_app_db")
         .select(
-          "id, trade_id, project_title, grand_total, currency, marked_complete_at, payment_amount, payment_method, request_id, category, service_type, postcode"
+          "id, trade_id, project_title, grand_total, currency, marked_complete_at, payment_amount, payment_method, request_id"
         )
         .eq("id", quoteId)
         .single();
 
       if (quoteErr) throw quoteErr;
-      setQuote(quoteData);
+
+      // Fetch request details for category/service_type/postcode
+      let requestData = null;
+      if (quoteData?.request_id) {
+        const { data: reqData } = await supabase
+          .from("quote_requests")
+          .select("category, service_type, postcode, suggested_title")
+          .eq("id", quoteData.request_id)
+          .single();
+        requestData = reqData;
+      }
+
+      setQuote({ ...quoteData, ...requestData });
 
       // Fetch trade info
       if (quoteData?.trade_id) {
@@ -167,7 +179,7 @@ export default function CompletionResponse() {
 
       // Navigate to success screen with review prompt
       router.replace({
-        pathname: "/(dashboard)/client/myquotes/completion-success",
+        pathname: "/(dashboard)/myquotes/completion-success",
         params: {
           quoteId,
           tradeName: trade?.business_name || trade?.full_name || "Tradesperson",

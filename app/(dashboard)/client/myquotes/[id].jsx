@@ -1,4 +1,4 @@
-// app/(dashboard)/client/myquotes/[id].jsx
+// app/(dashboard)/myquotes/[id].jsx
 import {
   StyleSheet,
   View,
@@ -715,31 +715,38 @@ export default function ClientMyQuoteDetail() {
   const items = Array.isArray(quote?.line_items) ? quote.line_items : [];
   const tradeName = trade?.business_name || trade?.full_name || "Tradesperson";
 
-  // Hero subtitle: use category, service_type, postcode format
-  // Example: "Plumbing, Boiler Repair in EH48 3NN"
-  const buildHeroSubtitle = () => {
+  // Hero job title: use suggested_title or "Category - Service Type" format
+  // Example: "Kitchen - Full kitchen refit"
+  const buildHeroJobTitle = () => {
+    // First try suggested_title from request
+    if (req?.suggested_title) {
+      return req.suggested_title;
+    }
+
+    // Then try project_title from quote
+    if (quote?.project_title) {
+      return quote.project_title;
+    }
+
+    // Build from category and service_type
     const category = req?.category || quote?.category;
     const serviceType = req?.service_type || quote?.service_type;
-    const postcode = req?.postcode || quote?.postcode;
 
-    const parts = [];
-    if (category) parts.push(category);
-    if (serviceType && serviceType !== category) parts.push(serviceType);
+    if (category && serviceType && serviceType !== category) {
+      return `${category} - ${serviceType}`;
+    }
+    if (category) {
+      return category;
+    }
+    if (serviceType) {
+      return serviceType;
+    }
 
-    if (parts.length > 0 && postcode) {
-      return `${parts.join(", ")} in ${postcode}`;
-    }
-    if (parts.length > 0) {
-      return parts.join(", ");
-    }
-    if (postcode) {
-      return `Job in ${postcode}`;
-    }
-    // Fallback to project_title if no category/service data
-    return quote?.project_title || quote?.project_name || "Project details";
+    return quote?.project_name || "Quote";
   };
 
-  const heroSubtitle = buildHeroSubtitle();
+  const heroJobTitle = buildHeroJobTitle();
+  const heroPostcode = req?.postcode || quote?.postcode;
 
   // Helper functions for appointments
   const toggleAppointment = useCallback((appointmentId) => {
@@ -1188,8 +1195,13 @@ export default function ClientMyQuoteDetail() {
                     {tradeName}
                   </ThemedText>
                   <ThemedText style={styles.heroJobTitle}>
-                    {heroSubtitle}
+                    {heroJobTitle}
                   </ThemedText>
+                  {heroPostcode && (
+                    <ThemedText style={styles.heroLocation}>
+                      {heroPostcode}
+                    </ThemedText>
+                  )}
                 </View>
                 <StatusChip value={status} />
               </View>
@@ -1450,13 +1462,13 @@ export default function ClientMyQuoteDetail() {
                       style={styles.leaveReviewBtn}
                       onPress={() => {
                         router.push({
-                          pathname: "/(dashboard)/client/myquotes/leave-review",
+                          pathname: "/(dashboard)/myquotes/leave-review",
                           params: {
                             quoteId: quote?.id || id,
                             revieweeName: tradeName || "Tradesperson",
                             revieweeType: "trade",
                             tradePhotoUrl: trade?.photo_url || "",
-                            jobTitle: heroSubtitle || "Job",
+                            jobTitle: heroJobTitle || "Job",
                           },
                         });
                       }}
@@ -1912,7 +1924,7 @@ export default function ClientMyQuoteDetail() {
                 hitSlop={10}
                 style={styles.rescheduleSheetClose}
               >
-                <Ionicons name="close" size={24} color="#6B7280" />
+                <Ionicons name="close" size={20} color="#111827" />
               </Pressable>
             </View>
 
@@ -2089,6 +2101,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "500",
     color: "#374151",
+  },
+  heroLocation: {
+    marginTop: 2,
+    fontSize: 14,
+    color: "#6B7280",
   },
   heroInfoGrid: {
     flexDirection: "row",
@@ -3166,14 +3183,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 40,
     paddingTop: 12,
+    maxHeight: "80%",
   },
   rescheduleSheetHandle: {
-    width: 40,
+    width: 36,
     height: 4,
     backgroundColor: "#D1D5DB",
     borderRadius: 2,
     alignSelf: "center",
-    marginBottom: 16,
+    marginBottom: 20,
   },
   rescheduleSheetHeader: {
     flexDirection: "row",
@@ -3182,12 +3200,17 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   rescheduleSheetTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "700",
     color: "#111827",
   },
   rescheduleSheetClose: {
-    padding: 4,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
   },
   rescheduleCurrentInfo: {
     backgroundColor: "#F9FAFB",
