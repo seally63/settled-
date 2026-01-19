@@ -111,7 +111,7 @@ function getClientProgressPosition(stage, subStatus) {
   }
 }
 
-// Filter pill component
+// Filter pill component - matches trade side style
 function FilterPill({ active, label, count, onPress }) {
   return (
     <Pressable
@@ -123,7 +123,7 @@ function FilterPill({ active, label, count, onPress }) {
       >
         {label}
       </ThemedText>
-      {typeof count === "number" && (
+      {typeof count === "number" && count > 0 && (
         <ThemedText
           style={[
             styles.filterPillCount,
@@ -589,11 +589,17 @@ export default function ClientProjects() {
   const projects = useMemo(() => {
     const allProjects = [];
 
-    // Build set of requests with accepted quotes
+    // Build set of requests with accepted/completed quotes (from decidedQuotes)
+    // These requests should not appear in the QUOTES stage
     const acceptedStatuses = ["accepted", "awaiting_completion", "completed"];
     const requestsWithAcceptedQuote = new Set();
+    const decidedQuoteIds = new Set(); // Track quote IDs that have been decided
     decidedQuotes.forEach((q) => {
       const status = String(q.status || "").toLowerCase();
+      // Add quote_id to decided set (these should not appear in decideQuotes)
+      if (q.quote_id) {
+        decidedQuoteIds.add(q.quote_id);
+      }
       if (acceptedStatuses.includes(status) && q.request_id) {
         requestsWithAcceptedQuote.add(q.request_id);
       }
@@ -797,10 +803,19 @@ export default function ClientProjects() {
     });
 
     // Process quotes to decide - Stage: QUOTES
+    // Exclude completed/declined/expired quotes - they should only appear in DONE stage
+    // Also exclude quotes that are already in decidedQuotes (to avoid duplicates)
     const quotesByRequest = {};
-    const visibleDecideQuotes = decideQuotes.filter(
-      (q) => q.status !== "draft" && !requestsWithAcceptedQuote.has(q.request_id)
-    );
+    const doneStatuses = ["completed", "declined", "expired", "draft"];
+    const visibleDecideQuotes = decideQuotes.filter((q) => {
+      const status = String(q.status || "").toLowerCase();
+      // Exclude done statuses, requests with accepted quote, and quotes already in decidedQuotes
+      if (doneStatuses.includes(status)) return false;
+      if (requestsWithAcceptedQuote.has(q.request_id)) return false;
+      if (decidedQuoteIds.has(q.quote_id)) return false;
+      return true;
+    });
+
     const seenQuoteIds = new Set();
     visibleDecideQuotes
       .filter((q) => {
@@ -1251,20 +1266,10 @@ export default function ClientProjects() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <ThemedText style={styles.headerTitle}>My Projects</ThemedText>
-        <Pressable
-          style={styles.addButton}
-          onPress={() => router.push("/create")}
-        >
-          <Ionicons name="add" size={24} color="#111827" />
-        </Pressable>
       </View>
 
       {/* Filter pills */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}
-      >
+      <View style={styles.filterRow}>
         <FilterPill
           active={filter === "all"}
           label="All"
@@ -1289,7 +1294,7 @@ export default function ClientProjects() {
           count={counts.done}
           onPress={() => setFilter("done")}
         />
-      </ScrollView>
+      </View>
 
       <ScrollView
         refreshControl={
@@ -1401,6 +1406,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 16,
   },
+  // Filter pills - matches trade side Projects tab style
   filterPill: {
     flexDirection: "row",
     alignItems: "center",

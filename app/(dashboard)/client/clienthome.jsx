@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useState, useEffect } from "react";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import * as ImagePicker from "expo-image-picker";
@@ -38,6 +38,7 @@ import {
   getTimingOptions,
 } from "../../../lib/api/services";
 import { geocodeUKPostcode } from "../../../lib/api/places";
+import { CATEGORIES as HOME_CATEGORIES } from "../../../components/client/home/PopularServicesGrid";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -91,23 +92,52 @@ async function makeThumbnails(uris) {
   return out;
 }
 
-// Helper to render icon from either Ionicons or MaterialCommunityIcons
-// Icons prefixed with "mci:" use MaterialCommunityIcons, otherwise Ionicons
-const ServiceIcon = ({ name, size, color }) => {
+// Helper to check if a string is an emoji
+function isEmoji(str) {
+  if (!str) return false;
+  // Emoji regex pattern - matches most common emojis
+  const emojiRegex = /^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}\u{1F100}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{231A}-\u{231B}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}\u{2614}-\u{2615}\u{2648}-\u{2653}\u{267F}\u{2693}\u{26A1}\u{26AA}-\u{26AB}\u{26BD}-\u{26BE}\u{26C4}-\u{26C5}\u{26CE}\u{26D4}\u{26EA}\u{26F2}-\u{26F3}\u{26F5}\u{26FA}\u{26FD}\u{2702}\u{2705}\u{2708}-\u{270D}\u{270F}\u{2712}\u{2714}\u{2716}\u{271D}\u{2721}\u{2728}\u{2733}-\u{2734}\u{2744}\u{2747}\u{274C}\u{274E}\u{2753}-\u{2755}\u{2757}\u{2763}-\u{2764}\u{2795}-\u{2797}\u{27A1}\u{27B0}\u{27BF}\u{2934}-\u{2935}\u{2B05}-\u{2B07}\u{2B1B}-\u{2B1C}\u{2B50}\u{2B55}\u{3030}\u{303D}\u{3297}\u{3299}]+$/u;
+  return emojiRegex.test(str);
+}
+
+// Helper to render icon from either Ionicons, MaterialCommunityIcons, or emoji
+// Icons prefixed with "mci:" use MaterialCommunityIcons, emojis render as text, otherwise Ionicons
+const ServiceIcon = ({ name, size, color, emojiStyle }) => {
+  // Check if it's an emoji
+  if (isEmoji(name)) {
+    return <ThemedText style={[{ fontSize: size }, emojiStyle]}>{name}</ThemedText>;
+  }
+  // Check if it's a MaterialCommunityIcons icon
   if (name && name.startsWith("mci:")) {
     const iconName = name.replace("mci:", "");
     return <MaterialCommunityIcons name={iconName} size={size} color={color} />;
   }
+  // Default to Ionicons
   return <Ionicons name={name || "help-outline"} size={size} color={color} />;
 };
+
+// Helper to get emoji for category from HOME_CATEGORIES
+function getCategoryEmoji(categoryName) {
+  const homeCat = HOME_CATEGORIES.find(
+    (c) => c.name.toLowerCase() === categoryName?.toLowerCase()
+  );
+  return homeCat?.icon || null;
+}
+
 
 export default function ClientHome() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
+  const params = useLocalSearchParams();
+
+  // Get prefill params
+  const prefillCategory = params.prefillCategory;
+  const prefillService = params.prefillService;
 
   // ===== Multi-step form state =====
-  const [step, setStep] = useState(0);
+  // Start at step 1 (category selection) - no landing page
+  const [step, setStep] = useState(1);
 
   // Step 1: Category
   const [categories, setCategories] = useState([]);
@@ -156,6 +186,9 @@ export default function ClientHome() {
   const [uploadIdx, setUploadIdx] = useState(0);
   const [uploadTotal, setUploadTotal] = useState(0);
 
+  // Track if we've already applied prefill to prevent duplicate application
+  const [prefillApplied, setPrefillApplied] = useState(false);
+
   // ===== Load data on mount =====
   useEffect(() => {
     loadCategories();
@@ -163,12 +196,59 @@ export default function ClientHome() {
     loadTimingOptions();
   }, []);
 
+  // Handle prefill when categories are loaded
+  useEffect(() => {
+    if (prefillApplied || !categories.length || loadingCategories) return;
+
+    // If we have a prefillCategory, find matching category and auto-select
+    if (prefillCategory) {
+      const matchingCategory = categories.find(
+        (c) => c.name.toLowerCase() === prefillCategory.toLowerCase()
+      );
+
+      if (matchingCategory) {
+        setSelectedCategory(matchingCategory);
+        setPrefillApplied(true);
+
+        // If we also have prefillService, auto-select service type
+        if (prefillService) {
+          // Wait for service types to load
+          loadServiceTypes(matchingCategory.id).then(() => {
+            // Service type will be auto-selected in another effect
+          });
+          setStep(2); // Go to service type selection
+        } else {
+          setStep(2); // Go to service type selection (user picks service)
+        }
+      } else {
+        // Category not found in DB, start from step 1
+        setPrefillApplied(true);
+        setStep(1);
+      }
+    }
+  }, [categories, loadingCategories, prefillCategory, prefillService, prefillApplied]);
+
   // Load service types when category changes
   useEffect(() => {
     if (selectedCategory?.id) {
       loadServiceTypes(selectedCategory.id);
     }
   }, [selectedCategory?.id]);
+
+  // Auto-select service type if prefillService is provided
+  useEffect(() => {
+    if (!prefillService || !serviceTypes.length || loadingServiceTypes) return;
+    if (selectedServiceType) return; // Already selected
+
+    const matchingService = serviceTypes.find(
+      (s) => s.name.toLowerCase() === prefillService.toLowerCase()
+    );
+
+    if (matchingService) {
+      setSelectedServiceType(matchingService);
+      setStep(3); // Advance to details step
+    }
+  }, [serviceTypes, loadingServiceTypes, prefillService, selectedServiceType]);
 
   async function loadCategories() {
     setLoadingCategories(true);
@@ -622,6 +702,13 @@ export default function ClientHome() {
     if (editingFromReview) {
       setEditingFromReview(false);
       setStep(6); // Return to review
+    } else if (defaultStep <= 1) {
+      // If going back to step 1 (category) and we have prefill, or from step 2, go back to previous screen
+      if (prefillCategory) {
+        router.back();
+      } else {
+        setStep(1); // Go to category selection
+      }
     } else {
       setStep(defaultStep);
     }
@@ -629,8 +716,8 @@ export default function ClientHome() {
 
   // ===== Headers =====
   const SubHeader = ({ onBack, currentStep, totalSteps = 6 }) => {
-    // Create segmented progress bar
-    const segments = Array.from({ length: totalSteps }, (_, i) => i + 1);
+    // Calculate progress percentage
+    const progressPercent = (currentStep / totalSteps) * 100;
 
     return (
       <View style={[styles.subHeader, { paddingTop: insets.top }]}>
@@ -639,69 +726,19 @@ export default function ClientHome() {
         </Pressable>
 
         <View style={styles.progressTrackContainer}>
-          <View style={styles.segmentedProgressBar}>
-            {segments.map((seg) => (
-              <View
-                key={seg}
-                style={[
-                  styles.progressSegment,
-                  seg <= currentStep ? styles.progressSegmentFilled : styles.progressSegmentEmpty,
-                ]}
-              />
-            ))}
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
           </View>
         </View>
       </View>
     );
   };
 
-  // ===== Step 0: Landing =====
-  const Landing = (
-    <ThemedView style={styles.container} safe={false}>
-      <View style={[styles.appHeader, { backgroundColor: Colors.primary, paddingTop: insets.top }]}>
-        <StatusBar style="light" />
-        <ThemedText style={styles.appTitle}>Settled</ThemedText>
-      </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ padding: 24 }}
-          showsVerticalScrollIndicator={false}
-        >
-          <ThemedText title style={{ fontSize: 20, fontWeight: "800", marginBottom: 12 }}>
-            Get quotes from trusted tradespeople
-          </ThemedText>
-          <ThemedText style={{ marginBottom: 24, lineHeight: 20 }}>
-            Tell us what you need and we'll match you with local professionals.
-          </ThemedText>
-
-          <ThemedButton onPress={() => setStep(1)} style={{ borderRadius: 28 }}>
-            <ThemedText style={{ color: "#fff", fontWeight: "700", textAlign: "center" }}>
-              Request a quote
-            </ThemedText>
-          </ThemedButton>
-
-          <View style={{ marginTop: 16 }}>
-            <ThemedButton
-              onPress={() => router.push("/client/find-business")}
-              style={{ borderRadius: 28, backgroundColor: "#f5f5f5" }}
-            >
-              <ThemedText style={{ color: "#333", fontWeight: "600", textAlign: "center" }}>
-                Find a business
-              </ThemedText>
-            </ThemedButton>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-      <UploadOverlay />
-    </ThemedView>
-  );
-
   // ===== Step 1: Category Selection (Grid) =====
   const CategoryStep = (
     <ThemedView style={styles.container} safe={false}>
       <StatusBar style="dark" backgroundColor="#FFFFFF" />
-      <SubHeader onBack={() => handleBack(0)} currentStep={1} />
+      <SubHeader onBack={() => router.back()} currentStep={1} />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
@@ -717,18 +754,26 @@ export default function ClientHome() {
           <CategoryGridSkeleton />
         ) : (
           <View style={styles.categoryGrid}>
-            {categories.map((cat) => (
-              <Pressable
-                key={cat.id}
-                style={styles.categoryCard}
-                onPress={() => handleCategorySelect(cat)}
-              >
-                <View style={styles.categoryIconWrap}>
-                  <ServiceIcon name={cat.icon} size={32} color="#374151" />
-                </View>
-                <ThemedText style={styles.categoryName}>{cat.name}</ThemedText>
-              </Pressable>
-            ))}
+            {categories.map((cat) => {
+              // Use emoji from HOME_CATEGORIES if available, otherwise fall back to icon
+              const emoji = getCategoryEmoji(cat.name);
+              return (
+                <Pressable
+                  key={cat.id}
+                  style={styles.categoryCard}
+                  onPress={() => handleCategorySelect(cat)}
+                >
+                  <View style={styles.categoryIconWrap}>
+                    {emoji ? (
+                      <ThemedText style={styles.categoryEmoji}>{emoji}</ThemedText>
+                    ) : (
+                      <ServiceIcon name={cat.icon} size={32} color="#374151" />
+                    )}
+                  </View>
+                  <ThemedText style={styles.categoryName}>{cat.name}</ThemedText>
+                </Pressable>
+              );
+            })}
           </View>
         )}
       </ScrollView>
@@ -768,7 +813,7 @@ export default function ClientHome() {
                 onPress={() => handleServiceTypeSelect(type)}
               >
                 <View style={styles.serviceTypeIcon}>
-                  <ServiceIcon name={type.icon} size={22} color="#374151" />
+                  <ServiceIcon name={type.icon} size={22} color="#6849a7" />
                 </View>
                 <ThemedText style={styles.serviceTypeName}>{type.name}</ThemedText>
                 <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -1239,31 +1284,17 @@ export default function ClientHome() {
   );
 
   // ===== Render current step =====
-  if (step === 0) return Landing;
   if (step === 1) return CategoryStep;
   if (step === 2) return ServiceTypeStep;
   if (step === 3) return DetailsStep;
   if (step === 4) return BudgetStep;
   if (step === 5) return PhotosTimingStep;
   if (step === 6) return ReviewStep;
-  return Landing;
+  return CategoryStep; // Default to category selection
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, alignItems: "stretch" },
-
-  // App header
-  appHeader: {
-    paddingBottom: 16,
-    paddingHorizontal: 20,
-    alignItems: "center",
-  },
-  appTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "white",
-    letterSpacing: 0.5,
-  },
 
   // Sub header with progress
   subHeader: {
@@ -1279,20 +1310,16 @@ const styles = StyleSheet.create({
   progressTrackContainer: {
     marginTop: 12,
   },
-  segmentedProgressBar: {
-    flexDirection: "row",
-    gap: 6,
-  },
-  progressSegment: {
-    flex: 1,
+  progressTrack: {
     height: 4,
-    borderRadius: 2,
-  },
-  progressSegmentFilled: {
-    backgroundColor: Colors.primary,
-  },
-  progressSegmentEmpty: {
     backgroundColor: "rgba(0,0,0,0.08)",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: Colors.primary,
+    borderRadius: 2,
   },
 
   // Question header
@@ -1341,6 +1368,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
   },
+  categoryEmoji: {
+    fontSize: 32,
+  },
 
   // Service type list (Step 2)
   serviceTypeList: {
@@ -1369,6 +1399,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: "500",
+  },
+  serviceTypeEmoji: {
+    fontSize: 22,
   },
 
   // Details form (Step 3)
