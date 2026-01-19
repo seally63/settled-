@@ -1,4 +1,5 @@
 // app/(dashboard)/client/index.jsx
-export { default } from './clienthome';
+// Client home screen - new action-first design
+export { default } from './home';
 
 
