@@ -38,6 +38,9 @@ function CompletionCard({ completion }) {
 
   return (
     <View style={styles.card}>
+      <View style={styles.iconContainer}>
+        <Ionicons name="checkmark-circle" size={24} color="#10B981" />
+      </View>
       <View style={styles.content}>
         <ThemedText style={styles.serviceType} numberOfLines={1}>
           {service_type}
@@ -47,7 +50,7 @@ function CompletionCard({ completion }) {
             {city} · {formatRelativeTime(completed_at)}
           </ThemedText>
           <View style={styles.ratingContainer}>
-            <Ionicons name="star" size={12} color="#F59E0B" />
+            <Ionicons name="star" size={14} color="#F59E0B" />
             <ThemedText style={styles.ratingText}>{formatRating(rating)}</ThemedText>
           </View>
         </View>
@@ -111,20 +114,38 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    padding: 12,
+    padding: 16,
     paddingHorizontal: 16,
-    marginBottom: 8,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    // Subtle shadow
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#ECFDF5",
+    alignItems: "center",
+    justifyContent: "center",
   },
   content: {
     flex: 1,
   },
   serviceType: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "600",
     color: "#1F2937",
+    marginBottom: 2,
   },
   metaRow: {
     flexDirection: "row",
@@ -132,17 +153,17 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   meta: {
-    fontSize: 12,
+    fontSize: 14,
     color: "#6B7280",
   },
   ratingContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginLeft: 6,
-    gap: 2,
+    marginLeft: 8,
+    gap: 3,
   },
   ratingText: {
-    fontSize: 12,
+    fontSize: 14,
     color: "#6B7280",
     fontWeight: "500",
   },

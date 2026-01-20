@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import ThemedText from "../../ThemedText";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const MODAL_MAX_HEIGHT = SCREEN_HEIGHT * 0.9;
 
 function ServiceTypeItem({ serviceName, onPress, isLast }) {
   return (
@@ -114,7 +115,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    maxHeight: SCREEN_HEIGHT * 0.6,
+    maxHeight: MODAL_MAX_HEIGHT,
     paddingBottom: 34, // Safe area padding
   },
   handleContainer: {
