@@ -7,7 +7,7 @@ import {
   RefreshControl,
 } from "react-native";
 import { useState, useCallback } from "react";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
@@ -67,6 +67,23 @@ export default function ClientHomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
+  const params = useLocalSearchParams();
+
+  // Handle openSearch param - open search modal when navigating from Projects tab
+  // Use useFocusEffect so it triggers every time screen comes into focus with the param
+  useFocusEffect(
+    useCallback(() => {
+      if (params.openSearch === "true") {
+        // Small delay to let the screen mount first
+        const timer = setTimeout(() => {
+          // Clear the param by replacing with clean URL to prevent re-triggering
+          router.replace("/client/home");
+          router.push("/client/search-modal");
+        }, 100);
+        return () => clearTimeout(timer);
+      }
+    }, [params.openSearch])
+  );
 
   // State
   const [firstName, setFirstName] = useState(null);

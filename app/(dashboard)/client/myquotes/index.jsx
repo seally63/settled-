@@ -1331,11 +1331,7 @@ export default function ClientProjects() {
             subtitle="Get quotes from verified local tradespeople"
             primaryAction={{
               label: "Get Quotes",
-              onPress: () => router.push("/create"),
-            }}
-            secondaryAction={{
-              label: "Find a Business",
-              onPress: () => router.push("/(dashboard)/client/find-business"),
+              onPress: () => router.push("/(dashboard)/client/home?openSearch=true"),
             }}
           />
         )}
@@ -1347,7 +1343,7 @@ export default function ClientProjects() {
             subtitle="Create a request to receive quotes"
             primaryAction={{
               label: "Get Quotes",
-              onPress: () => router.push("/create"),
+              onPress: () => router.push("/(dashboard)/client/home?openSearch=true"),
             }}
           />
         )}

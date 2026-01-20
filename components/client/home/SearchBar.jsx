@@ -18,7 +18,7 @@ export default function SearchBar({ onPress }) {
       <View style={styles.inner}>
         <Ionicons name="search" size={20} color="#9CA3AF" />
         <ThemedText style={styles.placeholder}>
-          Search for a service...
+          Search for a service or business...
         </ThemedText>
       </View>
     </Pressable>
