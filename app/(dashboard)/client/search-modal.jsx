@@ -21,7 +21,10 @@ import { CATEGORIES } from "../../../components/client/home/PopularServicesGrid"
 import {
   getRecentSearches,
   saveRecentSearch,
+  removeRecentSearch,
 } from "../../../lib/api/homeScreen";
+import { searchTrades } from "../../../lib/api/profile";
+import { Image } from "react-native";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -170,17 +173,70 @@ function CategoryListItem({ category, onPress }) {
 }
 
 // Recent search item
-function RecentSearchItem({ term, onPress }) {
+function RecentSearchItem({ term, onPress, onRemove }) {
+  return (
+    <View style={styles.recentItemRow}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.recentItem,
+          pressed && styles.recentItemPressed,
+        ]}
+        onPress={onPress}
+      >
+        <Ionicons name="time-outline" size={18} color="#9CA3AF" />
+        <ThemedText style={styles.recentText}>{term}</ThemedText>
+      </Pressable>
+      <Pressable
+        style={({ pressed }) => [
+          styles.recentRemoveButton,
+          pressed && styles.recentRemovePressed,
+        ]}
+        onPress={onRemove}
+        hitSlop={8}
+      >
+        <Ionicons name="close" size={18} color="#9CA3AF" />
+      </Pressable>
+    </View>
+  );
+}
+
+// Trade result item
+function TradeResultItem({ trade, onPress }) {
+  const displayName = trade.business_name || trade.full_name || "Unknown Trade";
+  const subtitle = trade.trade_title || "";
+  const location = trade.town_city || "";
+
   return (
     <Pressable
       style={({ pressed }) => [
-        styles.recentItem,
-        pressed && styles.recentItemPressed,
+        styles.tradeItem,
+        pressed && styles.tradeItemPressed,
       ]}
       onPress={onPress}
     >
-      <Ionicons name="time-outline" size={18} color="#9CA3AF" />
-      <ThemedText style={styles.recentText}>{term}</ThemedText>
+      {trade.photo_url ? (
+        <Image source={{ uri: trade.photo_url }} style={styles.tradeAvatar} />
+      ) : (
+        <View style={styles.tradeAvatarPlaceholder}>
+          <Ionicons name="person" size={20} color="#9CA3AF" />
+        </View>
+      )}
+      <View style={styles.tradeInfo}>
+        <ThemedText style={styles.tradeName} numberOfLines={1}>
+          {displayName}
+        </ThemedText>
+        {subtitle ? (
+          <ThemedText style={styles.tradeSubtitle} numberOfLines={1}>
+            {subtitle}
+          </ThemedText>
+        ) : null}
+        {location ? (
+          <ThemedText style={styles.tradeLocation} numberOfLines={1}>
+            {location}
+          </ThemedText>
+        ) : null}
+      </View>
+      <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
     </Pressable>
   );
 }
@@ -192,6 +248,7 @@ export default function SearchModal() {
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
+  const [tradeResults, setTradeResults] = useState([]);
   const [recentSearches, setRecentSearches] = useState([]);
 
   // Load recent searches on mount
@@ -209,11 +266,21 @@ export default function SearchModal() {
 
   // Search when query changes
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       if (query.length >= 2) {
+        // Search services (local)
         setResults(searchServices(query));
+        // Search trades (async)
+        try {
+          const trades = await searchTrades(query, 5);
+          setTradeResults(trades);
+        } catch (err) {
+          console.warn("Trade search error:", err);
+          setTradeResults([]);
+        }
       } else {
         setResults([]);
+        setTradeResults([]);
       }
     }, 200);
     return () => clearTimeout(timer);
@@ -232,6 +299,7 @@ export default function SearchModal() {
   const handleClear = () => {
     setQuery("");
     setResults([]);
+    setTradeResults([]);
     inputRef.current?.focus();
   };
 
@@ -259,13 +327,27 @@ export default function SearchModal() {
     });
   };
 
-  const handleSearchTrades = async () => {
-    if (query.trim()) {
-      await saveRecentSearch(query.trim());
-      router.push({
-        pathname: "/client/find-business",
-        params: { q: query.trim() },
-      });
+  const handleSelectTrade = async (trade) => {
+    // Save search term
+    const searchTerm = trade.business_name || trade.full_name;
+    if (searchTerm) {
+      await saveRecentSearch(searchTerm);
+    }
+
+    // Dismiss keyboard
+    Keyboard.dismiss();
+
+    // Navigate to the trade profile page
+    try {
+      router.back();
+      setTimeout(() => {
+        router.push({
+          pathname: "/client/trade-profile",
+          params: { tradeId: trade.id },
+        });
+      }, 100);
+    } catch (err) {
+      console.error("Navigation error:", err);
     }
   };
 
@@ -277,12 +359,21 @@ export default function SearchModal() {
     setQuery(term);
   };
 
+  const handleRemoveRecentSearch = async (term) => {
+    await removeRecentSearch(term);
+    // Refresh the list
+    const searches = await getRecentSearches();
+    setRecentSearches(searches);
+  };
+
   const hasQuery = query.length > 0;
-  const hasResults = results.length > 0;
+  const hasServiceResults = results.length > 0;
+  const hasTradeResults = tradeResults.length > 0;
+  const hasResults = hasServiceResults || hasTradeResults;
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
 
       {/* Search header */}
       <View style={styles.header}>
@@ -329,6 +420,7 @@ export default function SearchModal() {
                     key={term}
                     term={term}
                     onPress={() => handleRecentSearch(term)}
+                    onRemove={() => handleRemoveRecentSearch(term)}
                   />
                 ))}
               </View>
@@ -348,8 +440,8 @@ export default function SearchModal() {
           </>
         )}
 
-        {/* Search results */}
-        {hasQuery && hasResults && (
+        {/* Service results */}
+        {hasQuery && hasServiceResults && (
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>Services</ThemedText>
             {results.map((item) => (
@@ -362,44 +454,39 @@ export default function SearchModal() {
           </View>
         )}
 
-        {/* No results state */}
-        {hasQuery && !hasResults && (
+        {/* Trade results */}
+        {hasQuery && hasTradeResults && (
           <View style={styles.section}>
-            <ThemedText style={styles.noResults}>No services found</ThemedText>
+            <ThemedText style={styles.sectionTitle}>Trades</ThemedText>
+            {tradeResults.map((trade) => (
+              <TradeResultItem
+                key={trade.id}
+                trade={trade}
+                onPress={() => handleSelectTrade(trade)}
+              />
+            ))}
           </View>
         )}
 
-        {/* Search trades option */}
-        {hasQuery && (
+        {/* No results state */}
+        {hasQuery && !hasResults && (
           <View style={styles.section}>
+            <ThemedText style={styles.noResults}>
+              No services or trades found
+            </ThemedText>
             <View style={styles.divider} />
             <Pressable
               style={({ pressed }) => [
-                styles.searchTradesOption,
-                pressed && styles.searchTradesPressed,
+                styles.describeOption,
+                pressed && styles.describePressed,
               ]}
-              onPress={handleSearchTrades}
+              onPress={handleDescribeProblem}
             >
-              <Ionicons name="search" size={20} color="#6849a7" />
-              <ThemedText style={styles.searchTradesText}>
-                Search trades for "{query}"
+              <ThemedText style={styles.describeIcon}>📝</ThemedText>
+              <ThemedText style={styles.describeText}>
+                Describe your problem instead
               </ThemedText>
             </Pressable>
-
-            {!hasResults && (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.describeOption,
-                  pressed && styles.describePressed,
-                ]}
-                onPress={handleDescribeProblem}
-              >
-                <ThemedText style={styles.describeIcon}>📝</ThemedText>
-                <ThemedText style={styles.describeText}>
-                  Or describe your problem
-                </ThemedText>
-              </Pressable>
-            )}
           </View>
         )}
       </ScrollView>
@@ -461,7 +548,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   // Recent search item
+  recentItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   recentItem: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 12,
@@ -473,6 +565,12 @@ const styles = StyleSheet.create({
   recentText: {
     fontSize: 16,
     color: "#1F2937",
+  },
+  recentRemoveButton: {
+    padding: 8,
+  },
+  recentRemovePressed: {
+    opacity: 0.5,
   },
   // Category list item
   categoryItem: {
@@ -529,26 +627,55 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 20,
   },
+  // Trade result item
+  tradeItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+    gap: 12,
+  },
+  tradeItemPressed: {
+    backgroundColor: "#F9FAFB",
+  },
+  tradeAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#F3F4F6",
+  },
+  tradeAvatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tradeInfo: {
+    flex: 1,
+  },
+  tradeName: {
+    fontSize: 16,
+    color: "#1F2937",
+    fontWeight: "500",
+  },
+  tradeSubtitle: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  tradeLocation: {
+    fontSize: 12,
+    color: "#9CA3AF",
+    marginTop: 2,
+  },
   // Divider
   divider: {
     height: 1,
     backgroundColor: "#E5E7EB",
     marginVertical: 8,
-  },
-  // Search trades option
-  searchTradesOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    gap: 12,
-  },
-  searchTradesPressed: {
-    opacity: 0.7,
-  },
-  searchTradesText: {
-    fontSize: 16,
-    color: "#6849a7",
-    fontWeight: "500",
   },
   // Describe problem option
   describeOption: {
