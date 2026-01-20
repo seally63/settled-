@@ -22,7 +22,7 @@ import SearchBar from "../../../components/client/home/SearchBar";
 import PopularServicesGrid from "../../../components/client/home/PopularServicesGrid";
 import ActiveRequestCard from "../../../components/client/home/ActiveRequestCard";
 import RecentlyCompletedFeed from "../../../components/client/home/RecentlyCompletedFeed";
-import DescribeProblemCTA from "../../../components/client/home/DescribeProblemCTA";
+import TrustBadge from "../../../components/client/home/TrustBadge";
 
 // API functions
 import {
@@ -153,11 +153,6 @@ export default function ClientHomeScreen() {
     router.push("/client/myquotes");
   };
 
-  const handleDescribeProblem = () => {
-    // Navigate to clienthome (quote request flow) step 0
-    router.push("/client/clienthome");
-  };
-
   return (
     <ThemedView style={styles.container}>
       <StatusBar style="dark" />
@@ -207,8 +202,8 @@ export default function ClientHomeScreen() {
               isLoading={false}
             />
 
-            {/* Describe your problem CTA */}
-            <DescribeProblemCTA onPress={handleDescribeProblem} />
+            {/* Trust badge - verification info */}
+            <TrustBadge />
           </>
         )}
       </ScrollView>

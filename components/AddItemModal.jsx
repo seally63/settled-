@@ -195,6 +195,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 24,
+    maxHeight: '90%',
   },
   title: { fontSize: 18, fontWeight: '700', textAlign: 'center' },
   subtitle: { textAlign: 'center' },

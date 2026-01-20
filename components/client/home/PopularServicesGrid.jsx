@@ -87,10 +87,10 @@ export const CATEGORIES = [
   },
 ];
 
-// Card dimensions
-const CARD_WIDTH = 80;
-const CARD_HEIGHT = 88;
-const GAP = 12;
+// Card dimensions - sized to fit longest label "Handyman"
+const CARD_WIDTH = 90;
+const CARD_HEIGHT = 92;
+const GAP = 10;
 
 function CategoryCard({ category, onPress }) {
   return (

@@ -3,13 +3,22 @@
 import { View, StyleSheet } from "react-native";
 import ThemedText from "../../ThemedText";
 
+// Get time-based greeting
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
 export default function HomeHeader({ firstName }) {
-  const displayName = firstName || "there";
+  const greeting = getGreeting();
+  const displayName = firstName ? `, ${firstName}` : "";
 
   return (
     <View style={styles.container}>
       <ThemedText style={styles.greeting}>
-        Hi {displayName} 👋
+        {greeting}{displayName}
       </ThemedText>
       <ThemedText style={styles.subheading}>
         What do you need help with?
