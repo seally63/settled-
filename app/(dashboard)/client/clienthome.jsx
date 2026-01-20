@@ -134,6 +134,9 @@ export default function ClientHome() {
   // Get prefill params
   const prefillCategory = params.prefillCategory;
   const prefillService = params.prefillService;
+  const openSearch = params.openSearch;
+  const prefillTradeId = params.prefillTradeId;
+  const prefillTradeName = params.prefillTradeName;
 
   // ===== Multi-step form state =====
   // Start at step 1 (category selection) - no landing page
@@ -195,6 +198,17 @@ export default function ClientHome() {
     loadPropertyTypes();
     loadTimingOptions();
   }, []);
+
+  // Handle openSearch param - open search modal when navigating back from trade profile
+  useEffect(() => {
+    if (openSearch === "true") {
+      // Small delay to let the screen mount first
+      const timer = setTimeout(() => {
+        router.push("/client/search-modal");
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [openSearch]);
 
   // Handle prefill when categories are loaded
   useEffect(() => {
@@ -547,16 +561,37 @@ export default function ClientHome() {
       await uploadAndAttach(created.id);
       resetPhotoUI();
 
-      // Match trades
-      try {
-        await supabase.functions.invoke("match-trades", {
-          body: { request_id: created.id, limit: 5 },
-        });
-      } catch (fnErr) {
-        console.log("match-trades failed:", fnErr?.message || fnErr);
+      // If requesting from a specific trade, create a direct match
+      // Otherwise, run the match-trades function to find suitable trades
+      if (prefillTradeId) {
+        try {
+          // Create a direct match for the specific trade
+          await supabase.from("quote_request_matches").insert({
+            request_id: created.id,
+            trade_id: prefillTradeId,
+            match_score: 100, // Direct request = perfect match
+            status: "pending",
+          });
+        } catch (matchErr) {
+          console.log("Direct match creation failed:", matchErr?.message || matchErr);
+        }
+      } else {
+        // Match trades automatically
+        try {
+          await supabase.functions.invoke("match-trades", {
+            body: { request_id: created.id, limit: 5 },
+          });
+        } catch (fnErr) {
+          console.log("match-trades failed:", fnErr?.message || fnErr);
+        }
       }
 
-      Alert.alert("Request submitted", "Your quote request was sent successfully!");
+      Alert.alert(
+        "Request submitted",
+        prefillTradeId
+          ? `Your quote request was sent to ${prefillTradeName}!`
+          : "Your quote request was sent successfully!"
+      );
 
       // Reset form
       setStep(0);
@@ -734,11 +769,25 @@ export default function ClientHome() {
     );
   };
 
+  // ===== Trade Request Banner (shown when requesting quote from a specific trade) =====
+  const TradeRequestBanner = () => {
+    if (!prefillTradeId || !prefillTradeName) return null;
+    return (
+      <View style={styles.tradeRequestBanner}>
+        <Ionicons name="person-circle-outline" size={20} color={Colors.primary} />
+        <ThemedText style={styles.tradeRequestBannerText}>
+          Requesting quote from <ThemedText style={styles.tradeRequestBannerName}>{prefillTradeName}</ThemedText>
+        </ThemedText>
+      </View>
+    );
+  };
+
   // ===== Step 1: Category Selection (Grid) =====
   const CategoryStep = (
     <ThemedView style={styles.container} safe={false}>
       <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => router.back()} currentStep={1} />
+      <TradeRequestBanner />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
@@ -786,6 +835,7 @@ export default function ClientHome() {
     <ThemedView style={styles.container} safe={false}>
       <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => handleBack(1)} currentStep={2} />
+      <TradeRequestBanner />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
@@ -831,6 +881,7 @@ export default function ClientHome() {
     <ThemedView style={styles.container} safe={false}>
       <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => handleBack(2)} currentStep={3} />
+      <TradeRequestBanner />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
           style={{ flex: 1 }}
@@ -949,6 +1000,7 @@ export default function ClientHome() {
     <ThemedView style={styles.container} safe={false}>
       <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => handleBack(3)} currentStep={4} totalSteps={6} />
+      <TradeRequestBanner />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
@@ -1013,6 +1065,7 @@ export default function ClientHome() {
     <ThemedView style={styles.container} safe={false}>
       <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => handleBack(4)} currentStep={5} totalSteps={6} />
+      <TradeRequestBanner />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
           style={{ flex: 1 }}
@@ -1134,6 +1187,7 @@ export default function ClientHome() {
     <ThemedView style={styles.container} safe={false}>
       <StatusBar style="dark" backgroundColor="#FFFFFF" />
       <SubHeader onBack={() => setStep(5)} currentStep={6} totalSteps={6} />
+      <TradeRequestBanner />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
@@ -1295,6 +1349,27 @@ export default function ClientHome() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, alignItems: "stretch" },
+
+  // Trade request banner
+  tradeRequestBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: `${Colors.primary}10`,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: `${Colors.primary}20`,
+  },
+  tradeRequestBannerText: {
+    fontSize: 14,
+    color: "#374151",
+    flex: 1,
+  },
+  tradeRequestBannerName: {
+    fontWeight: "600",
+    color: Colors.primary,
+  },
 
   // Sub header with progress
   subHeader: {
