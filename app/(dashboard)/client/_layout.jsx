@@ -56,6 +56,7 @@ export default function ClientStackLayout() {
       <Stack.Screen name="clienthome" />
       <Stack.Screen name="myquotes" />
       <Stack.Screen name="find-business" />
+      <Stack.Screen name="trade-profile" />
       <Stack.Screen
         name="search-modal"
         options={{
