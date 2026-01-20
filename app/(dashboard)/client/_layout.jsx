@@ -52,7 +52,6 @@ export default function ClientStackLayout() {
       initialRouteName="index"
     >
       <Stack.Screen name="index" />
-      <Stack.Screen name="home" />
       <Stack.Screen name="clienthome" />
       <Stack.Screen name="myquotes" />
       <Stack.Screen name="find-business" />

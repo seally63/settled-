@@ -20,13 +20,18 @@ export default function DashboardLayout() {
 
   // Track if we need to reset tabs when switching to them
   const [messagesNeedsReset, setMessagesNeedsReset] = useState(false);
+  const [clientNeedsReset, setClientNeedsReset] = useState(false);
 
-  // When navigating to messages from another screen (like project card), mark for reset
+  // When navigating to nested routes, mark for reset
   useEffect(() => {
     const currentTab = segments[1];
     // If we're in messages nested route, mark that we need to reset when leaving
     if (currentTab === 'messages' && segments.length > 2) {
       setMessagesNeedsReset(true);
+    }
+    // If we're in client nested route, mark that we need to reset when leaving
+    if (currentTab === 'client' && segments.length > 2) {
+      setClientNeedsReset(true);
     }
   }, [segments]);
 
@@ -44,6 +49,26 @@ export default function DashboardLayout() {
     // If already on messages tab in a nested route, go to index
     if (currentTab === 'messages' && segments.length > 2) {
       router.replace('/messages');
+      return true;
+    }
+
+    return false;
+  };
+
+  // Handle client tab press to reset to home screen
+  const handleClientTabPress = () => {
+    const currentTab = segments[1];
+
+    // If coming from a different tab and client needs reset, go to client index
+    if (currentTab !== 'client' && clientNeedsReset) {
+      setClientNeedsReset(false);
+      router.replace('/client');
+      return true;
+    }
+
+    // If already on client tab in a nested route, go to index
+    if (currentTab === 'client' && segments.length > 2) {
+      router.replace('/client');
       return true;
     }
 
@@ -151,6 +176,13 @@ export default function DashboardLayout() {
                 color={color}
               />
             ),
+          }}
+          listeners={{
+            tabPress: (e) => {
+              if (handleClientTabPress()) {
+                e.preventDefault();
+              }
+            },
           }}
         />
         <Tabs.Screen

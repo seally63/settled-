@@ -6,7 +6,7 @@ import {
   ScrollView,
   RefreshControl,
 } from "react-native";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
@@ -69,19 +69,21 @@ export default function ClientHomeScreen() {
   const { user } = useUser();
   const params = useLocalSearchParams();
 
+  // Track if we've already handled the openSearch param to prevent re-triggering
+  const hasHandledOpenSearch = useRef(false);
+
   // Handle openSearch param - open search modal when navigating from Projects tab
-  // Use useFocusEffect so it triggers every time screen comes into focus with the param
   useFocusEffect(
     useCallback(() => {
-      if (params.openSearch === "true") {
+      if (params.openSearch === "true" && !hasHandledOpenSearch.current) {
+        hasHandledOpenSearch.current = true;
         // Small delay to let the screen mount first
         const timer = setTimeout(() => {
-          // Clear the param by replacing with clean URL to prevent re-triggering
-          router.replace("/client/home");
           router.push("/client/search-modal");
         }, 100);
         return () => clearTimeout(timer);
       }
+      // Don't reset the flag - it should stay true for this navigation session
     }, [params.openSearch])
   );
 
