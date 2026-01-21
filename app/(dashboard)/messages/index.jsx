@@ -81,16 +81,6 @@ function ConversationCard({ item, onPress }) {
   const colorIndex = title ? title.charCodeAt(0) % avatarColors.length : 0;
   const avatarBgColor = avatarColors[colorIndex];
 
-  // DEBUG: Log conversation card data (improved messages tab)
-  console.log("[MESSAGES_LIST] ConversationCard:", {
-    title,
-    initials,
-    avatarBgColor,
-    hasUnread,
-    avatarUrl: avatarUrl ? "present" : "none",
-    other_party_role: item.other_party_role,
-  });
-
   return (
     <Pressable onPress={onPress} style={{ flex: 1 }}>
       <ThemedView style={styles.card}>
@@ -141,9 +131,6 @@ function ConversationCard({ item, onPress }) {
 }
 
 export default function MessagesIndex() {
-  // DEBUG: Confirm improved messages tab is running
-  console.log("[MESSAGES_LIST] === IMPROVED MESSAGES TAB v1 ===");
-
   const { user } = useUser();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -165,14 +152,6 @@ export default function MessagesIndex() {
         return;
       }
       // DEBUG: Log loaded conversations (improved messages tab)
-      console.log("[MESSAGES_LIST] Loaded conversations:", data?.length || 0, "items");
-      console.log("[MESSAGES_LIST] Sample data:", data?.[0] ? {
-        request_id: data[0].request_id,
-        other_party_name: data[0].other_party_name,
-        other_party_role: data[0].other_party_role,
-        has_unread: data[0].has_unread,
-        quote_id: data[0].quote_id,
-      } : "no data");
       setConversations(data || []);
     } finally {
       setLoading(false);
