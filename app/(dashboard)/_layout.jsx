@@ -39,15 +39,18 @@ export default function DashboardLayout() {
   const handleMessagesTabPress = () => {
     const currentTab = segments[1];
 
-    // If coming from a different tab and messages needs reset, go to messages index
-    if (currentTab !== 'messages' && messagesNeedsReset) {
+    // If already on messages tab in a nested route (e.g., /messages/[id]),
+    // go back to the index - use router.back() for proper back animation
+    if (currentTab === 'messages' && segments.length > 2) {
+      // Simply go back - this gives the proper "back" animation
+      router.back();
       setMessagesNeedsReset(false);
-      router.replace('/messages');
       return true;
     }
 
-    // If already on messages tab in a nested route, go to index
-    if (currentTab === 'messages' && segments.length > 2) {
+    // If coming from a different tab and messages needs reset, go to messages index
+    if (currentTab !== 'messages' && messagesNeedsReset) {
+      setMessagesNeedsReset(false);
       router.replace('/messages');
       return true;
     }

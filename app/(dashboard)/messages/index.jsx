@@ -65,15 +65,31 @@ function ConversationCard({ item, onPress }) {
     (item.other_party_role === "trade" ? "Your trade" : "Your client");
 
   const snippet = item.last_message_body
-    ? item.last_message_body.length > 80
-      ? item.last_message_body.slice(0, 77) + "..."
+    ? item.last_message_body.length > 50
+      ? item.last_message_body.slice(0, 47) + "..."
       : item.last_message_body
     : "No messages yet.";
 
   const when = formatWhen(item.last_message_at);
+  const hasUnread = item.has_unread === true;
 
   const avatarUrl = item.other_party_photo_url || null;
   const initials = getInitials(title);
+
+  // Generate a consistent color based on name
+  const avatarColors = ["#6849a7", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
+  const colorIndex = title ? title.charCodeAt(0) % avatarColors.length : 0;
+  const avatarBgColor = avatarColors[colorIndex];
+
+  // DEBUG: Log conversation card data (improved messages tab)
+  console.log("[MESSAGES_LIST] ConversationCard:", {
+    title,
+    initials,
+    avatarBgColor,
+    hasUnread,
+    avatarUrl: avatarUrl ? "present" : "none",
+    other_party_role: item.other_party_role,
+  });
 
   return (
     <Pressable onPress={onPress} style={{ flex: 1 }}>
@@ -84,7 +100,7 @@ function ConversationCard({ item, onPress }) {
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={styles.avatar} />
             ) : (
-              <View style={[styles.avatar, styles.avatarFallback]}>
+              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarBgColor }]}>
                 <ThemedText style={styles.avatarInitials}>
                   {initials}
                 </ThemedText>
@@ -95,21 +111,24 @@ function ConversationCard({ item, onPress }) {
           {/* Text column */}
           <View style={styles.cardMain}>
             <View style={styles.cardHeaderRow}>
-              <ThemedText style={styles.cardTitle} numberOfLines={1}>
+              <ThemedText style={[styles.cardTitle, hasUnread && styles.cardTitleUnread]} numberOfLines={1}>
                 {title}
               </ThemedText>
-              {!!when && (
-                <ThemedText style={styles.cardTime} variant="muted">
-                  {when}
-                </ThemedText>
-              )}
+              <View style={styles.cardTimeRow}>
+                {!!when && (
+                  <ThemedText style={[styles.cardTime, hasUnread && styles.cardTimeUnread]} variant="muted">
+                    {when}
+                  </ThemedText>
+                )}
+                {hasUnread && <View style={styles.unreadDot} />}
+              </View>
             </View>
 
             <Spacer height={2} />
 
             <ThemedText
-              numberOfLines={2}
-              style={styles.snippet}
+              numberOfLines={1}
+              style={[styles.snippet, hasUnread && styles.snippetUnread]}
               variant="muted"
             >
               {snippet}
@@ -122,6 +141,9 @@ function ConversationCard({ item, onPress }) {
 }
 
 export default function MessagesIndex() {
+  // DEBUG: Confirm improved messages tab is running
+  console.log("[MESSAGES_LIST] === IMPROVED MESSAGES TAB v1 ===");
+
   const { user } = useUser();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -142,6 +164,15 @@ export default function MessagesIndex() {
         setConversations([]);
         return;
       }
+      // DEBUG: Log loaded conversations (improved messages tab)
+      console.log("[MESSAGES_LIST] Loaded conversations:", data?.length || 0, "items");
+      console.log("[MESSAGES_LIST] Sample data:", data?.[0] ? {
+        request_id: data[0].request_id,
+        other_party_name: data[0].other_party_name,
+        other_party_role: data[0].other_party_role,
+        has_unread: data[0].has_unread,
+        quote_id: data[0].quote_id,
+      } : "no data");
       setConversations(data || []);
     } finally {
       setLoading(false);
@@ -237,10 +268,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
     borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     marginHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 10,
     backgroundColor: "#FFFFFF",
   },
   cardRow: {
@@ -248,12 +279,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   avatarWrap: {
-    marginRight: 10,
+    marginRight: 12,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: "#E5E7EB",
   },
   avatarFallback: {
@@ -262,8 +293,8 @@ const styles = StyleSheet.create({
   },
   avatarInitials: {
     fontWeight: "700",
-    fontSize: 16,
-    color: "#4B5563",
+    fontSize: 17,
+    color: "#FFFFFF",
   },
   cardMain: {
     flex: 1,
@@ -271,19 +302,43 @@ const styles = StyleSheet.create({
   cardHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
   },
   cardTitle: {
     flex: 1,
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: "500",
+    color: "#111827",
+  },
+  cardTitleUnread: {
+    fontWeight: "700",
+  },
+  cardTimeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   cardTime: {
-    fontSize: 11,
-    marginLeft: 8,
+    fontSize: 12,
+    color: "#9CA3AF",
+  },
+  cardTimeUnread: {
+    color: "#6B7280",
+  },
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#3B82F6",
   },
   snippet: {
-    fontSize: 13,
-    marginTop: 2,
+    fontSize: 14,
+    marginTop: 3,
+    color: "#6B7280",
+  },
+  snippetUnread: {
+    color: "#374151",
+    fontWeight: "500",
   },
 
   emptyWrap: {
