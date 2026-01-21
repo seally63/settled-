@@ -16,9 +16,12 @@ import {
   Pressable,
   Alert,
   Image,
+  ActionSheetIOS,
+  ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 
 import { supabase } from "../../../lib/supabase";
 import { useUser } from "../../../hooks/useUser";
@@ -28,6 +31,7 @@ import Spacer from "../../../components/Spacer";
 import { Colors } from "../../../constants/Colors";
 
 const TINT = Colors?.light?.tint || "#0ea5e9";
+const MESSAGE_PHOTOS_BUCKET = "message-photos";
 
 function formatTime(iso) {
   if (!iso) return "";
@@ -52,16 +56,44 @@ function getInitials(name) {
   );
 }
 
+// Parse project_title format: "Business Name: Service type in POSTCODE"
+// Example: "Ronan's Kitchen: Full kitchen refit in EH48 3NN"
+// Returns { serviceType: "Full kitchen refit", postcode: "EH48 3NN" }
+function parseProjectTitle(projectTitle) {
+  const res = { serviceType: null, postcode: null };
+  if (!projectTitle) return res;
+
+  // Remove business name (before the colon)
+  const colonIndex = projectTitle.indexOf(":");
+  const afterColon = colonIndex >= 0 ? projectTitle.slice(colonIndex + 1).trim() : projectTitle;
+
+  // Try to extract postcode (UK postcodes: letters+numbers at the end after "in ")
+  // Pattern: "... in POSTCODE" where POSTCODE is like "EH48 3NN"
+  const inMatch = afterColon.match(/^(.+?)\s+in\s+([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})$/i);
+  if (inMatch) {
+    res.serviceType = inMatch[1].trim();
+    res.postcode = inMatch[2].trim().toUpperCase();
+  } else {
+    // No postcode found, use the whole thing as service type
+    res.serviceType = afterColon;
+  }
+
+  return res;
+}
+
 // Same parser as myquotes detail
+// Details format: "Category: X\nService: Y\nDescription: Z\nProperty: W\n..."
 function parseDetails(details) {
   const res = {
     title: null,
     start: null,
     address: null,
     category: null,
+    service: null,
     main: null,
     refit: null,
     notes: null,
+    postcode: null,
   };
   if (!details) return res;
   const lines = String(details)
@@ -75,15 +107,30 @@ function parseDetails(details) {
     const v = rest.join(":").trim();
     if (key.includes("start")) res.start = v;
     else if (key.includes("address")) res.address = v;
-    else if (key.includes("category")) res.category = v;
+    else if (key === "category") res.category = v;
+    else if (key === "service") res.service = v;
     else if (key === "main") res.main = v;
     else if (key.includes("refit")) res.refit = v;
     else if (key.includes("notes")) res.notes = v;
+    else if (key === "postcode") res.postcode = v;
   }
   return res;
 }
 
 function MessageBubble({ message, isMine }) {
+  // Check if message has image attachments
+  const hasImages = message.paths && Array.isArray(message.paths) && message.paths.length > 0;
+  const hasText = message.body && message.body.trim().length > 0;
+
+  // Build image URLs from paths
+  const imageUrls = useMemo(() => {
+    if (!hasImages) return [];
+    return message.paths.map(path => {
+      const cleanPath = String(path || "").replace(/^\//, "");
+      return supabase.storage.from(MESSAGE_PHOTOS_BUCKET).getPublicUrl(cleanPath).data?.publicUrl;
+    }).filter(Boolean);
+  }, [message.paths, hasImages]);
+
   return (
     <View
       style={[
@@ -95,16 +142,34 @@ function MessageBubble({ message, isMine }) {
         style={[
           styles.bubble,
           isMine ? styles.bubbleMine : styles.bubbleOther,
+          hasImages && !hasText && styles.bubbleImageOnly,
         ]}
       >
-        <ThemedText
-          style={[
-            styles.bubbleText,
-            isMine && styles.bubbleTextMine,
-          ]}
-        >
-          {message.body}
-        </ThemedText>
+        {/* Render images */}
+        {imageUrls.length > 0 && (
+          <View style={styles.messageImagesWrap}>
+            {imageUrls.map((url, idx) => (
+              <Image
+                key={idx}
+                source={{ uri: url }}
+                style={styles.messageImage}
+                resizeMode="cover"
+              />
+            ))}
+          </View>
+        )}
+        {/* Render text if present */}
+        {hasText && (
+          <ThemedText
+            style={[
+              styles.bubbleText,
+              isMine && styles.bubbleTextMine,
+              hasImages && styles.bubbleTextWithImage,
+            ]}
+          >
+            {message.body}
+          </ThemedText>
+        )}
         <ThemedText
           style={[
             styles.bubbleMeta,
@@ -298,64 +363,213 @@ function StatusChip({ value }) {
   );
 }
 
-// Hero card (same visual as yellow card / quote header)
-function QuoteHeader({ quote, tradeName, subtitle }) {
-  if (!quote) return null;
+// Appointment card - shows all appointment types sent by trade
+// Types: Survey/Assessment, Design consultation, Start work, Follow-up visit, Final inspection
+// Shows accept/decline buttons for proposed appointments (client view)
+function AppointmentCard({ appointment, userRole, onAccept, onDecline, busy }) {
+  if (!appointment) return null;
 
-  const currency = quote.currency || "GBP";
-  const total = Number(quote.grand_total ?? quote.quote_total ?? 0);
-  const includesVat = Number(quote.tax_total ?? 0) > 0;
-  const issuedAt = quote.issued_at ? new Date(quote.issued_at) : null;
-  const validUntil = quote.valid_until
-    ? new Date(quote.valid_until)
-    : null;
-  const status = String(quote.status || "created").toLowerCase();
+  const scheduledDate = new Date(appointment.scheduled_at);
+  const isConfirmed = appointment.status === "confirmed";
+  const isProposed = appointment.status === "proposed";
+  const isCancelled = appointment.status === "cancelled";
+
+  // Show action buttons for clients when appointment is proposed
+  const showClientActions = userRole === "client" && isProposed;
+
+  // Status badge colors
+  const getStatusStyle = () => {
+    if (isConfirmed) return { bg: "#D1FAE5", fg: "#065F46", icon: "checkmark-circle", label: "Confirmed" };
+    if (isCancelled) return { bg: "#FEE2E2", fg: "#991B1B", icon: "close-circle", label: "Cancelled" };
+    return { bg: "#FEF3C7", fg: "#92400E", icon: "time-outline", label: "Awaiting response" };
+  };
+  const statusStyle = getStatusStyle();
 
   return (
-    <View style={styles.quoteCard}>
-      <View style={styles.quoteTopRow}>
-        <View style={{ flex: 1 }}>
-          <ThemedText style={styles.tradeHeading}>{tradeName}</ThemedText>
-          <ThemedText style={styles.heroProject} variant="muted">
-            {subtitle}
-          </ThemedText>
+    <View style={styles.surveyCard}>
+      <View style={styles.surveyCardRow}>
+        <View style={styles.surveyIconWrap}>
+          <Ionicons name="calendar-outline" size={20} color={TINT} />
         </View>
-        <StatusChip value={status} />
-      </View>
-
-      <Spacer height={14} />
-
-      <View style={styles.quoteAmountRow}>
-        <View>
-          <ThemedText style={styles.quoteAmountLabel}>Total quote</ThemedText>
-          <ThemedText style={styles.quoteAmount}>
-            {currency} {total.toFixed(2)}
+        <View style={styles.surveyCardMain}>
+          <ThemedText style={styles.surveyTitle}>
+            {appointment.title || "Appointment"}
           </ThemedText>
-          <ThemedText variant="muted" style={styles.heroSub}>
-            {includesVat ? "Includes VAT" : "No VAT added"}
+          <ThemedText style={styles.surveyDateTime}>
+            {scheduledDate.toLocaleDateString(undefined, {
+              weekday: "long",
+              day: "numeric",
+              month: "short",
+            })}{" "}
+            ·{" "}
+            {scheduledDate.toLocaleTimeString(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
           </ThemedText>
-        </View>
-        <View style={{ alignItems: "flex-end" }}>
-          {issuedAt && (
-            <>
-              <ThemedText style={styles.quoteMetaLabel}>Issued</ThemedText>
-              <ThemedText style={styles.quoteMetaValue}>
-                {issuedAt.toLocaleDateString()}
-              </ThemedText>
-            </>
-          )}
-          {validUntil && (
-            <ThemedText variant="muted" style={styles.heroSub}>
-              Valid until {validUntil.toLocaleDateString()}
+          {appointment.location && (
+            <ThemedText style={styles.surveyLocation} numberOfLines={1}>
+              {appointment.location}
             </ThemedText>
           )}
         </View>
+        {!showClientActions && (
+          <View
+            style={[
+              styles.surveyStatusBadge,
+              { backgroundColor: statusStyle.bg },
+            ]}
+          >
+            <Ionicons
+              name={statusStyle.icon}
+              size={14}
+              color={statusStyle.fg}
+            />
+            <ThemedText
+              style={[
+                styles.surveyStatusText,
+                { color: statusStyle.fg },
+              ]}
+            >
+              {statusStyle.label}
+            </ThemedText>
+          </View>
+        )}
+      </View>
+      {/* Accept/Decline buttons for client */}
+      {showClientActions && (
+        <View style={styles.surveyActionRow}>
+          <Pressable
+            style={[styles.surveyDeclineBtn, busy && { opacity: 0.5 }]}
+            onPress={onDecline}
+            disabled={busy}
+          >
+            <Ionicons name="close" size={16} color="#B42318" />
+            <ThemedText style={styles.surveyDeclineBtnText}>Decline</ThemedText>
+          </Pressable>
+          <Pressable
+            style={[styles.surveyAcceptBtn, busy && { opacity: 0.5 }]}
+            onPress={onAccept}
+            disabled={busy}
+          >
+            <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+            <ThemedText style={styles.surveyAcceptBtnText}>Accept</ThemedText>
+          </Pressable>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// Helper to format numbers with commas
+function formatNumber(num) {
+  if (num == null || isNaN(num)) return "0.00";
+  return Number(num).toLocaleString("en-GB", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+// Hero card - matches quote overview page design
+// Shows: Name, Service Category - Service Type, Postcode, Status, Total, Issued
+function QuoteHeader({ quote, displayName, serviceInfo, postcode, userRole }) {
+  if (!quote) return null;
+
+  const total = Number(quote.grand_total ?? quote.quote_total ?? 0);
+  const includesVat = Number(quote.tax_total ?? 0) > 0;
+  const issuedAt = quote.issued_at ? new Date(quote.issued_at) : null;
+  const status = String(quote.status || "created").toLowerCase();
+
+  // Status badge rendering
+  const renderStatusBadge = () => {
+    if (status === "completed") {
+      return (
+        <View style={styles.statusChipCompleted}>
+          <Ionicons name="checkmark-done-circle" size={16} color="#10B981" />
+          <ThemedText style={styles.statusChipCompletedText}>Completed</ThemedText>
+        </View>
+      );
+    }
+    if (status === "issue_reported") {
+      return (
+        <View style={styles.statusChipIssue}>
+          <Ionicons name="alert-circle" size={16} color="#EF4444" />
+          <ThemedText style={styles.statusChipIssueText}>Issue</ThemedText>
+        </View>
+      );
+    }
+    if (status === "awaiting_completion") {
+      return (
+        <View style={styles.statusChipAwaiting}>
+          <Ionicons name="hourglass" size={16} color="#F59E0B" />
+          <ThemedText style={styles.statusChipAwaitingText}>Awaiting</ThemedText>
+        </View>
+      );
+    }
+    if (status === "accepted") {
+      return (
+        <View style={styles.statusChipAccepted}>
+          <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
+          <ThemedText style={styles.statusChipAcceptedText}>Accepted</ThemedText>
+        </View>
+      );
+    }
+    // Default status chip for other statuses
+    return <StatusChip value={status} />;
+  };
+
+  return (
+    <View style={styles.heroCard}>
+      {/* Top row: Name, Service info, Postcode + Status badge */}
+      <View style={styles.heroTopRow}>
+        <View style={{ flex: 1 }}>
+          <ThemedText style={styles.heroClientName}>{displayName}</ThemedText>
+          {serviceInfo && (
+            <ThemedText style={styles.heroJobTitle}>{serviceInfo}</ThemedText>
+          )}
+          {postcode && (
+            <ThemedText style={styles.heroLocation} variant="muted">
+              {postcode}
+            </ThemedText>
+          )}
+        </View>
+        {renderStatusBadge()}
+      </View>
+
+      <Spacer height={16} />
+
+      {/* Bottom row: Total quote + Issued date */}
+      <View style={styles.heroInfoGrid}>
+        <View style={styles.heroInfoItem}>
+          <ThemedText style={styles.heroInfoLabel}>Total quote</ThemedText>
+          <ThemedText style={styles.heroInfoValue}>
+            £{formatNumber(total)}
+          </ThemedText>
+          <ThemedText style={styles.heroInfoSub}>
+            {includesVat ? "Includes VAT" : "No VAT added"}
+          </ThemedText>
+        </View>
+        {issuedAt && (
+          <View style={[styles.heroInfoItem, { alignItems: "flex-end" }]}>
+            <ThemedText style={styles.heroInfoLabel}>Issued</ThemedText>
+            <ThemedText style={styles.heroInfoValue}>
+              {issuedAt.toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+              })}
+            </ThemedText>
+          </View>
+        )}
       </View>
     </View>
   );
 }
 
 export default function MessageThread() {
+  // DEBUG: Confirm improved messages tab is running
+  console.log("[MESSAGE_THREAD] === IMPROVED MESSAGES TAB v1 ===");
+
   const params = useLocalSearchParams();
   const router = useRouter();
   const { user } = useUser();
@@ -379,6 +593,11 @@ export default function MessageThread() {
   const avatarUrl = avatarParam || null;
   const avatarInitials = getInitials(tradeName);
 
+  // Generate a consistent color based on name (same as index.jsx)
+  const avatarColors = ["#6849a7", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
+  const colorIndex = tradeName ? tradeName.charCodeAt(0) % avatarColors.length : 0;
+  const avatarBgColor = avatarColors[colorIndex];
+
   console.log("MessageThread params:", params);
   console.log("MessageThread quoteId:", quoteId);
 
@@ -389,6 +608,130 @@ export default function MessageThread() {
   const [request, setRequest] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [apptBusy, setApptBusy] = useState(false);
+  // Store all appointments by ID for inline rendering in conversation
+  const [appointmentsById, setAppointmentsById] = useState({});
+  // Image picking state
+  const [selectedImages, setSelectedImages] = useState([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
+
+  // Request camera permissions
+  const requestCameraPermission = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    return status === "granted";
+  };
+
+  // Request media library permissions
+  const requestMediaLibraryPermission = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    return status === "granted";
+  };
+
+  // Pick image from gallery
+  const pickImageFromGallery = async () => {
+    const hasPermission = await requestMediaLibraryPermission();
+    if (!hasPermission) {
+      Alert.alert("Permission Required", "Please allow access to your photo library to send images.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      selectionLimit: 5,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets?.length > 0) {
+      setSelectedImages((prev) => [...prev, ...result.assets].slice(0, 5));
+    }
+  };
+
+  // Take photo with camera
+  const takePhoto = async () => {
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) {
+      Alert.alert("Permission Required", "Please allow camera access to take photos.");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets?.length > 0) {
+      setSelectedImages((prev) => [...prev, ...result.assets].slice(0, 5));
+    }
+  };
+
+  // Show action sheet to choose gallery or camera
+  const showImagePickerOptions = () => {
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ["Cancel", "Take Photo", "Choose from Library"],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            takePhoto();
+          } else if (buttonIndex === 2) {
+            pickImageFromGallery();
+          }
+        }
+      );
+    } else {
+      // Android - show alert with options
+      Alert.alert(
+        "Add Photo",
+        "Choose an option",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Take Photo", onPress: takePhoto },
+          { text: "Choose from Library", onPress: pickImageFromGallery },
+        ]
+      );
+    }
+  };
+
+  // Remove selected image
+  const removeSelectedImage = (index) => {
+    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Upload images to Supabase storage
+  const uploadImages = async (images) => {
+    const uploadedPaths = [];
+
+    for (const image of images) {
+      try {
+        const uri = image.uri;
+        const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+
+        // Fetch image as blob
+        const response = await fetch(uri);
+        const blob = await response.blob();
+
+        // Upload to Supabase storage
+        const { data, error } = await supabase.storage
+          .from(MESSAGE_PHOTOS_BUCKET)
+          .upload(fileName, blob, {
+            contentType: "image/jpeg",
+            upsert: false,
+          });
+
+        if (error) {
+          console.warn("Image upload error:", error.message);
+          continue;
+        }
+
+        uploadedPaths.push(data.path);
+      } catch (e) {
+        console.warn("Failed to upload image:", e?.message || e);
+      }
+    }
+
+    return uploadedPaths;
+  };
 
   const loadMessages = useCallback(async () => {
     if (!requestId) return;
@@ -402,6 +745,19 @@ export default function MessageThread() {
         setMessages([]);
         return;
       }
+      // DEBUG: Log all messages and appointment messages specifically
+      console.log("[MESSAGE_THREAD] Loaded messages:", data?.length || 0, "total");
+      const appointmentMessages = (data || []).filter(m => m.message_type === 'appointment');
+      console.log("[MESSAGE_THREAD] Appointment messages found:", appointmentMessages.length);
+      appointmentMessages.forEach((m, idx) => {
+        console.log(`[MESSAGE_THREAD] Appointment msg ${idx + 1}:`, {
+          id: m.id,
+          appointment_id: m.appointment_id,
+          sender_id: m.sender_id,
+          message_type: m.message_type,
+          body: m.body?.substring(0, 50),
+        });
+      });
       setMessages(data || []);
     } catch (e) {
       console.warn("loadMessages failed:", e?.message || e);
@@ -440,6 +796,15 @@ export default function MessageThread() {
         return;
       }
 
+      // DEBUG: Log quote summary (improved messages tab)
+      console.log("[MESSAGE_THREAD] Loaded quote summary:", data ? {
+        id: data.id,
+        status: data.status,
+        grand_total: data.grand_total,
+        project_title: data.project_title,
+        service_category: data.service_category,
+        service_type: data.service_type,
+      } : "none");
       setQuoteSummary(data || null);
     } catch (e) {
       console.warn("loadQuote failed:", e?.message || e);
@@ -453,9 +818,11 @@ export default function MessageThread() {
       return;
     }
     try {
+      // Note: quote_requests table does NOT have service_category or service_type columns
+      // Service info comes from the details field or project_title on the quote
       const { data, error } = await supabase
         .from("quote_requests")
-        .select("id, details")
+        .select("id, details, postcode, suggested_title, status")
         .eq("id", requestId)
         .maybeSingle();
 
@@ -464,6 +831,13 @@ export default function MessageThread() {
         setRequest(null);
         return;
       }
+      // DEBUG: Log request data
+      console.log("[MESSAGE_THREAD] Loaded request:", data ? {
+        id: data.id,
+        postcode: data.postcode,
+        suggested_title: data.suggested_title,
+        details: data.details ? data.details.substring(0, 100) + "..." : null,
+      } : "none");
       setRequest(data || null);
     } catch (e) {
       console.warn("loadRequest failed:", e?.message || e);
@@ -471,11 +845,54 @@ export default function MessageThread() {
     }
   }, [requestId]);
 
+  // Load all appointments for this request to display inline in conversation
+  const loadAppointments = useCallback(async () => {
+    if (!requestId) {
+      setAppointmentsById({});
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("appointments")
+        .select("id, scheduled_at, title, location, status")
+        .eq("request_id", requestId)
+        .order("scheduled_at", { ascending: true });
+
+      if (error) {
+        console.warn("loadAppointments failed:", error.message);
+        setAppointmentsById({});
+        return;
+      }
+
+      // Store appointments by ID for quick lookup when rendering messages
+      const byId = {};
+      (data || []).forEach(appt => {
+        byId[appt.id] = appt;
+      });
+
+      // DEBUG: Log loaded appointments with details
+      console.log("[MESSAGE_THREAD] Loaded appointments:", Object.keys(byId).length, "items");
+      (data || []).forEach((appt, idx) => {
+        console.log(`[MESSAGE_THREAD] Appointment ${idx + 1}:`, {
+          id: appt.id,
+          title: appt.title,
+          status: appt.status,
+          scheduled_at: appt.scheduled_at,
+        });
+      });
+      setAppointmentsById(byId);
+    } catch (e) {
+      console.warn("loadAppointments failed:", e?.message || e);
+      setAppointmentsById({});
+    }
+  }, [requestId]);
+
   useEffect(() => {
     loadMessages();
     loadQuote();
     loadRequest();
-  }, [loadMessages, loadQuote, loadRequest]);
+    loadAppointments();
+  }, [loadMessages, loadQuote, loadRequest, loadAppointments]);
 
   // Fetch user role
   useEffect(() => {
@@ -533,8 +950,9 @@ export default function MessageThread() {
                 return;
               }
 
-              // Reload messages to show updated appointment status
+              // Reload messages and appointments to show updated status
               await loadMessages();
+              await loadAppointments();
             } catch (e) {
               Alert.alert('Error', e?.message || 'Something went wrong');
             } finally {
@@ -544,7 +962,7 @@ export default function MessageThread() {
         },
       ]
     );
-  }, [apptBusy, loadMessages]);
+  }, [apptBusy, loadMessages, loadAppointments]);
 
   const handleEditAppointment = useCallback((appointmentId) => {
     // TODO: Implement edit appointment modal
@@ -553,64 +971,74 @@ export default function MessageThread() {
 
   const handleSend = useCallback(async () => {
     const body = input.trim();
-    if (!body || !requestId || !user?.id) return;
+    const hasImages = selectedImages.length > 0;
+
+    // Need either text or images to send
+    if (!body && !hasImages) return;
+    if (!requestId || !user?.id) return;
 
     setSending(true);
+    setUploadingImages(hasImages);
+
     try {
+      // Upload images first if any
+      let imagePaths = [];
+      if (hasImages) {
+        imagePaths = await uploadImages(selectedImages);
+        if (imagePaths.length === 0 && !body) {
+          Alert.alert("Upload failed", "Failed to upload images. Please try again.");
+          return;
+        }
+      }
+
       const { error } = await supabase.rpc("rpc_send_message", {
         p_request_id: requestId,
         p_quote_id: null,
-        p_body: body,
-        p_paths: [],
+        p_body: body || "",
+        p_paths: imagePaths,
       });
+
       if (error) {
         Alert.alert("Send failed", error.message);
         return;
       }
+
       setInput("");
+      setSelectedImages([]);
       await loadMessages();
     } catch (e) {
       Alert.alert("Send failed", e?.message || "Unknown error");
     } finally {
       setSending(false);
+      setUploadingImages(false);
     }
-  }, [input, requestId, user?.id, loadMessages]);
+  }, [input, selectedImages, requestId, user?.id, loadMessages]);
 
   const renderItem = ({ item }) => {
     const isMine = item.sender_id === user?.id;
 
-    // Debug log to see what we're getting
+    // Render appointment messages as inline cards in the conversation flow
     if (item.message_type === 'appointment') {
-      console.log('Appointment message:', {
-        message_type: item.message_type,
-        appointment_id: item.appointment_id,
-        appointment_scheduled_at: item.appointment_scheduled_at,
-        appointment_title: item.appointment_title,
-        appointment_status: item.appointment_status,
-        isMine,
-        userRole,
-      });
-    }
+      const appointmentId = item.appointment_id;
+      const appointment = appointmentId ? appointmentsById[appointmentId] : null;
 
-    // Check if this is an appointment message
-    if (item.message_type === 'appointment' && item.appointment_id && item.appointment_scheduled_at) {
-      const appointment = {
-        id: item.appointment_id,
-        scheduled_at: item.appointment_scheduled_at,
-        title: item.appointment_title,
-        location: item.appointment_location,
-        status: item.appointment_status,
-      };
+      if (!appointment) {
+        console.log('[MESSAGE_THREAD] Appointment message but no appointment data found:', appointmentId);
+        return null;
+      }
+
+      console.log('[MESSAGE_THREAD] Rendering inline appointment card:', appointment.id, appointment.title);
 
       return (
-        <AppointmentMessageBubble
-          message={item}
-          appointment={appointment}
-          isMine={isMine}
-          userRole={userRole}
-          onRespond={(response) => handleRespondToAppointment(appointment.id, response)}
-          onEdit={() => handleEditAppointment(appointment.id)}
-        />
+        <View style={styles.inlineAppointmentWrap}>
+          <AppointmentCard
+            appointment={appointment}
+            userRole={userRole}
+            onAccept={() => handleRespondToAppointment(appointment.id, 'confirmed')}
+            onDecline={() => handleRespondToAppointment(appointment.id, 'cancelled')}
+            busy={apptBusy}
+          />
+        </View>
       );
     }
 
@@ -618,18 +1046,110 @@ export default function MessageThread() {
     return <MessageBubble message={item} isMine={isMine} />;
   };
 
-  const parsed = useMemo(
-    () => parseDetails(request?.details),
-    [request?.details]
-  );
+  const parsed = useMemo(() => {
+    const result = parseDetails(request?.details);
+    // DEBUG: Log parsed details for service info
+    console.log("[MESSAGE_THREAD] Parsed details:", {
+      category: result.category,
+      service: result.service,
+      main: result.main,
+      refit: result.refit,
+      postcode: result.postcode,
+      title: result.title,
+    });
+    return result;
+  }, [request?.details]);
 
-  const heroSubtitle =
-    (parsed.main && parsed.refit
-      ? `${parsed.main} - ${parsed.refit}`
-      : parsed.main || parsed.refit) ||
-    quoteSummary?.project_title ||
-    quoteSummary?.project_name ||
-    "Project details";
+  // Parse project_title to extract service type and postcode
+  // Format: "Business Name: Service type in POSTCODE"
+  const parsedProjectTitle = useMemo(() => {
+    const result = parseProjectTitle(quoteSummary?.project_title);
+    console.log("[MESSAGE_THREAD] Parsed project_title:", {
+      input: quoteSummary?.project_title,
+      serviceType: result.serviceType,
+      postcode: result.postcode,
+    });
+    return result;
+  }, [quoteSummary?.project_title]);
+
+  // Build service info string: "Service Category - Service Type"
+  const serviceInfo = useMemo(() => {
+    // Try from parsed details - "Category: X" and "Service: Y" lines
+    if (parsed.category && parsed.service) {
+      return `${parsed.category} - ${parsed.service}`;
+    }
+    // Try category + refit combination
+    if (parsed.category && parsed.refit) {
+      return `${parsed.category} - ${parsed.refit}`;
+    }
+    // Try main + refit combination
+    if (parsed.main && parsed.refit) {
+      return `${parsed.main} - ${parsed.refit}`;
+    }
+    // Single field fallbacks from parsed details
+    if (parsed.category && parsed.service === null) {
+      // Only category available, but we also need service type
+      // Fall through to project_title parsing which might have it
+    }
+    // Try from quote summary service fields
+    if (quoteSummary?.service_category && quoteSummary?.service_type) {
+      return `${quoteSummary.service_category} - ${quoteSummary.service_type}`;
+    }
+    // Fall back to parsed project_title (extracts service type without business name)
+    // This handles format like "Kitchen: Full kitchen refit" -> "Full kitchen refit"
+    if (parsedProjectTitle.serviceType) {
+      // If we have category from details, combine with service type from project_title
+      if (parsed.category) {
+        return `${parsed.category} - ${parsedProjectTitle.serviceType}`;
+      }
+      return parsedProjectTitle.serviceType;
+    }
+    // Last resort single fields
+    if (parsed.category) {
+      return parsed.category;
+    }
+    if (parsed.service) {
+      return parsed.service;
+    }
+    if (parsed.main) {
+      return parsed.main;
+    }
+    if (parsed.refit) {
+      return parsed.refit;
+    }
+    console.log("[MESSAGE_THREAD] serviceInfo: null (no valid source)");
+    return null;
+  }, [parsed, quoteSummary, parsedProjectTitle]);
+
+  // DEBUG: Log final serviceInfo value
+  useEffect(() => {
+    console.log("[MESSAGE_THREAD] Final serviceInfo value:", serviceInfo);
+  }, [serviceInfo]);
+
+  // Get postcode: try request.postcode first, then parsed details, then parsed project_title, then parsed.address
+  const postcode = useMemo(() => {
+    if (request?.postcode) return request.postcode;
+    if (parsed.postcode) return parsed.postcode;
+    if (parsedProjectTitle.postcode) return parsedProjectTitle.postcode;
+    if (parsed.address) return parsed.address;
+    return null;
+  }, [request?.postcode, parsed.postcode, parsedProjectTitle.postcode, parsed.address]);
+
+  // DEBUG: Log final postcode value
+  useEffect(() => {
+    console.log("[MESSAGE_THREAD] Final postcode value:", postcode);
+  }, [postcode]);
+
+  // Display name: For clients, show trade name. For trades, show client name.
+  // Note: tradeName param contains "other_party_name" from the conversation list,
+  // which is the client name for trades and the trade name for clients.
+  const heroDisplayName = useMemo(() => {
+    // The tradeName param already contains the correct "other party" name:
+    // - For trades viewing: it's the client name
+    // - For clients viewing: it's the trade/business name
+    // So we can just use tradeName directly for both cases
+    return tradeName || (userRole === "trades" ? "Client" : "Tradesperson");
+  }, [userRole, tradeName]);
 
   return (
     // No safe prop → no extra safe-area padding at the bottom
@@ -656,7 +1176,7 @@ export default function MessageThread() {
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.topBarAvatar} />
           ) : (
-            <View style={[styles.topBarAvatar, styles.topBarAvatarFallback]}>
+            <View style={[styles.topBarAvatar, styles.topBarAvatarFallback, { backgroundColor: avatarBgColor }]}>
               <ThemedText style={styles.topBarAvatarInitials}>
                 {avatarInitials}
               </ThemedText>
@@ -685,16 +1205,50 @@ export default function MessageThread() {
               quoteSummary ? (
                 <QuoteHeader
                   quote={quoteSummary}
-                  tradeName={tradeName}
-                  subtitle={heroSubtitle}
+                  displayName={heroDisplayName}
+                  serviceInfo={serviceInfo}
+                  postcode={postcode}
+                  userRole={userRole}
                 />
               ) : null
             }
           />
         </View>
 
+        {/* Selected images preview */}
+        {selectedImages.length > 0 && (
+          <View style={styles.selectedImagesContainer}>
+            {selectedImages.map((img, idx) => (
+              <View key={idx} style={styles.selectedImageWrap}>
+                <Image source={{ uri: img.uri }} style={styles.selectedImageThumb} />
+                <Pressable
+                  style={styles.removeImageBtn}
+                  onPress={() => removeSelectedImage(idx)}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close-circle" size={20} color="#EF4444" />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* Input bar */}
         <View style={styles.inputBar}>
+          {/* Attachment button */}
+          <Pressable
+            onPress={showImagePickerOptions}
+            disabled={sending || selectedImages.length >= 5}
+            style={({ pressed }) => [
+              styles.attachBtn,
+              {
+                opacity: sending || selectedImages.length >= 5 ? 0.4 : pressed ? 0.7 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="image-outline" size={24} color="#6B7280" />
+          </Pressable>
+
           <TextInput
             style={styles.input}
             placeholder="Type a message…"
@@ -703,18 +1257,24 @@ export default function MessageThread() {
             editable={!sending}
             multiline
           />
+
+          {/* Send button with loading indicator */}
           <Pressable
             onPress={handleSend}
-            disabled={sending || !input.trim()}
+            disabled={sending || (!input.trim() && selectedImages.length === 0)}
             style={({ pressed }) => [
               styles.sendBtn,
               {
                 opacity:
-                  sending || !input.trim() ? 0.4 : pressed ? 0.8 : 1,
+                  sending || (!input.trim() && selectedImages.length === 0) ? 0.4 : pressed ? 0.8 : 1,
               },
             ]}
           >
-            <Ionicons name="send" size={18} color="#FFFFFF" />
+            {uploadingImages ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Ionicons name="send" size={18} color="#FFFFFF" />
+            )}
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -756,9 +1316,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   topBarAvatarInitials: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
-    color: "#4B5563",
+    color: "#FFFFFF",
   },
   topBarName: {
     marginLeft: 8,
@@ -766,8 +1326,8 @@ const styles = StyleSheet.create({
     textAlign: "left",
   },
 
-  // Hero quote card
-  quoteCard: {
+  // Hero card - matches quote overview page
+  heroCard: {
     marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 8,
@@ -780,19 +1340,200 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 4,
   },
-  quoteTopRow: {
+  heroTopRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
   },
-  tradeHeading: {
+  heroClientName: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  heroJobTitle: {
+    marginTop: 4,
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#374151",
+  },
+  heroLocation: {
+    marginTop: 2,
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  heroInfoGrid: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+  },
+  heroInfoItem: {
+    flex: 1,
+  },
+  heroInfoLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginBottom: 4,
+  },
+  heroInfoValue: {
     fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  heroInfoSub: {
+    marginTop: 2,
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  // Status chips
+  statusChipCompleted: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#D1FAE5",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  statusChipCompletedText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#10B981",
+  },
+  statusChipIssue: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEE2E2",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  statusChipIssueText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#EF4444",
+  },
+  statusChipAwaiting: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  statusChipAwaitingText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#F59E0B",
+  },
+  statusChipAccepted: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#D1FAE5",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  statusChipAcceptedText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#16A34A",
+  },
+  // Survey visit card
+  surveyCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  surveyCardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  surveyIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  surveyCardMain: {
+    flex: 1,
+  },
+  surveyTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  surveyDateTime: {
+    fontSize: 13,
+    color: "#374151",
+    marginTop: 2,
+  },
+  surveyLocation: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  surveyStatusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    gap: 4,
+  },
+  surveyStatusText: {
+    fontSize: 11,
     fontWeight: "600",
   },
-  heroProject: {
-    marginTop: 2,
-    fontSize: 13,
+  surveyActionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
   },
+  surveyDeclineBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+  surveyDeclineBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#B42318",
+  },
+  surveyAcceptBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#16A34A",
+  },
+  surveyAcceptBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  // Fallback chip style for other statuses
   chip: {
     flexDirection: "row",
     alignItems: "center",
@@ -801,38 +1542,14 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
   },
-  quoteAmountRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-  quoteAmountLabel: {
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-    color: "#6B7280",
-    marginBottom: 2,
-  },
-  quoteAmount: {
-    fontSize: 22,
-    fontWeight: "700",
-  },
-  heroSub: {
-    marginTop: 2,
-    fontSize: 12,
-  },
-  quoteMetaLabel: {
-    fontSize: 12,
-    color: "#6B7280",
-  },
-  quoteMetaValue: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
 
   listContent: {
     paddingTop: 4,
     paddingBottom: 12,
+  },
+  // Wrapper for inline appointment cards in conversation flow
+  inlineAppointmentWrap: {
+    marginVertical: 8,
   },
   bubbleRow: {
     marginBottom: 9, // slightly bigger gap between messages
@@ -851,12 +1568,21 @@ const styles = StyleSheet.create({
   bubbleOther: {
     backgroundColor: "#E5E7EB",
   },
+  bubbleImageOnly: {
+    paddingHorizontal: 4,
+    paddingTop: 4,
+    paddingBottom: 8,
+    backgroundColor: "transparent",
+  },
   bubbleText: {
     fontSize: 14,
     color: "#0F172A",
   },
   bubbleTextMine: {
     color: "#FFFFFF",
+  },
+  bubbleTextWithImage: {
+    marginTop: 8,
   },
   bubbleMeta: {
     fontSize: 10,
@@ -869,6 +1595,45 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.75)",
   },
 
+  // Message images
+  messageImagesWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    marginBottom: 4,
+  },
+  messageImage: {
+    width: 180,
+    height: 180,
+    borderRadius: 12,
+  },
+
+  // Selected images preview
+  selectedImagesContainer: {
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+    backgroundColor: "#F9FAFB",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(148,163,184,0.5)",
+  },
+  selectedImageWrap: {
+    position: "relative",
+  },
+  selectedImageThumb: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+  },
+  removeImageBtn: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+  },
+
   inputBar: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -877,6 +1642,13 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: "rgba(148,163,184,0.5)",
     backgroundColor: "#FFFFFF",
+  },
+  attachBtn: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 4,
   },
   input: {
     flex: 1,
