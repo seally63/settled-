@@ -567,9 +567,6 @@ function QuoteHeader({ quote, displayName, serviceInfo, postcode, userRole }) {
 }
 
 export default function MessageThread() {
-  // DEBUG: Confirm improved messages tab is running
-  console.log("[MESSAGE_THREAD] === IMPROVED MESSAGES TAB v1 ===");
-
   const params = useLocalSearchParams();
   const router = useRouter();
   const { user } = useUser();
@@ -597,9 +594,6 @@ export default function MessageThread() {
   const avatarColors = ["#6849a7", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
   const colorIndex = tradeName ? tradeName.charCodeAt(0) % avatarColors.length : 0;
   const avatarBgColor = avatarColors[colorIndex];
-
-  console.log("MessageThread params:", params);
-  console.log("MessageThread quoteId:", quoteId);
 
   const [messages, setMessages] = useState([]);
   const [sending, setSending] = useState(false);
@@ -745,19 +739,6 @@ export default function MessageThread() {
         setMessages([]);
         return;
       }
-      // DEBUG: Log all messages and appointment messages specifically
-      console.log("[MESSAGE_THREAD] Loaded messages:", data?.length || 0, "total");
-      const appointmentMessages = (data || []).filter(m => m.message_type === 'appointment');
-      console.log("[MESSAGE_THREAD] Appointment messages found:", appointmentMessages.length);
-      appointmentMessages.forEach((m, idx) => {
-        console.log(`[MESSAGE_THREAD] Appointment msg ${idx + 1}:`, {
-          id: m.id,
-          appointment_id: m.appointment_id,
-          sender_id: m.sender_id,
-          message_type: m.message_type,
-          body: m.body?.substring(0, 50),
-        });
-      });
       setMessages(data || []);
     } catch (e) {
       console.warn("loadMessages failed:", e?.message || e);
@@ -796,15 +777,6 @@ export default function MessageThread() {
         return;
       }
 
-      // DEBUG: Log quote summary (improved messages tab)
-      console.log("[MESSAGE_THREAD] Loaded quote summary:", data ? {
-        id: data.id,
-        status: data.status,
-        grand_total: data.grand_total,
-        project_title: data.project_title,
-        service_category: data.service_category,
-        service_type: data.service_type,
-      } : "none");
       setQuoteSummary(data || null);
     } catch (e) {
       console.warn("loadQuote failed:", e?.message || e);
@@ -831,13 +803,6 @@ export default function MessageThread() {
         setRequest(null);
         return;
       }
-      // DEBUG: Log request data
-      console.log("[MESSAGE_THREAD] Loaded request:", data ? {
-        id: data.id,
-        postcode: data.postcode,
-        suggested_title: data.suggested_title,
-        details: data.details ? data.details.substring(0, 100) + "..." : null,
-      } : "none");
       setRequest(data || null);
     } catch (e) {
       console.warn("loadRequest failed:", e?.message || e);
@@ -870,16 +835,6 @@ export default function MessageThread() {
         byId[appt.id] = appt;
       });
 
-      // DEBUG: Log loaded appointments with details
-      console.log("[MESSAGE_THREAD] Loaded appointments:", Object.keys(byId).length, "items");
-      (data || []).forEach((appt, idx) => {
-        console.log(`[MESSAGE_THREAD] Appointment ${idx + 1}:`, {
-          id: appt.id,
-          title: appt.title,
-          status: appt.status,
-          scheduled_at: appt.scheduled_at,
-        });
-      });
       setAppointmentsById(byId);
     } catch (e) {
       console.warn("loadAppointments failed:", e?.message || e);
@@ -1023,11 +978,8 @@ export default function MessageThread() {
       const appointment = appointmentId ? appointmentsById[appointmentId] : null;
 
       if (!appointment) {
-        console.log('[MESSAGE_THREAD] Appointment message but no appointment data found:', appointmentId);
         return null;
       }
-
-      console.log('[MESSAGE_THREAD] Rendering inline appointment card:', appointment.id, appointment.title);
 
       return (
         <View style={styles.inlineAppointmentWrap}>
@@ -1047,29 +999,13 @@ export default function MessageThread() {
   };
 
   const parsed = useMemo(() => {
-    const result = parseDetails(request?.details);
-    // DEBUG: Log parsed details for service info
-    console.log("[MESSAGE_THREAD] Parsed details:", {
-      category: result.category,
-      service: result.service,
-      main: result.main,
-      refit: result.refit,
-      postcode: result.postcode,
-      title: result.title,
-    });
-    return result;
+    return parseDetails(request?.details);
   }, [request?.details]);
 
   // Parse project_title to extract service type and postcode
   // Format: "Business Name: Service type in POSTCODE"
   const parsedProjectTitle = useMemo(() => {
-    const result = parseProjectTitle(quoteSummary?.project_title);
-    console.log("[MESSAGE_THREAD] Parsed project_title:", {
-      input: quoteSummary?.project_title,
-      serviceType: result.serviceType,
-      postcode: result.postcode,
-    });
-    return result;
+    return parseProjectTitle(quoteSummary?.project_title);
   }, [quoteSummary?.project_title]);
 
   // Build service info string: "Service Category - Service Type"
@@ -1117,14 +1053,8 @@ export default function MessageThread() {
     if (parsed.refit) {
       return parsed.refit;
     }
-    console.log("[MESSAGE_THREAD] serviceInfo: null (no valid source)");
     return null;
   }, [parsed, quoteSummary, parsedProjectTitle]);
-
-  // DEBUG: Log final serviceInfo value
-  useEffect(() => {
-    console.log("[MESSAGE_THREAD] Final serviceInfo value:", serviceInfo);
-  }, [serviceInfo]);
 
   // Get postcode: try request.postcode first, then parsed details, then parsed project_title, then parsed.address
   const postcode = useMemo(() => {
@@ -1134,11 +1064,6 @@ export default function MessageThread() {
     if (parsed.address) return parsed.address;
     return null;
   }, [request?.postcode, parsed.postcode, parsedProjectTitle.postcode, parsed.address]);
-
-  // DEBUG: Log final postcode value
-  useEffect(() => {
-    console.log("[MESSAGE_THREAD] Final postcode value:", postcode);
-  }, [postcode]);
 
   // Display name: For clients, show trade name. For trades, show client name.
   // Note: tradeName param contains "other_party_name" from the conversation list,
