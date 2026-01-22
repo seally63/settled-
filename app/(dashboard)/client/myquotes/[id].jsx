@@ -299,12 +299,15 @@ export default function ClientMyQuoteDetail() {
       setExpandedAppointments(new Set());
 
       // Load client's review for this quote (if any)
-      const { data: reviewData, error: reviewErr } = await supabase.rpc(
-        "rpc_get_my_review_for_quote",
-        { p_quote_id: id }
-      );
+      // Query reviews table directly instead of using RPC
+      const { data: reviewData, error: reviewErr } = await supabase
+        .from("reviews")
+        .select("id, rating, content, photos, created_at")
+        .eq("quote_id", id)
+        .eq("reviewer_id", user?.id)
+        .maybeSingle();
+
       // Check if reviewData is actually a valid review (has a rating)
-      // RPC may return empty array/object/null when no review exists
       if (!reviewErr && reviewData && reviewData.rating) {
         setClientReview(reviewData);
       } else {
@@ -767,11 +770,17 @@ export default function ClientMyQuoteDetail() {
     const scheduledDate = new Date(appt.scheduled_at);
 
     const apptStatus = String(appt.status || "").toLowerCase();
+    const quoteStatus = String(quote?.status || "").toLowerCase();
 
     // Completed takes priority
     if (apptStatus === "completed") return "completed";
     if (apptStatus === "cancelled") return "cancelled";
     if (apptStatus === "rescheduled") return "rescheduled";
+
+    // If the quote/project is completed, treat past appointments as completed
+    if (quoteStatus === "completed" && scheduledDate <= now) {
+      return "completed";
+    }
 
     // Check if it's upcoming (in the future)
     if (scheduledDate > now) {
@@ -787,7 +796,7 @@ export default function ClientMyQuoteDetail() {
     }
 
     return apptStatus || "pending";
-  }, []);
+  }, [quote?.status]);
 
   // Categorize appointments
   const categorizedAppointments = useMemo(() => {

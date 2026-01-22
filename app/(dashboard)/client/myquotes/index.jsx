@@ -443,7 +443,35 @@ export default function ClientProjects() {
           p_limit: 50,
         }
       );
-      setDecidedQuotes(decidedData || []);
+
+      // Fetch client's reviews to check which quotes have been reviewed
+      const completedQuoteIds = (decidedData || [])
+        .filter((q) => q.status === "completed")
+        .map((q) => q.quote_id)
+        .filter(Boolean);
+
+      let reviewsByQuoteId = {};
+      if (completedQuoteIds.length > 0) {
+        const { data: reviewsData } = await supabase
+          .from("reviews")
+          .select("quote_id, rating")
+          .eq("reviewer_id", user.id)
+          .in("quote_id", completedQuoteIds);
+
+        (reviewsData || []).forEach((r) => {
+          if (r.quote_id) {
+            reviewsByQuoteId[r.quote_id] = r.rating;
+          }
+        });
+      }
+
+      // Enrich decided quotes with review info
+      const enrichedDecidedData = (decidedData || []).map((q) => ({
+        ...q,
+        client_review_rating: reviewsByQuoteId[q.quote_id] || null,
+      }));
+
+      setDecidedQuotes(enrichedDecidedData);
 
       // Appointments
       const { data: apptData } = await supabase.rpc("rpc_client_list_appointments", {

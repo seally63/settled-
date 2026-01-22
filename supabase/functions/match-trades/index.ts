@@ -4,8 +4,8 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.3";
 
-const SUPABASE_URL = Deno.env.get("026279f6aee1ef0c41cd666607a3a062e8d77b6da52111c8d6344d1bdc492226 ")!;
-const SERVICE_ROLE_KEY = Deno.env.get("ea8070c40969f3d50de8f9a01ae83f50680b28e3e550877e25ec3704f539581e")!; // service role (bypasses RLS)
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!; // service role (bypasses RLS)
 
 const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 

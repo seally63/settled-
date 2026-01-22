@@ -1,0 +1,857 @@
+-- ============================================================================
+-- Security Migration: Enable RLS and Create Policies
+-- Date: 2026-01-22
+-- Description: Comprehensive Row Level Security for all sensitive tables
+-- ============================================================================
+
+-- ============================================================================
+-- HELPER FUNCTIONS
+-- ============================================================================
+
+-- Check if user is admin
+CREATE OR REPLACE FUNCTION is_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM profiles
+    WHERE id = auth.uid()
+    AND is_admin = true
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Check if user is participant in a quote request conversation
+CREATE OR REPLACE FUNCTION is_request_participant(p_request_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    -- User is the requester (client)
+    SELECT 1 FROM quote_requests
+    WHERE id = p_request_id AND requester_id = auth.uid()
+  ) OR EXISTS (
+    -- User is a targeted trade
+    SELECT 1 FROM request_targets
+    WHERE request_id = p_request_id AND trade_id = auth.uid()
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- ============================================================================
+-- 1. PROFILES TABLE
+-- ============================================================================
+
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
+DROP POLICY IF EXISTS "Users can view trade public info" ON profiles;
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
+DROP POLICY IF EXISTS "Service role full access to profiles" ON profiles;
+
+-- Users can read their own full profile
+CREATE POLICY "Users can view own profile"
+ON profiles
+FOR SELECT
+TO authenticated
+USING (id = auth.uid());
+
+-- Users can view basic info of other trades (for messaging context, search)
+CREATE POLICY "Users can view trade public info"
+ON profiles
+FOR SELECT
+TO authenticated
+USING (
+  role = 'trades'
+  AND id != auth.uid()
+);
+
+-- Users can update their own profile (but not role, is_admin, id, created_at)
+-- Note: These field restrictions are enforced at the application layer in updateMyProfile()
+CREATE POLICY "Users can update own profile"
+ON profiles
+FOR UPDATE
+TO authenticated
+USING (id = auth.uid())
+WITH CHECK (id = auth.uid());
+
+-- Service role can do everything (for admin operations)
+CREATE POLICY "Service role full access to profiles"
+ON profiles
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);
+
+-- ============================================================================
+-- 2. TRADIFY_NATIVE_APP_DB (QUOTES) TABLE
+-- ============================================================================
+
+ALTER TABLE tradify_native_app_db ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Trades can view own quotes" ON tradify_native_app_db;
+DROP POLICY IF EXISTS "Clients can view quotes for their requests" ON tradify_native_app_db;
+DROP POLICY IF EXISTS "Trades can create quotes" ON tradify_native_app_db;
+DROP POLICY IF EXISTS "Trades can update own quotes" ON tradify_native_app_db;
+DROP POLICY IF EXISTS "Service role full access to quotes" ON tradify_native_app_db;
+
+-- Trades can see their own quotes
+CREATE POLICY "Trades can view own quotes"
+ON tradify_native_app_db
+FOR SELECT
+TO authenticated
+USING (trade_id = auth.uid());
+
+-- Clients can see quotes for their requests
+CREATE POLICY "Clients can view quotes for their requests"
+ON tradify_native_app_db
+FOR SELECT
+TO authenticated
+USING (client_id = auth.uid());
+
+-- Trades can insert quotes (must be their own)
+CREATE POLICY "Trades can create quotes"
+ON tradify_native_app_db
+FOR INSERT
+TO authenticated
+WITH CHECK (trade_id = auth.uid());
+
+-- Trades can update their own quotes
+CREATE POLICY "Trades can update own quotes"
+ON tradify_native_app_db
+FOR UPDATE
+TO authenticated
+USING (trade_id = auth.uid())
+WITH CHECK (trade_id = auth.uid());
+
+-- Service role can do everything
+CREATE POLICY "Service role full access to quotes"
+ON tradify_native_app_db
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);
+
+-- ============================================================================
+-- 3. QUOTE_REQUESTS TABLE
+-- ============================================================================
+
+ALTER TABLE quote_requests ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Clients can view own requests" ON quote_requests;
+DROP POLICY IF EXISTS "Trades can view targeted requests" ON quote_requests;
+DROP POLICY IF EXISTS "Clients can create requests" ON quote_requests;
+DROP POLICY IF EXISTS "Clients can update own requests" ON quote_requests;
+DROP POLICY IF EXISTS "Service role full access to requests" ON quote_requests;
+
+-- Clients can see their own requests
+CREATE POLICY "Clients can view own requests"
+ON quote_requests
+FOR SELECT
+TO authenticated
+USING (requester_id = auth.uid());
+
+-- Trades can see requests where they are in request_targets
+CREATE POLICY "Trades can view targeted requests"
+ON quote_requests
+FOR SELECT
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM request_targets
+    WHERE request_targets.request_id = quote_requests.id
+    AND request_targets.trade_id = auth.uid()
+  )
+);
+
+-- Clients can create requests (must be their own)
+CREATE POLICY "Clients can create requests"
+ON quote_requests
+FOR INSERT
+TO authenticated
+WITH CHECK (requester_id = auth.uid());
+
+-- Clients can update their own requests
+CREATE POLICY "Clients can update own requests"
+ON quote_requests
+FOR UPDATE
+TO authenticated
+USING (requester_id = auth.uid())
+WITH CHECK (requester_id = auth.uid());
+
+-- Service role can do everything
+CREATE POLICY "Service role full access to requests"
+ON quote_requests
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);
+
+-- ============================================================================
+-- 4. REQUEST_TARGETS TABLE
+-- ============================================================================
+
+ALTER TABLE request_targets ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Trades can view own targets" ON request_targets;
+DROP POLICY IF EXISTS "Clients can view targets for own requests" ON request_targets;
+DROP POLICY IF EXISTS "Trades can update own targets" ON request_targets;
+DROP POLICY IF EXISTS "Service role full access to targets" ON request_targets;
+
+-- Trades can see their own target records
+CREATE POLICY "Trades can view own targets"
+ON request_targets
+FOR SELECT
+TO authenticated
+USING (trade_id = auth.uid());
+
+-- Clients can see targets for their own requests
+CREATE POLICY "Clients can view targets for own requests"
+ON request_targets
+FOR SELECT
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM quote_requests
+    WHERE quote_requests.id = request_targets.request_id
+    AND quote_requests.requester_id = auth.uid()
+  )
+);
+
+-- Trades can update their own target records (e.g., accept/decline)
+CREATE POLICY "Trades can update own targets"
+ON request_targets
+FOR UPDATE
+TO authenticated
+USING (trade_id = auth.uid())
+WITH CHECK (trade_id = auth.uid());
+
+-- Service role can do everything (system creates targets)
+CREATE POLICY "Service role full access to targets"
+ON request_targets
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);
+
+-- ============================================================================
+-- 5. MESSAGES TABLE
+-- ============================================================================
+
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Users can view messages in their conversations" ON messages;
+DROP POLICY IF EXISTS "Users can send messages in their conversations" ON messages;
+DROP POLICY IF EXISTS "Service role full access to messages" ON messages;
+
+-- Users can see messages where they are a participant in the conversation
+CREATE POLICY "Users can view messages in their conversations"
+ON messages
+FOR SELECT
+TO authenticated
+USING (
+  sender_id = auth.uid()
+  OR is_request_participant(request_id)
+);
+
+-- Users can send messages where they are the sender and a participant
+CREATE POLICY "Users can send messages in their conversations"
+ON messages
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  sender_id = auth.uid()
+  AND is_request_participant(request_id)
+);
+
+-- Service role can do everything
+CREATE POLICY "Service role full access to messages"
+ON messages
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);
+
+-- ============================================================================
+-- 6. REVIEWS TABLE
+-- ============================================================================
+
+ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Authenticated users can view all reviews" ON reviews;
+DROP POLICY IF EXISTS "Users can create their own reviews" ON reviews;
+DROP POLICY IF EXISTS "Users can update own reviews" ON reviews;
+DROP POLICY IF EXISTS "Service role full access to reviews" ON reviews;
+
+-- Anyone authenticated can read reviews (public)
+CREATE POLICY "Authenticated users can view all reviews"
+ON reviews
+FOR SELECT
+TO authenticated
+USING (true);
+
+-- Users can insert reviews where they are the reviewer
+CREATE POLICY "Users can create their own reviews"
+ON reviews
+FOR INSERT
+TO authenticated
+WITH CHECK (reviewer_id = auth.uid());
+
+-- Users can update their own reviews
+CREATE POLICY "Users can update own reviews"
+ON reviews
+FOR UPDATE
+TO authenticated
+USING (reviewer_id = auth.uid())
+WITH CHECK (reviewer_id = auth.uid());
+
+-- Service role can do everything
+CREATE POLICY "Service role full access to reviews"
+ON reviews
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);
+
+-- ============================================================================
+-- 7. APPOINTMENTS TABLE
+-- ============================================================================
+-- Note: Appointments are linked through request_id and quote_id, not direct trade_id
+-- Access is controlled via relationships to quote_requests and tradify_native_app_db (quotes)
+
+ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Trades can view own appointments" ON appointments;
+DROP POLICY IF EXISTS "Clients can view appointments for their requests" ON appointments;
+DROP POLICY IF EXISTS "Trades can create appointments" ON appointments;
+DROP POLICY IF EXISTS "Trades can update own appointments" ON appointments;
+DROP POLICY IF EXISTS "Clients can update appointment status" ON appointments;
+DROP POLICY IF EXISTS "Service role full access to appointments" ON appointments;
+DROP POLICY IF EXISTS "Users can view related appointments" ON appointments;
+DROP POLICY IF EXISTS "Authenticated can view appointments via relationships" ON appointments;
+
+-- Users can view appointments for requests/quotes they are involved in
+-- Trades: via quote they own OR request_target they're in
+-- Clients: via quote_request they own
+CREATE POLICY "Authenticated can view appointments via relationships"
+ON appointments
+FOR SELECT
+TO authenticated
+USING (
+  -- Client owns the quote request
+  EXISTS (
+    SELECT 1 FROM quote_requests
+    WHERE quote_requests.id = appointments.request_id
+    AND quote_requests.requester_id = auth.uid()
+  )
+  OR
+  -- Trade owns the quote
+  EXISTS (
+    SELECT 1 FROM tradify_native_app_db
+    WHERE tradify_native_app_db.id = appointments.quote_id
+    AND tradify_native_app_db.trade_id = auth.uid()
+  )
+  OR
+  -- Trade is targeted on the request
+  EXISTS (
+    SELECT 1 FROM request_targets
+    WHERE request_targets.request_id = appointments.request_id
+    AND request_targets.trade_id = auth.uid()
+  )
+);
+
+-- Service role can do everything (RPC functions handle creation/updates)
+CREATE POLICY "Service role full access to appointments"
+ON appointments
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);
+
+-- ============================================================================
+-- 8. PHOTO_ID_SUBMISSIONS TABLE (SENSITIVE)
+-- ============================================================================
+-- Note: Table may not exist yet, or may have different column names.
+-- Check for both table AND column existence before creating policies.
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'photo_id_submissions' AND column_name = 'profile_id'
+  ) THEN
+    EXECUTE 'ALTER TABLE photo_id_submissions ENABLE ROW LEVEL SECURITY';
+
+    -- Drop existing policies if they exist
+    EXECUTE 'DROP POLICY IF EXISTS "Trades can view own photo_id submissions" ON photo_id_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Trades can create photo_id submissions" ON photo_id_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can view all photo_id submissions" ON photo_id_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can update photo_id submissions" ON photo_id_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Service role full access to photo_id_submissions" ON photo_id_submissions';
+
+    EXECUTE 'CREATE POLICY "Trades can view own photo_id submissions"
+    ON photo_id_submissions
+    FOR SELECT
+    TO authenticated
+    USING (profile_id = auth.uid())';
+
+    EXECUTE 'CREATE POLICY "Trades can create photo_id submissions"
+    ON photo_id_submissions
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (profile_id = auth.uid())';
+
+    EXECUTE 'CREATE POLICY "Admins can view all photo_id submissions"
+    ON photo_id_submissions
+    FOR SELECT
+    TO authenticated
+    USING (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Admins can update photo_id submissions"
+    ON photo_id_submissions
+    FOR UPDATE
+    TO authenticated
+    USING (is_admin())
+    WITH CHECK (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Service role full access to photo_id_submissions"
+    ON photo_id_submissions
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true)';
+  END IF;
+END $$;
+
+-- ============================================================================
+-- 9. INSURANCE_SUBMISSIONS TABLE (SENSITIVE)
+-- ============================================================================
+-- Note: Table may not exist yet, or may have different column names.
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'insurance_submissions' AND column_name = 'profile_id'
+  ) THEN
+    EXECUTE 'ALTER TABLE insurance_submissions ENABLE ROW LEVEL SECURITY';
+
+    -- Drop existing policies if they exist
+    EXECUTE 'DROP POLICY IF EXISTS "Trades can view own insurance submissions" ON insurance_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Trades can create insurance submissions" ON insurance_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can view all insurance submissions" ON insurance_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can update insurance submissions" ON insurance_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Service role full access to insurance_submissions" ON insurance_submissions';
+
+    EXECUTE 'CREATE POLICY "Trades can view own insurance submissions"
+    ON insurance_submissions
+    FOR SELECT
+    TO authenticated
+    USING (profile_id = auth.uid())';
+
+    EXECUTE 'CREATE POLICY "Trades can create insurance submissions"
+    ON insurance_submissions
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (profile_id = auth.uid())';
+
+    EXECUTE 'CREATE POLICY "Admins can view all insurance submissions"
+    ON insurance_submissions
+    FOR SELECT
+    TO authenticated
+    USING (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Admins can update insurance submissions"
+    ON insurance_submissions
+    FOR UPDATE
+    TO authenticated
+    USING (is_admin())
+    WITH CHECK (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Service role full access to insurance_submissions"
+    ON insurance_submissions
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true)';
+  END IF;
+END $$;
+
+-- ============================================================================
+-- 10. CREDENTIAL_SUBMISSIONS TABLE (SENSITIVE)
+-- ============================================================================
+
+-- Note: Table might be named credential_submissions or gas_safe_submissions
+-- Using DO block to handle if table doesn't exist
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'credential_submissions' AND column_name = 'profile_id'
+  ) THEN
+    EXECUTE 'ALTER TABLE credential_submissions ENABLE ROW LEVEL SECURITY';
+
+    -- Drop existing policies if they exist
+    EXECUTE 'DROP POLICY IF EXISTS "Trades can view own credential submissions" ON credential_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Trades can create credential submissions" ON credential_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can view all credential submissions" ON credential_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can update credential submissions" ON credential_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Service role full access to credential_submissions" ON credential_submissions';
+
+    EXECUTE 'CREATE POLICY "Trades can view own credential submissions"
+    ON credential_submissions
+    FOR SELECT
+    TO authenticated
+    USING (profile_id = auth.uid())';
+
+    EXECUTE 'CREATE POLICY "Trades can create credential submissions"
+    ON credential_submissions
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (profile_id = auth.uid())';
+
+    EXECUTE 'CREATE POLICY "Admins can view all credential submissions"
+    ON credential_submissions
+    FOR SELECT
+    TO authenticated
+    USING (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Admins can update credential submissions"
+    ON credential_submissions
+    FOR UPDATE
+    TO authenticated
+    USING (is_admin())
+    WITH CHECK (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Service role full access to credential_submissions"
+    ON credential_submissions
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true)';
+  END IF;
+END $$;
+
+-- ============================================================================
+-- 11. GAS_SAFE_SUBMISSIONS TABLE (if exists)
+-- ============================================================================
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'gas_safe_submissions' AND column_name = 'profile_id'
+  ) THEN
+    EXECUTE 'ALTER TABLE gas_safe_submissions ENABLE ROW LEVEL SECURITY';
+
+    -- Drop existing policies if they exist
+    EXECUTE 'DROP POLICY IF EXISTS "Trades can view own gas_safe submissions" ON gas_safe_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Trades can create gas_safe submissions" ON gas_safe_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can view all gas_safe submissions" ON gas_safe_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can update gas_safe submissions" ON gas_safe_submissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Service role full access to gas_safe_submissions" ON gas_safe_submissions';
+
+    EXECUTE 'CREATE POLICY "Trades can view own gas_safe submissions"
+    ON gas_safe_submissions
+    FOR SELECT
+    TO authenticated
+    USING (profile_id = auth.uid())';
+
+    EXECUTE 'CREATE POLICY "Trades can create gas_safe submissions"
+    ON gas_safe_submissions
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (profile_id = auth.uid())';
+
+    EXECUTE 'CREATE POLICY "Admins can view all gas_safe submissions"
+    ON gas_safe_submissions
+    FOR SELECT
+    TO authenticated
+    USING (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Admins can update gas_safe submissions"
+    ON gas_safe_submissions
+    FOR UPDATE
+    TO authenticated
+    USING (is_admin())
+    WITH CHECK (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Service role full access to gas_safe_submissions"
+    ON gas_safe_submissions
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true)';
+  END IF;
+END $$;
+
+-- ============================================================================
+-- 12. TRADE_VERIFICATIONS TABLE
+-- ============================================================================
+
+DO $$
+DECLARE
+  v_user_column TEXT;
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'trade_verifications') THEN
+    -- Determine which column to use for user identification (profile_id or user_id)
+    SELECT column_name INTO v_user_column
+    FROM information_schema.columns
+    WHERE table_name = 'trade_verifications'
+      AND column_name IN ('profile_id', 'user_id')
+    LIMIT 1;
+
+    -- If no user column found, skip RLS setup
+    IF v_user_column IS NULL THEN
+      RAISE NOTICE 'trade_verifications table has no profile_id or user_id column, skipping RLS';
+      RETURN;
+    END IF;
+
+    EXECUTE 'ALTER TABLE trade_verifications ENABLE ROW LEVEL SECURITY';
+
+    -- Drop existing policies if they exist
+    EXECUTE 'DROP POLICY IF EXISTS "Trades can view own verifications" ON trade_verifications';
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can view all verifications" ON trade_verifications';
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can update verifications" ON trade_verifications';
+    EXECUTE 'DROP POLICY IF EXISTS "Service role full access to trade_verifications" ON trade_verifications';
+
+    EXECUTE format('CREATE POLICY "Trades can view own verifications"
+    ON trade_verifications
+    FOR SELECT
+    TO authenticated
+    USING (%I = auth.uid())', v_user_column);
+
+    EXECUTE 'CREATE POLICY "Admins can view all verifications"
+    ON trade_verifications
+    FOR SELECT
+    TO authenticated
+    USING (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Admins can update verifications"
+    ON trade_verifications
+    FOR ALL
+    TO authenticated
+    USING (is_admin())
+    WITH CHECK (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Service role full access to trade_verifications"
+    ON trade_verifications
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true)';
+  END IF;
+END $$;
+
+-- ============================================================================
+-- 13. VERIFICATION_REVIEW_QUEUE TABLE
+-- ============================================================================
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'verification_review_queue') THEN
+    EXECUTE 'ALTER TABLE verification_review_queue ENABLE ROW LEVEL SECURITY';
+
+    -- Drop existing policies if they exist
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can view review queue" ON verification_review_queue';
+    EXECUTE 'DROP POLICY IF EXISTS "Admins can update review queue" ON verification_review_queue';
+    EXECUTE 'DROP POLICY IF EXISTS "Service role full access to review_queue" ON verification_review_queue';
+
+    -- Only admins can access this table
+    EXECUTE 'CREATE POLICY "Admins can view review queue"
+    ON verification_review_queue
+    FOR SELECT
+    TO authenticated
+    USING (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Admins can update review queue"
+    ON verification_review_queue
+    FOR ALL
+    TO authenticated
+    USING (is_admin())
+    WITH CHECK (is_admin())';
+
+    EXECUTE 'CREATE POLICY "Service role full access to review_queue"
+    ON verification_review_queue
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true)';
+  END IF;
+END $$;
+
+-- ============================================================================
+-- 14. SERVICE_TYPES & SERVICE_CATEGORIES (Public Reference Tables)
+-- ============================================================================
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'service_types') THEN
+    EXECUTE 'ALTER TABLE service_types ENABLE ROW LEVEL SECURITY';
+
+    -- Drop existing policies if they exist
+    EXECUTE 'DROP POLICY IF EXISTS "Everyone can view service types" ON service_types';
+    EXECUTE 'DROP POLICY IF EXISTS "Service role can modify service_types" ON service_types';
+
+    -- Everyone can read service types (reference data)
+    EXECUTE 'CREATE POLICY "Everyone can view service types"
+    ON service_types
+    FOR SELECT
+    TO authenticated, anon
+    USING (true)';
+
+    -- Only service role can modify
+    EXECUTE 'CREATE POLICY "Service role can modify service_types"
+    ON service_types
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true)';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'service_categories') THEN
+    EXECUTE 'ALTER TABLE service_categories ENABLE ROW LEVEL SECURITY';
+
+    -- Drop existing policies if they exist
+    EXECUTE 'DROP POLICY IF EXISTS "Everyone can view service categories" ON service_categories';
+    EXECUTE 'DROP POLICY IF EXISTS "Service role can modify service_categories" ON service_categories';
+
+    EXECUTE 'CREATE POLICY "Everyone can view service categories"
+    ON service_categories
+    FOR SELECT
+    TO authenticated, anon
+    USING (true)';
+
+    EXECUTE 'CREATE POLICY "Service role can modify service_categories"
+    ON service_categories
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true)';
+  END IF;
+END $$;
+
+-- ============================================================================
+-- 15. RATE_LIMITS TABLE (for rate limiting system)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS rate_limits (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  key TEXT NOT NULL UNIQUE,
+  attempts INT DEFAULT 1,
+  window_start TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limits_key ON rate_limits(key);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits(window_start);
+
+ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policy if it exists
+DROP POLICY IF EXISTS "Service role full access to rate_limits" ON rate_limits;
+
+-- Only service role can access rate_limits (used by RPC functions)
+CREATE POLICY "Service role full access to rate_limits"
+ON rate_limits
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);
+
+-- ============================================================================
+-- 16. RATE LIMITING FUNCTIONS
+-- ============================================================================
+
+-- Cleanup old rate limit records (run periodically)
+CREATE OR REPLACE FUNCTION cleanup_rate_limits()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM rate_limits WHERE window_start < NOW() - INTERVAL '24 hours';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Check rate limit and return status
+CREATE OR REPLACE FUNCTION check_rate_limit(
+  p_key TEXT,
+  p_max_attempts INT,
+  p_window_seconds INT
+)
+RETURNS TABLE (
+  allowed BOOLEAN,
+  remaining INT,
+  reset_at TIMESTAMPTZ
+) AS $$
+DECLARE
+  v_record rate_limits%ROWTYPE;
+  v_window_end TIMESTAMPTZ;
+BEGIN
+  -- Get or create record
+  INSERT INTO rate_limits (key, attempts, window_start)
+  VALUES (p_key, 1, NOW())
+  ON CONFLICT (key) DO UPDATE SET
+    attempts = CASE
+      WHEN rate_limits.window_start + (p_window_seconds || ' seconds')::INTERVAL < NOW()
+      THEN 1
+      ELSE rate_limits.attempts + 1
+    END,
+    window_start = CASE
+      WHEN rate_limits.window_start + (p_window_seconds || ' seconds')::INTERVAL < NOW()
+      THEN NOW()
+      ELSE rate_limits.window_start
+    END
+  RETURNING * INTO v_record;
+
+  v_window_end := v_record.window_start + (p_window_seconds || ' seconds')::INTERVAL;
+
+  RETURN QUERY SELECT
+    v_record.attempts <= p_max_attempts,
+    GREATEST(0, p_max_attempts - v_record.attempts),
+    v_window_end;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================================
+-- 17. INPUT VALIDATION CONSTANTS (for reference in RPC functions)
+-- ============================================================================
+
+-- These are reference limits that should be enforced in RPC functions:
+-- - Message body: max 5000 characters, min 1 character (trimmed)
+-- - Quote total_price: > 0, <= 1,000,000
+-- - Profile full_name: max 100 characters
+-- - Profile business_name: max 150 characters
+-- - Profile bio: max 1000 characters
+-- - Search queries: max 200 characters
+
+-- ============================================================================
+-- GRANT EXECUTE PERMISSIONS
+-- ============================================================================
+
+GRANT EXECUTE ON FUNCTION is_admin() TO authenticated;
+GRANT EXECUTE ON FUNCTION is_request_participant(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION check_rate_limit(TEXT, INT, INT) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION cleanup_rate_limits() TO service_role;
+
+-- ============================================================================
+-- NOTES:
+-- ============================================================================
+--
+-- 1. All SECURITY DEFINER functions bypass RLS, so they need internal auth checks
+-- 2. Service role is used for admin operations and cron jobs
+-- 3. The is_admin() function is used for admin-only operations
+-- 4. Rate limiting is enforced at the RPC level, not table level
+-- 5. Input validation should be done in both frontend and RPC functions
+--
+-- To enable periodic cleanup of rate limits, add this cron job in Supabase:
+-- SELECT cron.schedule('cleanup-rate-limits', '0 */1 * * *', 'SELECT cleanup_rate_limits()');
+--
+-- ============================================================================
