@@ -326,12 +326,12 @@ function PerformanceInfoModal({ visible, onClose }) {
               <ThemedText style={styles.infoSectionTitle}>Quote Rate</ThemedText>
             </View>
             <ThemedText style={styles.infoSectionText}>
-              This shows the percentage of requests you've accepted that resulted in you sending a quote to the client.
+              This shows the percentage of accepted requests that resulted in you sending a quote. You have 3 days after accepting before it affects your rate.
             </ThemedText>
             <View style={styles.infoTipBox}>
               <ThemedText style={styles.infoTipTitle}>How it's calculated</ThemedText>
               <ThemedText style={styles.infoTipText}>
-                If you accept 10 requests and send quotes for 8 of them, your quote rate is 80%. A higher quote rate shows you're actively pursuing work and following through with clients.
+                If you accept 10 requests and send quotes for 8 of them, your quote rate is 80%. Newly accepted requests won't affect your rate for 3 days, giving you time to schedule a survey or send a quote.
               </ThemedText>
             </View>
           </View>
@@ -682,7 +682,25 @@ function ActionItemsSection({ items, onItemPress, onSeeAll }) {
                 <Ionicons name={config.icon} size={14} color="#FFFFFF" />
               </View>
               <View style={styles.actionItemContent}>
-                <ThemedText style={styles.actionItemLabel}>{config.label}</ThemedText>
+                <View style={styles.actionItemLabelRow}>
+                  <ThemedText style={styles.actionItemLabel}>{config.label}</ThemedText>
+                  {item.extendedMatch && (
+                    <View style={styles.extendedMatchBadge}>
+                      <Ionicons name="car-outline" size={10} color="#3B82F6" />
+                      <ThemedText style={styles.extendedMatchText}>Extended travel</ThemedText>
+                    </View>
+                  )}
+                  {item.outsideServiceArea && (
+                    <View style={styles.outsideAreaBadge}>
+                      <Ionicons name="location-outline" size={10} color="#F59E0B" />
+                      <ThemedText style={styles.outsideAreaText}>
+                        {item.distanceMiles
+                          ? `${item.distanceMiles} mi away`
+                          : "Outside area"}
+                      </ThemedText>
+                    </View>
+                  )}
+                </View>
                 <ThemedText style={styles.actionItemTitle} numberOfLines={1}>
                   {item.title} · {item.clientName}
                 </ThemedText>
@@ -989,7 +1007,7 @@ export default function TradesmanHome() {
       // Fetch request targets (inbox)
       const { data: targets, error: tErr } = await supabase
         .from("request_targets")
-        .select("request_id, state, invited_by, created_at, trade_id")
+        .select("request_id, state, invited_by, created_at, trade_id, outside_service_area, distance_miles, extended_match, first_action_at")
         .eq("trade_id", myId)
         .order("created_at", { ascending: false });
       if (tErr) throw tErr;
@@ -1200,6 +1218,9 @@ export default function TradesmanHome() {
             surveyCompleted,
             surveyCompletedDaysAgo,
             clientName: getClientDisplayName(clientFullName, contactUnlocked),
+            outsideServiceArea: t.outside_service_area || false,
+            distanceMiles: t.distance_miles || null,
+            extendedMatch: t.extended_match || false,
           };
         });
 
@@ -1321,18 +1342,36 @@ export default function TradesmanHome() {
         ? reviewsData.reduce((sum, r) => sum + (r.rating || 0), 0) / reviewsData.length
         : 0;
 
-      // Quote rate: unique requests with quotes / total requests accepted
-      // This measures what % of accepted requests actually got a quote sent
-      const acceptedRequests = (targets || []).filter((t) =>
-        t.state?.toLowerCase().includes("accepted")
-      ).length;
-      const requestsWithQuotes = new Set(
+      // Quote rate with grace period:
+      // - Only count accepted requests that are "mature" (accepted > 3 days ago)
+      // - This gives trades time to send quotes before affecting their rate
+      const gracePeriodMs = 3 * 24 * 60 * 60 * 1000; // 3 days
+
+      const requestsWithQuotesSet = new Set(
         (quotes || [])
           .filter((q) => ["sent", "accepted", "declined", "expired", "completed", "awaiting_completion"].includes(q.status?.toLowerCase()))
           .map((q) => q.request_id)
-      ).size;
-      const quoteRate = acceptedRequests > 0
-        ? Math.min(100, Math.round((requestsWithQuotes / acceptedRequests) * 100))
+      );
+
+      // Filter to only "mature" accepted requests (accepted > 3 days ago)
+      // OR requests that already have quotes (regardless of age)
+      const matureAcceptedRequests = (targets || []).filter((t) => {
+        if (!t.state?.toLowerCase().includes("accepted")) return false;
+
+        // If this request already has a quote, include it (successful conversion)
+        if (requestsWithQuotesSet.has(t.request_id)) return true;
+
+        // Otherwise, only include if it's past the grace period
+        if (t.first_action_at) {
+          const acceptedAt = new Date(t.first_action_at);
+          return (today - acceptedAt) > gracePeriodMs;
+        }
+
+        return false; // No timestamp and no quote = still in grace period
+      });
+
+      const quoteRate = matureAcceptedRequests.length > 0
+        ? Math.min(100, Math.round((requestsWithQuotesSet.size / matureAcceptedRequests.length) * 100))
         : null;
 
       setPerformanceStats({
@@ -1418,6 +1457,9 @@ export default function TradesmanHome() {
         clientName: i.clientName || "Client",
         subtitle: i.budget_band ? `Budget: ${i.budget_band}` : null,
         requestId: i.request_id,
+        outsideServiceArea: i.outsideServiceArea,
+        distanceMiles: i.distanceMiles,
+        extendedMatch: i.extendedMatch,
       }));
 
     // Priority 3: Open requests (new, from system)
@@ -1430,6 +1472,9 @@ export default function TradesmanHome() {
         clientName: i.clientName || "Client",
         subtitle: i.budget_band ? `Budget: ${i.budget_band}` : null,
         requestId: i.request_id,
+        outsideServiceArea: i.outsideServiceArea,
+        distanceMiles: i.distanceMiles,
+        extendedMatch: i.extendedMatch,
       }));
 
     // Priority 4: Send quote needed (survey completed)
@@ -2049,10 +2094,43 @@ const styles = StyleSheet.create({
   actionItemContent: {
     flex: 1,
   },
+  actionItemLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   actionItemLabel: {
     fontSize: 12,
     fontWeight: "600",
     color: "#6B7280",
+  },
+  outsideAreaBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  outsideAreaText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#D97706",
+  },
+  extendedMatchBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#DBEAFE",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  extendedMatchText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#2563EB",
   },
   actionItemTitle: {
     fontSize: 15,

@@ -118,10 +118,10 @@ export default function ProfileScreen() {
         // Load performance stats (quote rate) for trades
         const myId = user.id;
 
-        // Fetch request targets
+        // Fetch request targets with timestamps
         const { data: targets } = await supabase
           .from("request_targets")
-          .select("request_id, state")
+          .select("request_id, state, first_action_at")
           .eq("trade_id", myId);
 
         // Fetch quotes
@@ -130,17 +130,37 @@ export default function ProfileScreen() {
           .select("id, request_id, status")
           .eq("trade_id", myId);
 
-        // Calculate quote rate: unique requests with quotes / total requests accepted
-        const acceptedRequests = (targets || []).filter((t) =>
-          t.state?.toLowerCase().includes("accepted")
-        ).length;
-        const requestsWithQuotes = new Set(
+        // Calculate quote rate with grace period:
+        // - Only count accepted requests that are "mature" (accepted > 3 days ago)
+        // - This gives trades time to send quotes before affecting their rate
+        const now = new Date();
+        const gracePeriodMs = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
+
+        const requestsWithQuotesSet = new Set(
           (quotes || [])
             .filter((q) => ["sent", "accepted", "declined", "expired", "completed", "awaiting_completion"].includes(q.status?.toLowerCase()))
             .map((q) => q.request_id)
-        ).size;
-        const quoteRate = acceptedRequests > 0
-          ? Math.min(100, Math.round((requestsWithQuotes / acceptedRequests) * 100))
+        );
+
+        // Filter to only "mature" accepted requests (accepted > 3 days ago)
+        // OR requests that already have quotes (regardless of age)
+        const matureAcceptedRequests = (targets || []).filter((t) => {
+          if (!t.state?.toLowerCase().includes("accepted")) return false;
+
+          // If this request already has a quote, include it (successful conversion)
+          if (requestsWithQuotesSet.has(t.request_id)) return true;
+
+          // Otherwise, only include if it's past the grace period
+          if (t.first_action_at) {
+            const acceptedAt = new Date(t.first_action_at);
+            return (now - acceptedAt) > gracePeriodMs;
+          }
+
+          return false; // No timestamp and no quote = still in grace period
+        });
+
+        const quoteRate = matureAcceptedRequests.length > 0
+          ? Math.min(100, Math.round((requestsWithQuotesSet.size / matureAcceptedRequests.length) * 100))
           : null;
 
         setPerformanceStats({

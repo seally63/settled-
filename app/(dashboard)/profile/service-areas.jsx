@@ -22,13 +22,22 @@ import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { Colors } from "../../../constants/Colors";
 
-import { getMyProfile, updateServiceRadius } from "../../../lib/api/profile";
+import { getMyProfile, updateServiceRadius, updateExtendedTravel } from "../../../lib/api/profile";
 
 const TINT = Colors.primary;
 
 // Miles to km conversion
 const MILES_TO_KM = 1.60934;
 const RADIUS_OPTIONS = [5, 10, 15, 20, 25, 30, 40, 50]; // in miles
+const EXTENDED_RADIUS_OPTIONS = [30, 40, 50, 60, 75, 100, 125, 150, 200]; // in miles (larger range)
+
+// Budget bands for extended travel
+const BUDGET_BANDS = [
+  { value: "£3k–£5k", label: "£3,000 – £5,000" },
+  { value: "£6k–£9k", label: "£6,000 – £9,000" },
+  { value: "£10k–£15k", label: "£10,000 – £15,000" },
+  { value: "£15k+", label: "Over £15,000" },
+];
 
 export default function ServiceAreasScreen() {
   const insets = useSafeAreaInsets();
@@ -39,6 +48,13 @@ export default function ServiceAreasScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showRadiusSheet, setShowRadiusSheet] = useState(false);
+
+  // Extended travel settings
+  const [extendedTravelEnabled, setExtendedTravelEnabled] = useState(false);
+  const [extendedRadius, setExtendedRadius] = useState(50); // in miles
+  const [extendedMinBudget, setExtendedMinBudget] = useState("£3k–£5k");
+  const [showExtendedRadiusSheet, setShowExtendedRadiusSheet] = useState(false);
+  const [showBudgetSheet, setShowBudgetSheet] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -61,6 +77,19 @@ export default function ServiceAreasScreen() {
         );
         setTravelRadius(closest);
       }
+
+      // Load extended travel settings
+      if (profile?.extended_radius_km && profile?.extended_radius_min_budget) {
+        setExtendedTravelEnabled(true);
+        const extMiles = Math.round(profile.extended_radius_km / MILES_TO_KM);
+        const closestExt = EXTENDED_RADIUS_OPTIONS.reduce((prev, curr) =>
+          Math.abs(curr - extMiles) < Math.abs(prev - extMiles) ? curr : prev
+        );
+        setExtendedRadius(closestExt);
+        setExtendedMinBudget(profile.extended_radius_min_budget);
+      } else {
+        setExtendedTravelEnabled(false);
+      }
     } catch (e) {
       console.log("Error loading profile:", e);
     } finally {
@@ -74,14 +103,32 @@ export default function ServiceAreasScreen() {
 
       // Save travel radius (convert miles to km)
       const radiusKm = Math.round(travelRadius * MILES_TO_KM);
-      console.log("Saving radius:", radiusKm, "km");
-      await updateServiceRadius(radiusKm);
+      console.log("[DEBUG] handleSave called");
+      console.log("[DEBUG] travelRadius (miles):", travelRadius);
+      console.log("[DEBUG] radiusKm:", radiusKm);
 
-      Alert.alert("Success", "Travel radius updated.", [
+      console.log("[DEBUG] Calling updateServiceRadius...");
+      const result = await updateServiceRadius(radiusKm);
+      console.log("[DEBUG] updateServiceRadius result:", result);
+
+      // Save extended travel settings
+      if (extendedTravelEnabled) {
+        const extRadiusKm = Math.round(extendedRadius * MILES_TO_KM);
+        console.log("[DEBUG] Saving extended radius:", extRadiusKm, "km, min budget:", extendedMinBudget);
+        await updateExtendedTravel(extRadiusKm, extendedMinBudget);
+      } else {
+        // Disable extended travel
+        console.log("[DEBUG] Disabling extended travel");
+        await updateExtendedTravel(null, null);
+      }
+
+      Alert.alert("Success", "Service area settings updated.", [
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (e) {
-      console.log("Save error:", e);
+      console.log("[DEBUG] Save error object:", e);
+      console.log("[DEBUG] Save error message:", e?.message);
+      console.log("[DEBUG] Save error details:", JSON.stringify(e, null, 2));
       Alert.alert("Error", e.message || "Failed to save.");
     } finally {
       setSaving(false);
@@ -177,6 +224,95 @@ export default function ServiceAreasScreen() {
 
         <Spacer height={24} />
 
+        {/* Extended Travel Section */}
+        <View style={styles.sectionHeader}>
+          <ThemedText style={styles.sectionTitle}>Extended travel</ThemedText>
+        </View>
+
+        <Spacer height={8} />
+
+        <View style={styles.settingsCard}>
+          {/* Toggle Row */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.settingsRow,
+              styles.settingsRowTappable,
+              pressed && styles.settingsRowPressed,
+            ]}
+            onPress={() => setExtendedTravelEnabled(!extendedTravelEnabled)}
+          >
+            <View style={styles.settingsRowLeft}>
+              <Ionicons name="car-outline" size={18} color={Colors.light.subtitle} style={styles.settingsIcon} />
+              <View style={{ flex: 1 }}>
+                <ThemedText style={styles.settingsLabel}>Willing to travel further</ThemedText>
+                <ThemedText style={styles.settingsHint}>For larger budget jobs</ThemedText>
+              </View>
+            </View>
+            <View style={[
+              styles.toggleTrack,
+              extendedTravelEnabled && styles.toggleTrackActive,
+            ]}>
+              <View style={[
+                styles.toggleThumb,
+                extendedTravelEnabled && styles.toggleThumbActive,
+              ]} />
+            </View>
+          </Pressable>
+
+          {/* Extended settings (shown when enabled) */}
+          {extendedTravelEnabled && (
+            <>
+              <View style={styles.cardDivider} />
+
+              {/* Extended Radius Row */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.settingsRow,
+                  styles.settingsRowTappable,
+                  pressed && styles.settingsRowPressed,
+                ]}
+                onPress={() => setShowExtendedRadiusSheet(true)}
+              >
+                <View style={styles.settingsRowLeft}>
+                  <Ionicons name="resize-outline" size={18} color={Colors.light.subtitle} style={styles.settingsIcon} />
+                  <ThemedText style={styles.settingsLabel}>Extended distance</ThemedText>
+                </View>
+                <View style={styles.settingsRowRight}>
+                  <ThemedText style={styles.settingsValue}>
+                    {extendedRadius} miles
+                  </ThemedText>
+                  <Ionicons name="chevron-forward" size={18} color={Colors.light.subtitle} />
+                </View>
+              </Pressable>
+
+              <View style={styles.cardDivider} />
+
+              {/* Minimum Budget Row */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.settingsRow,
+                  styles.settingsRowTappable,
+                  pressed && styles.settingsRowPressed,
+                ]}
+                onPress={() => setShowBudgetSheet(true)}
+              >
+                <View style={styles.settingsRowLeft}>
+                  <Ionicons name="cash-outline" size={18} color={Colors.light.subtitle} style={styles.settingsIcon} />
+                  <ThemedText style={styles.settingsLabel}>Minimum budget</ThemedText>
+                </View>
+                <View style={styles.settingsRowRight}>
+                  <ThemedText style={styles.settingsValue}>
+                    {BUDGET_BANDS.find(b => b.value === extendedMinBudget)?.label || extendedMinBudget}
+                  </ThemedText>
+                  <Ionicons name="chevron-forward" size={18} color={Colors.light.subtitle} />
+                </View>
+              </Pressable>
+            </>
+          )}
+        </View>
+
+        <Spacer height={24} />
+
         {/* Info Box */}
         <View style={styles.infoBox}>
           <Ionicons name="information-circle-outline" size={20} color={Colors.light.subtitle} />
@@ -185,6 +321,17 @@ export default function ServiceAreasScreen() {
             <ThemedText style={styles.infoTextBold}>{travelRadius} miles</ThemedText>
             {" "}of{" "}
             <ThemedText style={styles.infoTextBold}>{basePostcode || "your base address"}</ThemedText>.
+            {extendedTravelEnabled && (
+              <>
+                {"\n\n"}For jobs with a budget of{" "}
+                <ThemedText style={styles.infoTextBold}>
+                  {BUDGET_BANDS.find(b => b.value === extendedMinBudget)?.label || extendedMinBudget}
+                </ThemedText>
+                {" "}or more, you'll also appear to clients up to{" "}
+                <ThemedText style={styles.infoTextBold}>{extendedRadius} miles</ThemedText>
+                {" "}away.
+              </>
+            )}
           </ThemedText>
         </View>
 
@@ -262,6 +409,130 @@ export default function ServiceAreasScreen() {
                     {item} miles
                   </ThemedText>
                   {travelRadius === item && (
+                    <Ionicons name="checkmark" size={20} color={TINT} />
+                  )}
+                </Pressable>
+              )}
+            />
+
+            <Spacer height={Platform.OS === 'ios' ? 24 : 16} />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Extended Radius Picker Modal */}
+      <Modal
+        visible={showExtendedRadiusSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowExtendedRadiusSheet(false)}
+      >
+        <View style={styles.sheetOverlay}>
+          <Pressable style={styles.sheetBackdrop} onPress={() => setShowExtendedRadiusSheet(false)} />
+          <View style={styles.sheetContent}>
+            <View style={styles.sheetHandle} />
+
+            <View style={styles.sheetHeader}>
+              <ThemedText style={styles.sheetTitle}>Extended distance</ThemedText>
+              <Pressable onPress={() => setShowExtendedRadiusSheet(false)} hitSlop={10} style={styles.sheetCloseBtn}>
+                <Ionicons name="close" size={20} color="#111827" />
+              </Pressable>
+            </View>
+
+            <Spacer height={8} />
+            <ThemedText style={styles.sheetSubtitle}>
+              Maximum distance you'll travel for higher-budget jobs
+            </ThemedText>
+
+            <Spacer height={16} />
+
+            <FlatList
+              data={EXTENDED_RADIUS_OPTIONS}
+              keyExtractor={(item) => item.toString()}
+              style={styles.radiusList}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={[
+                    styles.radiusOption,
+                    extendedRadius === item && styles.radiusOptionSelected,
+                  ]}
+                  onPress={() => {
+                    setExtendedRadius(item);
+                    setShowExtendedRadiusSheet(false);
+                  }}
+                >
+                  <ThemedText
+                    style={[
+                      styles.radiusOptionText,
+                      extendedRadius === item && styles.radiusOptionTextSelected,
+                    ]}
+                  >
+                    {item} miles
+                  </ThemedText>
+                  {extendedRadius === item && (
+                    <Ionicons name="checkmark" size={20} color={TINT} />
+                  )}
+                </Pressable>
+              )}
+            />
+
+            <Spacer height={Platform.OS === 'ios' ? 24 : 16} />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Budget Band Picker Modal */}
+      <Modal
+        visible={showBudgetSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowBudgetSheet(false)}
+      >
+        <View style={styles.sheetOverlay}>
+          <Pressable style={styles.sheetBackdrop} onPress={() => setShowBudgetSheet(false)} />
+          <View style={styles.sheetContent}>
+            <View style={styles.sheetHandle} />
+
+            <View style={styles.sheetHeader}>
+              <ThemedText style={styles.sheetTitle}>Minimum budget</ThemedText>
+              <Pressable onPress={() => setShowBudgetSheet(false)} hitSlop={10} style={styles.sheetCloseBtn}>
+                <Ionicons name="close" size={20} color="#111827" />
+              </Pressable>
+            </View>
+
+            <Spacer height={8} />
+            <ThemedText style={styles.sheetSubtitle}>
+              Only show you to clients with jobs at this budget or higher
+            </ThemedText>
+
+            <Spacer height={16} />
+
+            <FlatList
+              data={BUDGET_BANDS}
+              keyExtractor={(item) => item.value}
+              style={styles.radiusList}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={[
+                    styles.radiusOption,
+                    extendedMinBudget === item.value && styles.radiusOptionSelected,
+                  ]}
+                  onPress={() => {
+                    setExtendedMinBudget(item.value);
+                    setShowBudgetSheet(false);
+                  }}
+                >
+                  <ThemedText
+                    style={[
+                      styles.radiusOptionText,
+                      extendedMinBudget === item.value && styles.radiusOptionTextSelected,
+                    ]}
+                  >
+                    {item.label}
+                  </ThemedText>
+                  {extendedMinBudget === item.value && (
                     <Ionicons name="checkmark" size={20} color={TINT} />
                   )}
                 </Pressable>
@@ -486,5 +757,48 @@ const styles = StyleSheet.create({
   radiusOptionTextSelected: {
     color: TINT,
     fontWeight: "500",
+  },
+  // Section header
+  sectionHeader: {
+    marginTop: 8,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Colors.light.subtitle,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  // Settings hint text
+  settingsHint: {
+    fontSize: 13,
+    color: Colors.light.subtitle,
+    marginTop: 2,
+  },
+  // Toggle styles
+  toggleTrack: {
+    width: 51,
+    height: 31,
+    borderRadius: 16,
+    backgroundColor: "#E5E7EB",
+    justifyContent: "center",
+    padding: 2,
+  },
+  toggleTrackActive: {
+    backgroundColor: TINT,
+  },
+  toggleThumb: {
+    width: 27,
+    height: 27,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleThumbActive: {
+    alignSelf: "flex-end",
   },
 });
