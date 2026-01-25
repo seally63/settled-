@@ -38,6 +38,7 @@ import {
   getTimingOptions,
 } from "../../../lib/api/services";
 import { geocodeUKPostcode } from "../../../lib/api/places";
+import { checkServiceAreaDistance } from "../../../lib/api/directRequest";
 import { CATEGORIES as HOME_CATEGORIES } from "../../../components/client/home/PopularServicesGrid";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -183,6 +184,11 @@ export default function ClientHome() {
   // Step 6: Review & Submit
   const [submitting, setSubmitting] = useState(false);
   const [editingFromReview, setEditingFromReview] = useState(false);
+
+  // Service area warning for direct requests
+  const [showServiceAreaWarning, setShowServiceAreaWarning] = useState(false);
+  const [serviceAreaInfo, setServiceAreaInfo] = useState(null);
+  const [pendingSubmitData, setPendingSubmitData] = useState(null);
 
   // Upload overlay
   const [uploading, setUploading] = useState(false);
@@ -374,12 +380,16 @@ export default function ClientHome() {
       const newUris = (result.assets || []).slice(0, remaining).map((a) => a.uri);
       if (!newUris.length) return;
 
-      // Show processing overlay while making thumbnails
+      // Show processing overlay BEFORE starting thumbnail work
+      // Set state and wait for React to paint the overlay
       setPrepVisible(true);
       setPrepPhase("preparing");
       setPrepTotal(newUris.length);
       setPrepDone(0);
       setPrepStartedAt(Date.now());
+
+      // Wait for overlay to render before starting heavy work
+      await paintFrames(2);
 
       try {
         const thumbs = await makeThumbnails(newUris);
@@ -413,12 +423,15 @@ export default function ClientHome() {
       const asset = result.assets?.[0];
       if (!asset?.uri) return;
 
-      // Show processing overlay
+      // Show processing overlay BEFORE starting thumbnail work
       setPrepVisible(true);
       setPrepPhase("preparing");
       setPrepTotal(1);
       setPrepDone(0);
       setPrepStartedAt(Date.now());
+
+      // Wait for overlay to render before starting heavy work
+      await paintFrames(2);
 
       try {
         const [thumb] = await makeThumbnails([asset.uri]);
@@ -486,8 +499,8 @@ export default function ClientHome() {
     }
   }
 
-  // ===== Submit request =====
-  async function submitRequest() {
+  // ===== Check service area before submitting (for direct requests) =====
+  async function checkServiceAreaBeforeSubmit() {
     try {
       if (!user?.id) return Alert.alert("Please log in to submit a request.");
       if (!selectedCategory) return Alert.alert("Please select a category.");
@@ -495,10 +508,60 @@ export default function ClientHome() {
       if (!selectedTiming) return Alert.alert("Please select when you need this done.");
       if (!postcode?.trim()) return Alert.alert("Please enter your postcode.");
 
-      setSubmitting(true);
-
-      // Normalize postcode to uppercase
       const normalizedPostcode = postcode.trim().toUpperCase();
+
+      // For direct requests to a specific trade, check service area first
+      if (prefillTradeId) {
+        setSubmitting(true);
+        try {
+          const areaCheck = await checkServiceAreaDistance(prefillTradeId, normalizedPostcode);
+
+          if (areaCheck.isOutsideServiceArea) {
+            // Show warning modal and save data for later submission
+            setServiceAreaInfo(areaCheck);
+            setPendingSubmitData({ normalizedPostcode, outsideServiceArea: true });
+            setShowServiceAreaWarning(true);
+            setSubmitting(false);
+            return;
+          }
+
+          // Within service area - proceed with normal submission
+          setPendingSubmitData({ normalizedPostcode, outsideServiceArea: false, areaCheck });
+          await doSubmitRequest(normalizedPostcode, false, areaCheck);
+        } catch (e) {
+          setSubmitting(false);
+          console.log("Service area check failed:", e?.message);
+          // If check fails, proceed anyway (don't block the user)
+          await doSubmitRequest(normalizedPostcode, false, null);
+        }
+      } else {
+        // Not a direct request - proceed normally
+        await doSubmitRequest(normalizedPostcode, false, null);
+      }
+    } catch (e) {
+      setSubmitting(false);
+      Alert.alert("Error", e?.message || "Could not submit request.");
+    }
+  }
+
+  // Called when user confirms "Send Anyway" from service area warning
+  async function confirmOutsideServiceAreaSubmit() {
+    setShowServiceAreaWarning(false);
+    if (pendingSubmitData) {
+      await doSubmitRequest(
+        pendingSubmitData.normalizedPostcode,
+        true, // outsideServiceArea = true
+        serviceAreaInfo
+      );
+    }
+  }
+
+  // ===== Actually submit the request =====
+  async function doSubmitRequest(normalizedPostcode, outsideServiceArea = false, areaCheck = null) {
+    try {
+      if (!user?.id) return Alert.alert("Please log in to submit a request.");
+
+      setSubmitting(true);
 
       // Geocode the postcode to get coordinates for trade matching
       let locationLat = null;
@@ -550,6 +613,7 @@ export default function ClientHome() {
           postcode: normalizedPostcode,
           location_lat: locationLat,
           location_lon: locationLon,
+          is_direct: prefillTradeId ? true : false, // Mark as direct if requesting specific trade
           // budget_band temporarily null - run SQL to update constraint for new values
         })
         .select("id")
@@ -561,19 +625,30 @@ export default function ClientHome() {
       await uploadAndAttach(created.id);
       resetPhotoUI();
 
-      // If requesting from a specific trade, create a direct match
+      // If requesting from a specific trade, create a direct request_target
       // Otherwise, run the match-trades function to find suitable trades
       if (prefillTradeId) {
         try {
-          // Create a direct match for the specific trade
-          await supabase.from("quote_request_matches").insert({
+          // Create a direct request target for the specific trade
+          // Use the areaCheck passed from the service area check
+          const targetRow = {
             request_id: created.id,
             trade_id: prefillTradeId,
-            match_score: 100, // Direct request = perfect match
-            status: "pending",
-          });
+            invited_by: "client", // Mark as client-initiated direct request
+            state: "invited",
+          };
+
+          // Add service area flags if we have distance info from the pre-check
+          if (areaCheck?.distanceMiles != null) {
+            targetRow.distance_miles = areaCheck.distanceMiles;
+            if (outsideServiceArea) {
+              targetRow.outside_service_area = true;
+            }
+          }
+
+          await supabase.from("request_targets").insert(targetRow);
         } catch (matchErr) {
-          console.log("Direct match creation failed:", matchErr?.message || matchErr);
+          console.log("Direct request target creation failed:", matchErr?.message || matchErr);
         }
       } else {
         // Match trades automatically
@@ -590,22 +665,42 @@ export default function ClientHome() {
         "Request submitted",
         prefillTradeId
           ? `Your quote request was sent to ${prefillTradeName}!`
-          : "Your quote request was sent successfully!"
+          : "Your quote request was sent successfully!",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              // Use back navigation for proper "back" animation
+              // If we came from a deep link (has prefill params), go back
+              // Otherwise reset form and go to client projects
+              if (prefillTradeId || prefillCategory) {
+                // Came from somewhere else - go back with back animation
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace("/(dashboard)/client/myquotes");
+                }
+              } else {
+                // Started fresh on this page - go to projects tab
+                router.replace("/(dashboard)/client/myquotes");
+              }
+            },
+          },
+        ]
       );
-
-      // Reset form
-      setStep(0);
-      setSelectedCategory(null);
-      setSelectedServiceType(null);
-      setDescription("");
-      setPostcode("");
-      setSelectedPropertyType(null);
-      setSelectedBudget(null);
-      setPhotos([]);
-      setSelectedTiming(null);
-      resetPhotoUI();
     } catch (e) {
-      Alert.alert("Error", e.message);
+      // Parse limit error messages for better UX
+      const msg = e?.message || "";
+      let errorMessage = msg;
+
+      if (msg.includes("LIMIT_REACHED:")) {
+        const parts = msg.split(":");
+        errorMessage = parts.slice(2).join(":").trim() || "You've reached your request limit.";
+      } else if (msg.toLowerCase().includes("3 open requests") || msg.toLowerCase().includes("limit")) {
+        errorMessage = "You've reached your request limit. Wait for quotes to come in or for a trade to respond.";
+      }
+
+      Alert.alert("Unable to Submit", errorMessage);
     } finally {
       setSubmitting(false);
     }
@@ -646,51 +741,48 @@ export default function ClientHome() {
   }
 
   // ===== Overlays =====
-  const UploadOverlay = () => {
-    const isVisible = prepVisible || (uploading && uploadTotal > 0);
-    if (!isVisible) return null;
+  // Compute visibility outside the component to ensure consistent rendering
+  const isOverlayVisible = prepVisible || (uploading && uploadTotal > 0);
+  const uploadPct = uploading && uploadTotal ? Math.round((uploadIdx / uploadTotal) * 100) : 0;
+  const overlayTitle = prepVisible
+    ? prepPhase === "preparing"
+      ? "Preparing your photos…"
+      : "Rendering your photos…"
+    : "Uploading your photos…";
 
-    const pct = uploading && uploadTotal ? Math.round((uploadIdx / uploadTotal) * 100) : 0;
-    const title = prepVisible
-      ? prepPhase === "preparing"
-        ? "Preparing your photos…"
-        : "Rendering your photos…"
-      : "Uploading your photos…";
-
-    return (
-      <Modal
-        visible
-        transparent
-        animationType="none"
-        statusBarTranslucent
-        hardwareAccelerated
-        presentationStyle="overFullScreen"
-        onRequestClose={() => {}}
-      >
-        <View style={styles.uploadBackdrop}>
-          <View style={styles.uploadCard}>
-            <ActivityIndicator size="large" color={Colors.primary} />
-            <ThemedText style={styles.uploadTitle}>{title}</ThemedText>
-            {prepVisible && prepPhase === "preparing" ? (
+  const UploadOverlay = () => (
+    <Modal
+      visible={isOverlayVisible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      hardwareAccelerated
+      presentationStyle="overFullScreen"
+      onRequestClose={() => {}}
+    >
+      <View style={styles.uploadBackdrop}>
+        <View style={styles.uploadCard}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <ThemedText style={styles.uploadTitle}>{overlayTitle}</ThemedText>
+          {prepVisible && prepPhase === "preparing" ? (
+            <ThemedText style={styles.uploadSub}>
+              {prepDone} of {prepTotal}
+            </ThemedText>
+          ) : null}
+          {!prepVisible && uploading && uploadTotal > 0 ? (
+            <>
               <ThemedText style={styles.uploadSub}>
-                {prepDone} of {prepTotal}
+                {uploadIdx} of {uploadTotal}
               </ThemedText>
-            ) : null}
-            {!prepVisible && uploading && uploadTotal > 0 ? (
-              <>
-                <ThemedText style={styles.uploadSub}>
-                  {uploadIdx} of {uploadTotal}
-                </ThemedText>
-                <View style={styles.uploadBar}>
-                  <View style={[styles.uploadFill, { width: `${pct}%`, backgroundColor: Colors.primary }]} />
-                </View>
-              </>
-            ) : null}
-          </View>
+              <View style={styles.uploadBar}>
+                <View style={[styles.uploadFill, { width: `${uploadPct}%`, backgroundColor: Colors.primary }]} />
+              </View>
+            </>
+          ) : null}
         </View>
-      </Modal>
-    );
-  };
+      </View>
+    </Modal>
+  );
 
   // ===== Full-screen image viewer with zoom and swipe-to-dismiss =====
   const closeViewer = () => setViewer({ open: false, index: 0 });
@@ -1319,7 +1411,7 @@ export default function ClientHome() {
 
         <View style={styles.continueButtonContainer}>
           <ThemedButton
-            onPress={submitRequest}
+            onPress={checkServiceAreaBeforeSubmit}
             disabled={submitting}
             style={styles.continueButton}
           >
@@ -1334,6 +1426,62 @@ export default function ClientHome() {
         </ThemedText>
       </ScrollView>
       <UploadOverlay />
+
+      {/* Service Area Warning Modal for direct requests */}
+      <Modal
+        visible={showServiceAreaWarning}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowServiceAreaWarning(false)}
+      >
+        <View style={styles.warningModalOverlay}>
+          <View style={styles.warningModalContent}>
+            <View style={styles.warningIconContainer}>
+              <Ionicons name="location-outline" size={32} color="#F59E0B" />
+            </View>
+
+            <ThemedText style={styles.warningTitle}>Outside Service Area</ThemedText>
+
+            <ThemedText style={styles.warningText}>
+              {prefillTradeName || "This trade"} typically works within{" "}
+              <ThemedText style={styles.warningHighlight}>
+                {serviceAreaInfo?.serviceRadiusMiles} miles
+              </ThemedText>{" "}
+              of {serviceAreaInfo?.tradeCity || serviceAreaInfo?.tradePostcode || "their location"}.
+            </ThemedText>
+
+            <ThemedText style={styles.warningText}>
+              Your location is{" "}
+              <ThemedText style={styles.warningHighlight}>
+                {serviceAreaInfo?.distanceMiles} miles
+              </ThemedText>{" "}
+              away. They may decline requests outside their area.
+            </ThemedText>
+
+            <View style={styles.warningButtonRow}>
+              <Pressable
+                style={styles.warningCancelButton}
+                onPress={() => {
+                  setShowServiceAreaWarning(false);
+                  setPendingSubmitData(null);
+                }}
+              >
+                <ThemedText style={styles.warningCancelText}>Cancel</ThemedText>
+              </Pressable>
+
+              <Pressable
+                style={styles.warningSendButton}
+                onPress={confirmOutsideServiceAreaSubmit}
+                disabled={submitting}
+              >
+                <ThemedText style={styles.warningSendText}>
+                  {submitting ? "Sending…" : "Send Anyway"}
+                </ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 
@@ -1857,5 +2005,79 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
     fontSize: 14,
+  },
+
+  // Service Area Warning Modal
+  warningModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  warningModalContent: {
+    width: "100%",
+    maxWidth: 340,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+  },
+  warningIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  warningTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  warningText: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  warningHighlight: {
+    fontWeight: "600",
+    color: "#D97706",
+  },
+  warningButtonRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+    width: "100%",
+  },
+  warningCancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+  },
+  warningCancelText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  warningSendButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+    alignItems: "center",
+  },
+  warningSendText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#fff",
   },
 });
