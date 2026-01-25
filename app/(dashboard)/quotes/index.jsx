@@ -7,6 +7,7 @@ import {
   ScrollView,
   Pressable,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -22,6 +23,7 @@ import { ProjectsPageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
+import { acceptRequest, declineRequest } from "../../../lib/api/requests";
 
 const TINT = Colors?.light?.tint || "#6849a7";
 
@@ -232,6 +234,28 @@ function ProjectCard({ item, onPress }) {
         <ThemedText style={styles.budgetText}>{item.budgetInfo}</ThemedText>
       )}
 
+      {/* Extended match badge (for larger budget jobs outside normal radius) */}
+      {item.extendedMatch && (
+        <View style={styles.extendedMatchBadge}>
+          <Ionicons name="car-outline" size={12} color="#3B82F6" />
+          <ThemedText style={styles.extendedMatchText}>
+            Extended travel job
+          </ThemedText>
+        </View>
+      )}
+
+      {/* Outside service area badge */}
+      {item.outsideServiceArea && (
+        <View style={styles.outsideAreaBadge}>
+          <Ionicons name="location-outline" size={12} color="#F59E0B" />
+          <ThemedText style={styles.outsideAreaText}>
+            {item.distanceMiles
+              ? `Outside your service area (${item.distanceMiles} miles away)`
+              : "Outside your service area"}
+          </ThemedText>
+        </View>
+      )}
+
       {/* Status with icon */}
       <View style={styles.statusRow}>
         {status.text && (
@@ -389,10 +413,19 @@ export default function TradesmanProjects() {
     try {
       const myId = user.id;
 
+      // Fetch trade's current service radius to dynamically calculate if jobs are outside area
+      const { data: tradeProfile } = await supabase
+        .from("profiles")
+        .select("service_radius_km")
+        .eq("id", myId)
+        .single();
+      const currentServiceRadiusKm = tradeProfile?.service_radius_km ?? 40; // Default 40km (~25 miles)
+      const currentServiceRadiusMiles = currentServiceRadiusKm * 0.621371;
+
       // Fetch request targets (inbox)
       const { data: targets, error: tErr } = await supabase
         .from("request_targets")
-        .select("request_id, state, invited_by, created_at, trade_id")
+        .select("request_id, state, invited_by, created_at, trade_id, outside_service_area, distance_miles, extended_match")
         .eq("trade_id", myId)
         .order("created_at", { ascending: false });
       if (tErr) throw tErr;
@@ -548,6 +581,13 @@ export default function TradesmanProjects() {
             }
           }
 
+          // Calculate outsideServiceArea dynamically based on current service radius
+          // This ensures if trade changes their radius, the flag updates immediately
+          const distanceMiles = t.distance_miles || null;
+          const outsideServiceArea = distanceMiles != null
+            ? distanceMiles > currentServiceRadiusMiles
+            : (t.outside_service_area || false); // Fallback to stored flag if no distance
+
           return {
             request_id: t.request_id,
             invited_at: t.created_at,
@@ -565,6 +605,9 @@ export default function TradesmanProjects() {
             clientPostcode: contactInfo.postcode || r?.postcode || null,
             contactUnlocked,
             nextAppointment,
+            outsideServiceArea,
+            distanceMiles,
+            extendedMatch: t.extended_match || false,
           };
         });
 
@@ -810,6 +853,9 @@ export default function TradesmanProjects() {
           statusText,
           statusDetail,
           quoteAmount: null,
+          outsideServiceArea: item.outsideServiceArea,
+          distanceMiles: item.distanceMiles,
+          extendedMatch: item.extendedMatch,
           actions: [
             {
               label: "Schedule Visit",
@@ -865,6 +911,68 @@ export default function TradesmanProjects() {
         subStatus = "survey_confirmed";
       }
 
+      // Create handler functions for accept/decline that call API directly
+      const handleAccept = async () => {
+        const isOutsideArea = item.outsideServiceArea;
+        const distanceInfo = item.distanceMiles ? ` (${item.distanceMiles} miles away)` : "";
+
+        const title = isOutsideArea ? "Accept anyway?" : "Accept request";
+        const message = isOutsideArea
+          ? `This client is outside your service area${distanceInfo}. Are you sure you want to accept this request?`
+          : "Confirm you want to accept this request?";
+
+        Alert.alert(title, message, [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: isOutsideArea ? "Accept anyway" : "Accept",
+            onPress: async () => {
+              try {
+                await acceptRequest(item.request_id);
+                // Also update request_targets.state directly
+                if (user?.id) {
+                  await supabase
+                    .from("request_targets")
+                    .update({ state: "accepted" })
+                    .eq("request_id", item.request_id)
+                    .eq("trade_id", user.id);
+                }
+                // Reload data to reflect the change
+                load();
+              } catch (e) {
+                Alert.alert("Accept Failed", e?.message || "Unable to accept this request.");
+              }
+            },
+          },
+        ]);
+      };
+
+      const handleDecline = async () => {
+        Alert.alert("Decline request", "Are you sure you want to decline?", [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Decline",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await declineRequest(item.request_id);
+                // Also update request_targets.state directly
+                if (user?.id) {
+                  await supabase
+                    .from("request_targets")
+                    .update({ state: "declined" })
+                    .eq("request_id", item.request_id)
+                    .eq("trade_id", user.id);
+                }
+                // Reload data to reflect the change
+                load();
+              } catch (e) {
+                Alert.alert("Decline Failed", e?.message || "Unable to decline this request.");
+              }
+            },
+          },
+        ]);
+      };
+
       allProjects.push({
         id: `inbox-${item.request_id}`,
         type: "inbox",
@@ -882,16 +990,19 @@ export default function TradesmanProjects() {
         statusText,
         statusDetail,
         quoteAmount: null,
+        outsideServiceArea: item.outsideServiceArea,
+        distanceMiles: item.distanceMiles,
+        extendedMatch: item.extendedMatch,
         actions: [
           {
             label: "Decline",
             primary: false,
-            onPress: () => router.push(`/quotes/request/${item.request_id}`),
+            onPress: handleDecline,
           },
           {
             label: "Accept",
             primary: true,
-            onPress: () => router.push(`/quotes/request/${item.request_id}`),
+            onPress: handleAccept,
           },
         ],
         sortPriority:
@@ -1120,7 +1231,7 @@ export default function TradesmanProjects() {
     });
 
     return allProjects;
-  }, [inboxRows, sentRows, router, formatDate, formatTime]);
+  }, [inboxRows, sentRows, router, formatDate, formatTime, user, load]);
 
   // Filter projects
   const filteredProjects = useMemo(() => {
@@ -1384,6 +1495,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#9CA3AF",
     marginTop: 4,
+  },
+  outsideAreaBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginTop: 8,
+    alignSelf: "flex-start",
+  },
+  outsideAreaText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#D97706",
+  },
+  extendedMatchBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#DBEAFE",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginTop: 8,
+    alignSelf: "flex-start",
+  },
+  extendedMatchText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#2563EB",
   },
   statusRow: {
     flexDirection: "row",
