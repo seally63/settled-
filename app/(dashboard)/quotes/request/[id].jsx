@@ -714,7 +714,7 @@ export default function RequestDetails() {
             .maybeSingle(),
           supabase
             .from("request_targets")
-            .select("request_id, trade_id, state, invited_by, created_at")
+            .select("request_id, trade_id, state, invited_by, created_at, outside_service_area, distance_miles, extended_match")
             .eq("request_id", id)
             .eq("trade_id", myId)
             .maybeSingle(),
@@ -880,10 +880,20 @@ export default function RequestDetails() {
 
   async function onAccept() {
     if (!id) return;
-    Alert.alert("Accept request", "Confirm you want to accept this request?", [
+
+    // If outside service area, show a different confirmation
+    const isOutsideArea = tgt?.outside_service_area;
+    const distanceInfo = tgt?.distance_miles ? ` (${tgt.distance_miles} miles away)` : "";
+
+    const title = isOutsideArea ? "Accept anyway?" : "Accept request";
+    const message = isOutsideArea
+      ? `This client is outside your service area${distanceInfo}. Are you sure you want to accept this request?`
+      : "Confirm you want to accept this request?";
+
+    Alert.alert(title, message, [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Accept",
+        text: isOutsideArea ? "Accept anyway" : "Accept",
         onPress: async () => {
           try {
             const updated = await acceptRequest(id);
@@ -1055,14 +1065,18 @@ export default function RequestDetails() {
                 onPress={onDecline}
                 style={styles.declineButton}
               >
-                <ThemedText style={styles.declineButtonText}>Decline</ThemedText>
+                <ThemedText style={styles.declineButtonText}>
+                  {tgt?.outside_service_area ? "Decline – too far" : "Decline"}
+                </ThemedText>
               </Pressable>
 
               <Pressable
                 onPress={onAccept}
                 style={styles.acceptButton}
               >
-                <ThemedText style={styles.acceptButtonText}>Accept request</ThemedText>
+                <ThemedText style={styles.acceptButtonText}>
+                  {tgt?.outside_service_area ? "Accept anyway" : "Accept request"}
+                </ThemedText>
               </Pressable>
             </View>
           )}
@@ -1182,6 +1196,40 @@ export default function RequestDetails() {
               derivedTitleForCreate={derivedTitleForCreate}
               clientName={clientName}
             />
+          )}
+
+          {/* Extended Match Info Banner */}
+          {tgt?.extended_match && (
+            <View style={styles.extendedMatchBanner}>
+              <View style={styles.extendedMatchIcon}>
+                <Ionicons name="car-outline" size={20} color="#3B82F6" />
+              </View>
+              <View style={styles.extendedMatchContent}>
+                <ThemedText style={styles.extendedMatchTitle}>
+                  Extended Travel Job
+                </ThemedText>
+                <ThemedText style={styles.extendedMatchDescription}>
+                  This job is outside your normal service area but matches your extended travel settings for higher-budget jobs.
+                </ThemedText>
+              </View>
+            </View>
+          )}
+
+          {/* Outside Service Area Warning Banner */}
+          {tgt?.outside_service_area && (
+            <View style={styles.outsideServiceAreaBanner}>
+              <View style={styles.outsideServiceAreaIcon}>
+                <Ionicons name="location-outline" size={20} color="#F59E0B" />
+              </View>
+              <View style={styles.outsideServiceAreaContent}>
+                <ThemedText style={styles.outsideServiceAreaTitle}>
+                  Outside Your Service Area{tgt?.distance_miles ? ` (${tgt.distance_miles} miles away)` : ""}
+                </ThemedText>
+                <ThemedText style={styles.outsideServiceAreaText}>
+                  This client's location is outside your usual service radius. They were informed but chose to request a quote anyway.
+                </ThemedText>
+              </View>
+            </View>
           )}
 
           {/* Service Details Card */}
@@ -1465,6 +1513,78 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexWrap: "wrap",
     paddingHorizontal: 16,
+  },
+
+  // Extended Match Banner
+  extendedMatchBanner: {
+    marginTop: 16,
+    marginHorizontal: 16,
+    backgroundColor: "#DBEAFE",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#93C5FD",
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  extendedMatchIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#BFDBFE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  extendedMatchContent: {
+    flex: 1,
+  },
+  extendedMatchTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1E40AF",
+    marginBottom: 4,
+  },
+  extendedMatchDescription: {
+    fontSize: 13,
+    color: "#1D4ED8",
+    lineHeight: 18,
+  },
+
+  // Outside Service Area Banner
+  outsideServiceAreaBanner: {
+    marginTop: 16,
+    marginHorizontal: 16,
+    backgroundColor: "#FEF3C7",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  outsideServiceAreaIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#FDE68A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  outsideServiceAreaContent: {
+    flex: 1,
+  },
+  outsideServiceAreaTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#92400E",
+    marginBottom: 4,
+  },
+  outsideServiceAreaText: {
+    fontSize: 13,
+    color: "#A16207",
+    lineHeight: 18,
   },
 
   card: {

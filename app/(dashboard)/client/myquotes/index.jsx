@@ -310,6 +310,59 @@ function EmptyState({ icon, title, subtitle, primaryAction, secondaryAction }) {
   );
 }
 
+// Request usage badge component
+function RequestUsageBadge({ current, max, unlimited, label }) {
+  const displayText = unlimited ? `${current}/∞` : `${current}/${max}`;
+  const isNearLimit = !unlimited && max && current >= max - 1;
+  const isAtLimit = !unlimited && max && current >= max;
+
+  return (
+    <View style={[
+      usageStyles.badge,
+      isAtLimit && usageStyles.badgeAtLimit,
+      isNearLimit && !isAtLimit && usageStyles.badgeNearLimit,
+    ]}>
+      <ThemedText style={[
+        usageStyles.badgeText,
+        isAtLimit && usageStyles.badgeTextAtLimit,
+      ]}>
+        {label}: {displayText}
+      </ThemedText>
+    </View>
+  );
+}
+
+const usageStyles = StyleSheet.create({
+  usageContainer: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
+  },
+  badgeNearLimit: {
+    backgroundColor: "#FEF3C7",
+  },
+  badgeAtLimit: {
+    backgroundColor: "#FEE2E2",
+  },
+  badgeText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#6B7280",
+  },
+  badgeTextAtLimit: {
+    color: "#DC2626",
+  },
+});
+
 export default function ClientProjects() {
   const { user } = useUser();
   const router = useRouter();
@@ -319,6 +372,9 @@ export default function ClientProjects() {
   const [refreshing, setRefreshing] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [isFocusLoading, setIsFocusLoading] = useState(false);
+
+  // Request usage data
+  const [requestUsage, setRequestUsage] = useState(null);
 
   // Data from RPCs
   const [requests, setRequests] = useState([]);
@@ -358,32 +414,48 @@ export default function ClientProjects() {
     if (!user?.id) return;
 
     try {
+      // Fetch request usage limits
+      const { data: usageData } = await supabase.rpc("rpc_get_client_request_usage");
+      if (usageData) {
+        setRequestUsage(usageData);
+      }
+
       // Requests (no quotes yet)
       const { data: reqData } = await supabase.rpc("rpc_client_list_requests");
 
-      // For direct requests, fetch the trade business name from request_targets + profiles
-      const directReqIds = (reqData || []).filter(r => r.is_direct).map(r => r.id);
+      // For all requests, check if they have client-invited targets (direct request indicator)
+      const requestIds = (reqData || []).map(r => r.id);
+      let directRequestsMap = {};  // Maps request_id to trade info
       let tradeInfoMap = {};
 
-      if (directReqIds.length > 0) {
+      if (requestIds.length > 0) {
+        // Check for client-invited targets (indicates direct request)
         const { data: targetsData } = await supabase
           .from("request_targets")
-          .select("request_id, trade_id, profiles:trade_id(business_name, full_name)")
-          .in("request_id", directReqIds)
-          .eq("invited_by", "client");
+          .select("request_id, trade_id, invited_by, profiles:trade_id(business_name, full_name)")
+          .in("request_id", requestIds);
 
         (targetsData || []).forEach(t => {
-          if (t.request_id && t.profiles) {
-            tradeInfoMap[t.request_id] = t.profiles.business_name || t.profiles.full_name || "Trade";
+          if (t.request_id) {
+            // If this target was invited by client, mark request as direct and get trade name
+            if (t.invited_by === "client" && t.profiles) {
+              directRequestsMap[t.request_id] = true;
+              tradeInfoMap[t.request_id] = t.profiles.business_name || t.profiles.full_name || "Trade";
+            }
           }
         });
       }
 
-      // Enrich requests with trade business name
-      const enrichedReqData = (reqData || []).map(r => ({
-        ...r,
-        trade_business_name: r.is_direct ? tradeInfoMap[r.id] : null,
-      }));
+      // Enrich requests with is_direct flag and trade business name
+      const enrichedReqData = (reqData || []).map(r => {
+        // Use is_direct from RPC if available, or check directRequestsMap
+        const isDirectRequest = r.is_direct === true || directRequestsMap[r.id] === true;
+        return {
+          ...r,
+          is_direct: isDirectRequest,
+          trade_business_name: isDirectRequest ? tradeInfoMap[r.id] || r.trade_business_name || null : null,
+        };
+      });
 
       setRequests(enrichedReqData);
 
@@ -1295,6 +1367,24 @@ export default function ClientProjects() {
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <ThemedText style={styles.headerTitle}>My Projects</ThemedText>
       </View>
+
+      {/* Request usage badges */}
+      {requestUsage && (
+        <View style={usageStyles.usageContainer}>
+          <RequestUsageBadge
+            current={requestUsage.open_requests?.current || 0}
+            max={requestUsage.open_requests?.max}
+            unlimited={requestUsage.open_requests?.unlimited}
+            label="Open"
+          />
+          <RequestUsageBadge
+            current={requestUsage.direct_requests?.current || 0}
+            max={requestUsage.direct_requests?.max}
+            unlimited={requestUsage.direct_requests?.unlimited}
+            label="Direct"
+          />
+        </View>
+      )}
 
       {/* Filter pills */}
       <View style={styles.filterRow}>

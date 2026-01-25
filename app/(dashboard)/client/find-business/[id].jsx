@@ -30,7 +30,7 @@ import Spacer from "../../../../components/Spacer";
 import { ProfilePageSkeleton, SkeletonBox, SkeletonText, CategoryGridSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
 import { getTradeById, getMyRole } from "../../../../lib/api/profile";
-import { requestDirectQuote } from "../../../../lib/api/directRequest";
+import { requestDirectQuote, checkServiceAreaDistance } from "../../../../lib/api/directRequest";
 import { getBusinessVerificationPublic, getTradePublicMetrics90d } from "../../../../lib/api/trust";
 import { uploadRequestImages } from "../../../../lib/api/attachments";
 import {
@@ -331,6 +331,11 @@ export default function TradeProfileClient() {
   const [uploadIdx, setUploadIdx] = useState(0);
   const [uploadTotal, setUploadTotal] = useState(0);
 
+  // Service area warning modal
+  const [showServiceAreaWarning, setShowServiceAreaWarning] = useState(false);
+  const [serviceAreaInfo, setServiceAreaInfo] = useState(null);
+  const [checkingServiceArea, setCheckingServiceArea] = useState(false);
+
   // Load service names for display
   useEffect(() => {
     async function loadServiceNames() {
@@ -545,8 +550,44 @@ export default function TradeProfileClient() {
     }
   }
 
-  // Submit direct request
-  async function submitDirectRequest() {
+  // Check service area before submitting
+  async function checkServiceAreaBeforeSubmit() {
+    try {
+      if (isTest) {
+        Alert.alert("Demo", "This is a demo business — request not sent.");
+        return;
+      }
+      if (!selectedCategory) return Alert.alert("Please select a category.");
+      if (!selectedServiceType) return Alert.alert("Please select a service type.");
+      if (!postcode?.trim()) return Alert.alert("Please enter your postcode.");
+      if (!selectedTiming) return Alert.alert("Please select when you need this done.");
+
+      setCheckingServiceArea(true);
+
+      const normalizedPostcode = postcode.trim().toUpperCase();
+
+      // Check if client's postcode is within trade's service area
+      const areaCheck = await checkServiceAreaDistance(id, normalizedPostcode);
+
+      if (areaCheck.isOutsideServiceArea) {
+        // Show warning modal
+        setServiceAreaInfo(areaCheck);
+        setShowServiceAreaWarning(true);
+        setCheckingServiceArea(false);
+        return;
+      }
+
+      // If within service area, proceed directly
+      setCheckingServiceArea(false);
+      await submitDirectRequest(false);
+    } catch (e) {
+      setCheckingServiceArea(false);
+      Alert.alert("Error", e?.message || "Failed to check service area.");
+    }
+  }
+
+  // Submit direct request (outsideServiceArea = true if user confirmed warning)
+  async function submitDirectRequest(outsideServiceArea = false) {
     try {
       if (isTest) {
         Alert.alert("Demo", "This is a demo business — request not sent.");
@@ -558,11 +599,12 @@ export default function TradeProfileClient() {
       if (!selectedTiming) return Alert.alert("Please select when you need this done.");
 
       setSubmitting(true);
+      setShowServiceAreaWarning(false);
 
       const normalizedPostcode = postcode.trim().toUpperCase();
 
-      // Put the actual job description first so it shows in project card previews
-      const details = [
+      // Build details string - include outside service area note if applicable
+      const detailParts = [
         description?.trim() || null,
         `Category: ${selectedCategory.name}`,
         `Service: ${selectedServiceType.name}`,
@@ -571,9 +613,16 @@ export default function TradeProfileClient() {
         selectedBudget ? `Budget: ${selectedBudget.label}` : null,
         `Timing: ${selectedTiming.name}`,
         selectedTiming.is_emergency ? `Emergency: Yes` : null,
-      ]
-        .filter(Boolean)
-        .join("\n");
+      ];
+
+      // Add note about being outside service area so client and trade both see it
+      if (outsideServiceArea && serviceAreaInfo) {
+        detailParts.push(
+          `Note: This job is ${serviceAreaInfo.distanceMiles} miles from the trade's base location (outside their usual ${serviceAreaInfo.serviceRadiusMiles} mile service area).`
+        );
+      }
+
+      const details = detailParts.filter(Boolean).join("\n");
 
       const suggested_title = `${selectedCategory.name} - ${selectedServiceType.name}`;
 
@@ -586,6 +635,8 @@ export default function TradeProfileClient() {
         timing_option_id: selectedTiming.id,
         postcode: normalizedPostcode,
         budget_band: selectedBudget?.value || null,
+        outsideServiceArea, // Flag for request_targets table
+        distanceMiles: outsideServiceArea ? serviceAreaInfo?.distanceMiles : null, // Store distance for trade to see
       });
 
       const newRequestId = res?.id || res?.request_id || res?.data?.id || res?.data?.request_id || null;
@@ -596,6 +647,7 @@ export default function TradeProfileClient() {
 
       setShowRequestModal(false);
       resetForm();
+      setServiceAreaInfo(null);
 
       Alert.alert("Request sent", "Your quote request has been sent.", [
         { text: "OK", onPress: () => router.replace("/client") },
@@ -1203,12 +1255,12 @@ export default function TradeProfileClient() {
                   </View>
 
                   <ThemedButton
-                    onPress={submitDirectRequest}
-                    disabled={submitting}
+                    onPress={checkServiceAreaBeforeSubmit}
+                    disabled={submitting || checkingServiceArea}
                     style={styles.continueButton}
                   >
                     <ThemedText style={styles.continueButtonText}>
-                      {submitting ? "Submitting…" : "Submit Request"}
+                      {checkingServiceArea ? "Checking…" : submitting ? "Submitting…" : "Submit Request"}
                     </ThemedText>
                   </ThemedButton>
 
@@ -1245,6 +1297,59 @@ export default function TradeProfileClient() {
           swipeToCloseEnabled
           doubleTapToZoomEnabled
         />
+
+        {/* Service Area Warning Modal */}
+        <Modal
+          visible={showServiceAreaWarning}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => setShowServiceAreaWarning(false)}
+        >
+          <View style={styles.warningModalOverlay}>
+            <View style={styles.warningModalContent}>
+              <View style={styles.warningIconContainer}>
+                <Ionicons name="location-outline" size={32} color="#F59E0B" />
+              </View>
+
+              <ThemedText style={styles.warningTitle}>Outside Service Area</ThemedText>
+
+              <ThemedText style={styles.warningText}>
+                This trade typically works within{" "}
+                <ThemedText style={styles.warningHighlight}>
+                  {serviceAreaInfo?.serviceRadiusMiles} miles
+                </ThemedText>{" "}
+                of {serviceAreaInfo?.tradeCity || serviceAreaInfo?.tradePostcode || "their location"}.
+              </ThemedText>
+
+              <ThemedText style={styles.warningText}>
+                Your location is{" "}
+                <ThemedText style={styles.warningHighlight}>
+                  {serviceAreaInfo?.distanceMiles} miles
+                </ThemedText>{" "}
+                away. They may decline requests outside their area.
+              </ThemedText>
+
+              <View style={styles.warningButtonRow}>
+                <Pressable
+                  style={styles.warningCancelButton}
+                  onPress={() => setShowServiceAreaWarning(false)}
+                >
+                  <ThemedText style={styles.warningCancelText}>Cancel</ThemedText>
+                </Pressable>
+
+                <Pressable
+                  style={styles.warningSendButton}
+                  onPress={() => submitDirectRequest(true)}
+                  disabled={submitting}
+                >
+                  <ThemedText style={styles.warningSendText}>
+                    {submitting ? "Sending…" : "Send Anyway"}
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </Modal>
     </ThemedView>
   );
@@ -2102,5 +2207,80 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 13,
     color: "#666",
+  },
+
+  // Service Area Warning Modal
+  warningModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  warningModalContent: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 24,
+    width: "100%",
+    maxWidth: 340,
+    alignItems: "center",
+  },
+  warningIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  warningTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  warningText: {
+    fontSize: 15,
+    color: "#4B5563",
+    lineHeight: 22,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  warningHighlight: {
+    fontWeight: "600",
+    color: "#111827",
+  },
+  warningButtonRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 20,
+    width: "100%",
+  },
+  warningCancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    alignItems: "center",
+  },
+  warningCancelText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  warningSendButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#F59E0B",
+    alignItems: "center",
+  },
+  warningSendText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
   },
 });

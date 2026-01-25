@@ -415,6 +415,17 @@ export default function SettingsScreen() {
               <View style={styles.divider} />
             </>
           )}
+          {__DEV__ && (
+            <>
+              <SettingsRow
+                icon="code-slash-outline"
+                label="Developer Settings"
+                value="Environment & Debug"
+                onPress={() => router.push("/profile/developer-settings")}
+              />
+              <View style={styles.divider} />
+            </>
+          )}
           <SettingsRow
             icon="notifications-outline"
             label="Notifications"

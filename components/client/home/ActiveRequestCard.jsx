@@ -61,15 +61,28 @@ export default function ActiveRequestCard({ request, onPress, onSeeAll }) {
     total_invited = 0,
     lowest_quote,
     highest_quote,
+    is_direct = false,
+    trade_business_name = null,
   } = request;
 
   // Parse title for display
   const displayTitle = suggested_title || service_type || "Untitled request";
 
-  // Meta text
-  const metaText = quotes_received > 0
-    ? `${quotes_received} of ${total_invited} quotes received`
-    : `Waiting for quotes · ${total_invited} trades invited`;
+  // Meta text - different for direct requests vs open requests
+  let metaText;
+  if (is_direct) {
+    // Direct request to a specific trade
+    if (quotes_received > 0) {
+      metaText = `Quote received from ${trade_business_name || "trade"}`;
+    } else {
+      metaText = `Direct request · ${trade_business_name || "Awaiting response"}`;
+    }
+  } else {
+    // Open request with multiple trades invited
+    metaText = quotes_received > 0
+      ? `${quotes_received} of ${total_invited} quotes received`
+      : `Waiting for quotes · ${total_invited} trades invited`;
+  }
 
   // Determine status for chip
   const displayStatus = quotes_received > 0 ? "quotes_received" : (status || "open");

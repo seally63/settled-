@@ -20,6 +20,17 @@ import Spacer from "../../../components/Spacer";
 const PRIMARY = "#6849a7";
 const DEFAULT_VAT_RATE = 0.20;
 
+// Validation constants
+const VALIDATION = {
+  PRICE_MIN: 0,
+  PRICE_MAX: 1000000,
+  QTY_MIN: 1,
+  QTY_MAX: 10000,
+  COMMENTS_MAX: 2000,
+  ITEM_NAME_MAX: 200,
+  ITEM_DESC_MAX: 500,
+};
+
 /* ----------------------- helpers ----------------------- */
 function asString(v) {
   if (Array.isArray(v)) return v[0] ?? "";
@@ -324,7 +335,26 @@ export default function Create() {
   const updateItem = (index, field, value) => {
     setItems(prev => {
       const copy = [...prev];
-      copy[index] = { ...copy[index], [field]: value };
+      let validatedValue = value;
+
+      // Validate based on field type
+      if (field === "qty") {
+        const numVal = Number(value) || 0;
+        // Ensure qty is positive and within limits
+        validatedValue = Math.max(0, Math.min(numVal, VALIDATION.QTY_MAX));
+      } else if (field === "unit_price") {
+        const numVal = Number(value) || 0;
+        // Ensure price is non-negative and within limits
+        validatedValue = Math.max(0, Math.min(numVal, VALIDATION.PRICE_MAX));
+      } else if (field === "name") {
+        // Limit item name length
+        validatedValue = String(value || "").slice(0, VALIDATION.ITEM_NAME_MAX);
+      } else if (field === "description") {
+        // Limit description length
+        validatedValue = String(value || "").slice(0, VALIDATION.ITEM_DESC_MAX);
+      }
+
+      copy[index] = { ...copy[index], [field]: validatedValue };
       return copy;
     });
   };
@@ -379,6 +409,44 @@ export default function Create() {
     return title || projectTitle || "Untitled quote";
   };
 
+  // ---- Validation helper ----
+  const validateQuote = () => {
+    const validItems = items.filter(it => it.name?.trim());
+
+    // Check for items with zero quantity
+    const zeroQtyItems = validItems.filter(it => Number(it.qty || 0) <= 0);
+    if (zeroQtyItems.length > 0) {
+      Alert.alert("Invalid quantity", "All items must have a quantity greater than 0.");
+      return false;
+    }
+
+    // Check for items with negative prices
+    const negativePriceItems = validItems.filter(it => Number(it.unit_price || 0) < 0);
+    if (negativePriceItems.length > 0) {
+      Alert.alert("Invalid price", "Item prices cannot be negative.");
+      return false;
+    }
+
+    // Check total is positive and within limits
+    if (totals.grand_total <= 0) {
+      Alert.alert("Invalid total", "Quote total must be greater than £0.");
+      return false;
+    }
+
+    if (totals.grand_total > VALIDATION.PRICE_MAX) {
+      Alert.alert("Total too high", `Quote total cannot exceed £${VALIDATION.PRICE_MAX.toLocaleString()}.`);
+      return false;
+    }
+
+    // Check comments length
+    if (comments && comments.length > VALIDATION.COMMENTS_MAX) {
+      Alert.alert("Note too long", `Note to client cannot exceed ${VALIDATION.COMMENTS_MAX} characters.`);
+      return false;
+    }
+
+    return true;
+  };
+
   // ---- Submit handlers ----
   const handleSend = async () => {
     if (sending) return; // Prevent double-tap
@@ -388,6 +456,9 @@ export default function Create() {
       Alert.alert("Missing project", "Please enter the project name.");
       return;
     }
+
+    // Validate quote before sending
+    if (!validateQuote()) return;
 
     const payload = {
       request_id: requestId || null,

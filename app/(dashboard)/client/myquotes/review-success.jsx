@@ -17,7 +17,9 @@ export default function ReviewSuccess() {
   const insets = useSafeAreaInsets();
 
   const handleDone = () => {
-    // Navigate to Projects tab
+    // Navigate to client home page (not Projects tab)
+    // Using reset to clear the navigation stack and prevent going back to review flow
+    router.dismissAll();
     router.replace("/(dashboard)/client");
   };
 

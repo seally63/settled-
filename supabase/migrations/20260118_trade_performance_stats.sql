@@ -1,73 +1,19 @@
 -- ============================================================================
 -- Trade Performance Stats Migration
--- Adds tables and functions for tracking trade response time, quote rate, etc.
+-- Adds functions for tracking trade response time, quote rate, etc.
+-- Note: Base tables and columns are created in 20250101000000_initial_schema.sql
 -- ============================================================================
 
 -- ============================================================================
--- 1. ADD RESPONSE TRACKING COLUMNS TO REQUEST_TARGETS
+-- 1. ADD PROFILE COMPLETION COLUMN (if not exists)
 -- ============================================================================
--- Track when trades first respond to requests (accept, decline, message, etc.)
-
-ALTER TABLE request_targets
-ADD COLUMN IF NOT EXISTS first_action_at TIMESTAMPTZ,
-ADD COLUMN IF NOT EXISTS first_action_type TEXT; -- 'accepted', 'declined', 'messaged', 'quoted'
-
-COMMENT ON COLUMN request_targets.first_action_at IS 'Timestamp of first trade action on this request';
-COMMENT ON COLUMN request_targets.first_action_type IS 'Type of first action: accepted, declined, messaged, quoted';
-
--- ============================================================================
--- 2. TRADE PERFORMANCE STATS TABLE (Materialized View Alternative)
--- ============================================================================
--- Stores computed performance metrics for trades, updated periodically
-
-CREATE TABLE IF NOT EXISTS trade_performance_stats (
-  profile_id UUID PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
-
-  -- Response time metrics
-  avg_response_time_hours NUMERIC(10, 2),  -- Average hours to first response
-  median_response_time_hours NUMERIC(10, 2), -- Median (P50) response time
-  response_time_percentile INTEGER, -- What percentile this trade is in (0-100, higher = faster)
-
-  -- Quote rate metrics
-  requests_received_count INTEGER DEFAULT 0,
-  requests_accepted_count INTEGER DEFAULT 0,
-  quotes_sent_count INTEGER DEFAULT 0,
-  quote_rate NUMERIC(5, 2), -- Percentage (0-100)
-
-  -- Job completion metrics
-  jobs_completed_count INTEGER DEFAULT 0,
-  completion_rate NUMERIC(5, 2),
-
-  -- Review metrics (cached from reviews table)
-  review_count INTEGER DEFAULT 0,
-  average_rating NUMERIC(3, 2),
-
-  -- Metadata
-  period_start DATE, -- Start of measurement period (rolling 90 days)
-  period_end DATE,   -- End of measurement period
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-
-  CONSTRAINT valid_quote_rate CHECK (quote_rate IS NULL OR (quote_rate >= 0 AND quote_rate <= 100)),
-  CONSTRAINT valid_completion_rate CHECK (completion_rate IS NULL OR (completion_rate >= 0 AND completion_rate <= 100)),
-  CONSTRAINT valid_rating CHECK (average_rating IS NULL OR (average_rating >= 1 AND average_rating <= 5))
-);
-
--- Index for fast lookups
-CREATE INDEX IF NOT EXISTS idx_trade_performance_stats_updated
-ON trade_performance_stats(updated_at DESC);
-
--- ============================================================================
--- 3. PROFILE COMPLETION TRACKING
--- ============================================================================
--- Add profile_completion_percentage to profiles table
-
 ALTER TABLE profiles
 ADD COLUMN IF NOT EXISTS profile_completion_percentage INTEGER DEFAULT 0;
 
 COMMENT ON COLUMN profiles.profile_completion_percentage IS 'Cached profile completion percentage (0-100)';
 
 -- ============================================================================
--- 4. RPC FUNCTION: GET TRADE HOME STATS
+-- 2. RPC FUNCTION: GET TRADE HOME STATS
 -- ============================================================================
 -- Returns all stats needed for the trade home screen in one call
 
@@ -194,7 +140,7 @@ $$;
 GRANT EXECUTE ON FUNCTION rpc_get_trade_home_stats() TO authenticated;
 
 -- ============================================================================
--- 5. FUNCTION: CALCULATE PROFILE COMPLETION
+-- 3. FUNCTION: CALCULATE PROFILE COMPLETION
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION calculate_profile_completion(p_profile_id UUID)
@@ -244,27 +190,12 @@ BEGIN
     v_total := v_total + 5;
   END IF;
 
-  -- Verification (30%)
-  IF v_profile.verification IS NOT NULL THEN
-    IF (v_profile.verification->>'photo_id') = 'verified' THEN
-      v_total := v_total + 10;
-    END IF;
-
-    IF (v_profile.verification->>'insurance') = 'verified' THEN
-      v_total := v_total + 10;
-    END IF;
-
-    IF (v_profile.verification->>'credentials') = 'verified' THEN
-      v_total := v_total + 10;
-    END IF;
-  END IF;
-
   RETURN v_total;
 END;
 $$;
 
 -- ============================================================================
--- 6. TRIGGER: UPDATE PROFILE COMPLETION ON CHANGE
+-- 4. TRIGGER: UPDATE PROFILE COMPLETION ON CHANGE
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION trigger_update_profile_completion()
@@ -285,7 +216,7 @@ FOR EACH ROW
 EXECUTE FUNCTION trigger_update_profile_completion();
 
 -- ============================================================================
--- 7. TRIGGER: TRACK FIRST RESPONSE TIME
+-- 5. TRIGGER: TRACK FIRST RESPONSE TIME
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION trigger_track_first_response()
@@ -319,7 +250,7 @@ FOR EACH ROW
 EXECUTE FUNCTION trigger_track_first_response();
 
 -- ============================================================================
--- 8. FUNCTION: REFRESH TRADE PERFORMANCE STATS (Run via cron)
+-- 6. FUNCTION: REFRESH TRADE PERFORMANCE STATS (Run via cron)
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION refresh_trade_performance_stats(p_trade_id UUID DEFAULT NULL)
@@ -439,19 +370,11 @@ END;
 $$;
 
 -- ============================================================================
--- 9. RLS POLICIES FOR TRADE_PERFORMANCE_STATS
+-- 7. RLS POLICIES FOR TRADE_PERFORMANCE_STATS
 -- ============================================================================
 
-ALTER TABLE trade_performance_stats ENABLE ROW LEVEL SECURITY;
-
--- Trades can read their own stats
-CREATE POLICY "Trades can view own performance stats"
-ON trade_performance_stats
-FOR SELECT
-TO authenticated
-USING (profile_id = auth.uid());
-
 -- Service role can do everything (for cron jobs)
+DROP POLICY IF EXISTS "Service role full access to performance stats" ON trade_performance_stats;
 CREATE POLICY "Service role full access to performance stats"
 ON trade_performance_stats
 FOR ALL
@@ -460,7 +383,7 @@ USING (true)
 WITH CHECK (true);
 
 -- ============================================================================
--- 10. INITIAL DATA POPULATION
+-- 8. INITIAL DATA POPULATION
 -- ============================================================================
 
 -- Update all existing profiles with completion percentage
@@ -470,16 +393,3 @@ WHERE role = 'trades';
 
 -- Run initial stats refresh for all trades
 SELECT refresh_trade_performance_stats();
-
--- ============================================================================
--- NOTES:
---
--- To set up automated refresh via pg_cron (run this in Supabase SQL editor):
---
--- SELECT cron.schedule(
---   'refresh-trade-performance-stats',
---   '0 */6 * * *',  -- Every 6 hours
---   $$SELECT refresh_trade_performance_stats()$$
--- );
---
--- ============================================================================
