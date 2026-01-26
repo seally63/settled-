@@ -21,6 +21,7 @@ import { Ionicons } from "@expo/vector-icons";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
 import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
@@ -258,6 +259,7 @@ export default function BusinessInfoScreen() {
           numberOfLines={4}
           textAlignVertical="top"
           maxLength={500}
+          inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
         />
         <ThemedText style={styles.charCount}>{bio.length}/500</ThemedText>
 
@@ -613,6 +615,7 @@ export default function BusinessInfoScreen() {
           </View>
         </View>
       </Modal>
+      <KeyboardDoneButton />
     </ThemedView>
   );
 }

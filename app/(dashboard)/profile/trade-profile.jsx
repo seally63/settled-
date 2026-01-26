@@ -27,6 +27,7 @@ import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { ProfilePageSkeleton } from "../../../components/Skeleton";
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
 import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
@@ -944,6 +945,7 @@ function RequestQuoteModal({ visible, onClose, businessName, message, onChangeMe
               textAlignVertical="top"
               value={message}
               onChangeText={onChangeMessage}
+              inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
             />
 
             <Pressable
@@ -960,6 +962,7 @@ function RequestQuoteModal({ visible, onClose, businessName, message, onChangeMe
           </View>
         </View>
       </KeyboardAvoidingView>
+      <KeyboardDoneButton />
     </Modal>
   );
 }

@@ -28,6 +28,7 @@ import { useUser } from "../../../hooks/useUser";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
 import { Colors } from "../../../constants/Colors";
 
 const TINT = Colors?.light?.tint || "#0ea5e9";
@@ -1181,6 +1182,7 @@ export default function MessageThread() {
             onChangeText={setInput}
             editable={!sending}
             multiline
+            inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
           />
 
           {/* Send button with loading indicator */}
@@ -1203,6 +1205,7 @@ export default function MessageThread() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+      <KeyboardDoneButton />
     </ThemedView>
   );
 }

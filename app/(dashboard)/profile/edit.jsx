@@ -21,6 +21,7 @@ import ThemedText from "../../../components/ThemedText";
 import ThemedTextInput from "../../../components/ThemedTextInput";
 import ThemedButton from "../../../components/ThemedButton";
 import Spacer from "../../../components/Spacer";
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
 import { Colors } from "../../../constants/Colors";
 
 import {
@@ -338,6 +339,7 @@ function ProfileEditBody({ role }) {
                 placeholder="Short intro about your business"
                 multiline
                 style={styles.input}
+                inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
               />
 
               <ThemedText style={styles.label}>Photo URL</ThemedText>
@@ -440,6 +442,7 @@ function ProfileEditBody({ role }) {
           <Spacer height={28} />
         </ScrollView>
       </KeyboardAvoidingView>
+      <KeyboardDoneButton />
     </ThemedView>
   );
 }

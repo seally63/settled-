@@ -11,6 +11,7 @@ import {
   TextInput,
   Linking,
   RefreshControl,
+  Platform,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { StatusBar } from "expo-status-bar";
@@ -21,6 +22,7 @@ import { Ionicons } from "@expo/vector-icons";
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
 import Spacer from "../../components/Spacer";
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../components/KeyboardDoneButton";
 import { Colors } from "../../constants/Colors";
 
 import {
@@ -477,6 +479,7 @@ export default function AdminReviewsScreen() {
               multiline
               numberOfLines={4}
               textAlignVertical="top"
+              inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
             />
 
             <View style={styles.modalButtons}>
@@ -505,6 +508,7 @@ export default function AdminReviewsScreen() {
           </View>
         </View>
       )}
+      <KeyboardDoneButton />
     </ThemedView>
   );
 }

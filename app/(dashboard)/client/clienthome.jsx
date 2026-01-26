@@ -29,6 +29,7 @@ import ThemedText from "../../../components/ThemedText";
 import ThemedTextInput from "../../../components/ThemedTextInput";
 import ThemedButton from "../../../components/ThemedButton";
 import { CategoryGridSkeleton, ServiceTypesListSkeleton } from "../../../components/Skeleton";
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
 import { Colors } from "../../../constants/Colors";
 import { uploadRequestImages } from "../../../lib/api/attachments";
 import {
@@ -1004,6 +1005,7 @@ export default function ClientHome() {
               }}
               multiline
               textAlignVertical="top"
+              inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
             />
             <ThemedText style={styles.charCount}>{description.length}/500</ThemedText>
           </View>
@@ -1084,6 +1086,7 @@ export default function ClientHome() {
         </ScrollView>
       </KeyboardAvoidingView>
       <UploadOverlay />
+      <KeyboardDoneButton />
     </ThemedView>
   );
 

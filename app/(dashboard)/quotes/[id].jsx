@@ -28,6 +28,7 @@ import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { QuoteOverviewSkeleton } from "../../../components/Skeleton";
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
 import {
   listRequestImagePaths,
   getSignedUrls,
@@ -2574,6 +2575,7 @@ export default function QuoteDetails() {
                     numberOfLines={3}
                     textAlignVertical="top"
                     editable={!completeBusy}
+                    inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
                   />
 
                   <Spacer size={24} />
@@ -2697,6 +2699,7 @@ export default function QuoteDetails() {
                     numberOfLines={4}
                     textAlignVertical="top"
                     editable={!issueResolveBusy}
+                    inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
                   />
 
                   <Spacer size={24} />
@@ -3719,6 +3722,7 @@ export default function QuoteDetails() {
         presentationStyle="overFullScreen"
         animationType="fade"
       />
+      <KeyboardDoneButton />
     </ThemedView>
   );
 }
