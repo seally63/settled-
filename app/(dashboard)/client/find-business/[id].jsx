@@ -28,6 +28,7 @@ import ThemedButton from "../../../../components/ThemedButton";
 import ThemedTextInput from "../../../../components/ThemedTextInput";
 import Spacer from "../../../../components/Spacer";
 import { ProfilePageSkeleton, SkeletonBox, SkeletonText, CategoryGridSkeleton } from "../../../../components/Skeleton";
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../../components/KeyboardDoneButton";
 import { Colors } from "../../../../constants/Colors";
 import { getTradeById, getMyRole } from "../../../../lib/api/profile";
 import { requestDirectQuote, checkServiceAreaDistance } from "../../../../lib/api/directRequest";
@@ -1079,6 +1080,7 @@ export default function TradeProfileClient() {
                       onChangeText={(t) => { if (t.length <= 500) setDescription(t); }}
                       multiline
                       textAlignVertical="top"
+                      inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
                     />
                     <ThemedText style={styles.charCount}>{description.length}/500</ThemedText>
                   </View>
@@ -1351,6 +1353,7 @@ export default function TradeProfileClient() {
           </View>
         </Modal>
       </Modal>
+      <KeyboardDoneButton />
     </ThemedView>
   );
 }

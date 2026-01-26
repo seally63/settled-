@@ -26,6 +26,7 @@ import ThemedText from "../../../../components/ThemedText";
 import ThemedButton from "../../../../components/ThemedButton";
 import Spacer from "../../../../components/Spacer";
 import { QuoteOverviewSkeleton } from "../../../../components/Skeleton";
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../../components/KeyboardDoneButton";
 import { Colors } from "../../../../constants/Colors";
 import { listRequestImagePaths } from "../../../../lib/api/attachments";
 
@@ -2003,6 +2004,7 @@ export default function ClientMyQuoteDetail() {
                 onChangeText={setRescheduleReason}
                 multiline
                 maxLength={200}
+                inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
               />
             </View>
 
@@ -2040,6 +2042,7 @@ export default function ClientMyQuoteDetail() {
           minimumDate={new Date()}
         />
       </Modal>
+      <KeyboardDoneButton />
     </ThemedView>
   );
 }

@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import Spacer from "../../../../components/Spacer";
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../../components/KeyboardDoneButton";
 import { Colors } from "../../../../constants/Colors";
 import { supabase } from "../../../../lib/supabase";
 
@@ -191,6 +192,7 @@ export default function ReportIssue() {
             textAlignVertical="top"
             editable={!busy}
             onFocus={() => handleInputFocus(200)}
+            inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
           />
 
           <Spacer size={24} />
@@ -217,6 +219,7 @@ export default function ReportIssue() {
           </ThemedText>
         </ScrollView>
       </KeyboardAvoidingView>
+      <KeyboardDoneButton />
     </ThemedView>
   );
 }

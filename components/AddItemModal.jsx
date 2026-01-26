@@ -16,6 +16,7 @@ import ThemedText from './ThemedText';
 import ThemedTextInput from './ThemedTextInput';
 import ThemedButton from './ThemedButton';
 import Spacer from './Spacer';
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from './KeyboardDoneButton';
 import { Colors } from '../constants/Colors';
 
 export default function AddItemModal({ visible, onClose, onSave, initial }) {
@@ -112,6 +113,7 @@ export default function AddItemModal({ visible, onClose, onSave, initial }) {
                     multiline
                     onFocus={() => setFocus((f) => ({ ...f, description: true }))}
                     onBlur={() => setFocus((f) => ({ ...f, description: false }))}
+                    inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
                   />
                 </View>
 
@@ -175,6 +177,7 @@ export default function AddItemModal({ visible, onClose, onSave, initial }) {
               </ScrollView>
             </ThemedView>
           </KeyboardAvoidingView>
+          <KeyboardDoneButton />
         </Pressable>
       </Pressable>
     </Modal>
