@@ -36,8 +36,12 @@ import {
   getServiceCategories,
   getServiceTypes,
   getPropertyTypes,
-  getTimingOptions,
 } from "../../../lib/api/services";
+import {
+  getBudgetOptionsForProfile,
+  getTimingOptionsForProfile,
+  getJobProfileForServiceType,
+} from "../../../lib/config/jobProfiles";
 import { geocodeUKPostcode } from "../../../lib/api/places";
 import { checkServiceAreaDistance } from "../../../lib/api/directRequest";
 import { CATEGORIES as HOME_CATEGORIES } from "../../../components/client/home/PopularServicesGrid";
@@ -55,18 +59,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MIN_PREP_MS = 600;
 const CELL = 96;
-
-// Budget options for the form
-const BUDGET_OPTIONS = [
-  { id: "under_250", label: "Under £250", value: "<£250" },
-  { id: "250_500", label: "£250 - £500", value: "£250–£500" },
-  { id: "500_1000", label: "£500 - £1,000", value: "£500–£1k" },
-  { id: "1000_3000", label: "£1,000 - £3,000", value: "£1k–£3k" },
-  { id: "3000_7500", label: "£3,000 - £7,500", value: "£3k–£7.5k" },
-  { id: "7500_15000", label: "£7,500 - £15,000", value: "£7.5k–£15k" },
-  { id: "over_15000", label: "£15,000+", value: ">£15k" },
-  { id: "not_sure", label: "I'm not sure yet", value: "Not specified" },
-];
 
 // Minimal image processing - just copy to cache to get a file:// URI
 // This avoids the heavy base64 encoding that causes freezes
@@ -162,14 +154,17 @@ export default function ClientHome() {
   const [loadingPropertyTypes, setLoadingPropertyTypes] = useState(false);
   const [showPropertyDropdown, setShowPropertyDropdown] = useState(false);
 
-  // Step 4: Budget
+  // Step 4: Budget (dynamic based on job profile)
   const [selectedBudget, setSelectedBudget] = useState(null);
 
-  // Step 5: Photos & Timing
+  // Step 5: Photos & Timing (timing options are dynamic based on job profile)
   const [photos, setPhotos] = useState([]);
-  const [timingOptions, setTimingOptions] = useState([]);
   const [selectedTiming, setSelectedTiming] = useState(null);
-  const [loadingTimingOptions, setLoadingTimingOptions] = useState(false);
+
+  // Compute budget and timing options based on selected service type's job profile
+  const jobProfile = getJobProfileForServiceType(selectedServiceType);
+  const budgetOptions = getBudgetOptionsForProfile(jobProfile);
+  const timingOptions = getTimingOptionsForProfile(jobProfile);
 
   // Photo preparation overlay
   const [prepVisible, setPrepVisible] = useState(false);
@@ -203,7 +198,6 @@ export default function ClientHome() {
   useEffect(() => {
     loadCategories();
     loadPropertyTypes();
-    loadTimingOptions();
   }, []);
 
   // Handle openSearch param - open search modal when navigating back from trade profile
@@ -304,18 +298,6 @@ export default function ClientHome() {
       console.warn("Failed to load property types:", e.message);
     } finally {
       setLoadingPropertyTypes(false);
-    }
-  }
-
-  async function loadTimingOptions() {
-    setLoadingTimingOptions(true);
-    try {
-      const data = await getTimingOptions();
-      setTimingOptions(data);
-    } catch (e) {
-      console.warn("Failed to load timing options:", e.message);
-    } finally {
-      setLoadingTimingOptions(false);
     }
   }
 
@@ -598,8 +580,8 @@ export default function ClientHome() {
       const suggested_title = `${selectedCategory.name} - ${selectedServiceType.name}`;
 
       // Create the request with location coordinates
-      // Note: budget_band is stored as null until DB constraint is updated
-      // Budget info is included in the details text for now
+      // Note: timing and budget info are stored in the details text
+      // since we now use job profile-based options (not database-linked)
       const { data: created, error: reqError } = await supabase
         .from("quote_requests")
         .insert({
@@ -610,12 +592,11 @@ export default function ClientHome() {
           category_id: selectedCategory.id,
           service_type_id: selectedServiceType.id,
           property_type_id: selectedPropertyType?.id || null,
-          timing_option_id: selectedTiming.id,
           postcode: normalizedPostcode,
           location_lat: locationLat,
           location_lon: locationLon,
           is_direct: prefillTradeId ? true : false, // Mark as direct if requesting specific trade
-          // budget_band temporarily null - run SQL to update constraint for new values
+          budget_band: selectedBudget?.value || null,
         })
         .select("id")
         .single();
@@ -726,11 +707,18 @@ export default function ClientHome() {
   function handleCategorySelect(cat) {
     setSelectedCategory(cat);
     setSelectedServiceType(null); // Reset service type when category changes
+    setSelectedBudget(null); // Reset budget when category changes
+    setSelectedTiming(null); // Reset timing when category changes
     setStep(2); // Auto-advance to step 2
   }
 
   // ===== Handle service type selection (auto-advance) =====
   function handleServiceTypeSelect(type) {
+    // Reset budget and timing when service type changes (different job profile may have different options)
+    if (selectedServiceType?.id !== type.id) {
+      setSelectedBudget(null);
+      setSelectedTiming(null);
+    }
     setSelectedServiceType(type);
     // If editing from review, go back to review; otherwise advance to step 3
     if (editingFromReview) {
@@ -1111,7 +1099,7 @@ export default function ClientHome() {
         </View>
 
         <View style={styles.budgetList}>
-          {BUDGET_OPTIONS.map((option) => (
+          {budgetOptions.map((option) => (
             <Pressable
               key={option.id}
               style={[
@@ -1213,39 +1201,35 @@ export default function ClientHome() {
           <View style={styles.sectionContainer}>
             <ThemedText style={styles.sectionTitle}>When do you need this done?</ThemedText>
 
-            {loadingTimingOptions ? (
-              <ActivityIndicator size="small" color={Colors.primary} style={{ marginTop: 16 }} />
-            ) : (
-              <View style={styles.timingList}>
-                {timingOptions.map((opt) => (
-                  <Pressable
-                    key={opt.id}
+            <View style={styles.timingList}>
+              {timingOptions.map((opt) => (
+                <Pressable
+                  key={opt.id}
+                  style={[
+                    styles.timingOption,
+                    selectedTiming?.id === opt.id && styles.timingOptionSelected,
+                  ]}
+                  onPress={() => setSelectedTiming(opt)}
+                >
+                  <View
                     style={[
-                      styles.timingOption,
-                      selectedTiming?.id === opt.id && styles.timingOptionSelected,
+                      styles.radioOuter,
+                      selectedTiming?.id === opt.id && styles.radioOuterSelected,
                     ]}
-                    onPress={() => setSelectedTiming(opt)}
                   >
-                    <View
-                      style={[
-                        styles.radioOuter,
-                        selectedTiming?.id === opt.id && styles.radioOuterSelected,
-                      ]}
-                    >
-                      {selectedTiming?.id === opt.id && <View style={styles.radioInner} />}
-                    </View>
-                    <ThemedText
-                      style={[
-                        styles.timingText,
-                        opt.is_emergency && styles.timingTextEmergency,
-                      ]}
-                    >
-                      {opt.name}
-                    </ThemedText>
-                  </Pressable>
-                ))}
-              </View>
-            )}
+                    {selectedTiming?.id === opt.id && <View style={styles.radioInner} />}
+                  </View>
+                  <ThemedText
+                    style={[
+                      styles.timingText,
+                      opt.is_emergency && styles.timingTextEmergency,
+                    ]}
+                  >
+                    {opt.name}
+                  </ThemedText>
+                </Pressable>
+              ))}
+            </View>
           </View>
 
           <View style={styles.continueButtonContainer}>
