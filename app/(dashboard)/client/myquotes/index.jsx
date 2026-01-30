@@ -39,7 +39,12 @@ const STATUS_COLORS = {
   issue: { text: "#DC2626", icon: "alert-circle" },        // Red
   completed: { text: "#6B7280", icon: "checkmark" },       // Gray
   direct: { text: "#7C3AED", icon: "person" },             // Purple
+  expired: { text: "#6B7280", icon: "close-circle" },      // Gray with close icon
+  cancelled: { text: "#6B7280", icon: "close" },           // Gray with X
 };
+
+// Done tab stages for filtering
+const DONE_STAGES = ["DONE", "EXPIRED", "CANCELLED"];
 
 // Format number with thousand separators
 function formatNumber(num) {
@@ -271,6 +276,135 @@ function ProjectCard({ item, onPress }) {
             />
           ))}
           <ThemedText style={styles.reviewLabel}>Your review</ThemedText>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+// Past card component for Done tab (completed, expired, cancelled)
+function ClientPastCard({ item, onPress }) {
+  const router = useRouter();
+  const { service, category } = parseTitle(item.title);
+
+  // Determine icon based on past type
+  const getIcon = () => {
+    if (item.pastType === "completed") return "checkmark-circle";
+    if (item.pastType === "expired") return "close-circle-outline";
+    if (item.pastType === "cancelled") return "close";
+    return "ellipse-outline";
+  };
+
+  const getIconColor = () => {
+    if (item.pastType === "completed") return "#10B981";
+    return "#9CA3AF";
+  };
+
+  const isExpiredOrCancelled = item.pastType === "expired" || item.pastType === "cancelled";
+
+  return (
+    <Pressable
+      style={[
+        styles.pastCard,
+        isExpiredOrCancelled && styles.pastCardMuted,
+      ]}
+      onPress={onPress}
+    >
+      {/* Title row with icon */}
+      <View style={styles.pastCardHeader}>
+        <View style={styles.pastCardTitleContent}>
+          <ThemedText
+            style={[
+              styles.pastCardTitle,
+              isExpiredOrCancelled && styles.pastCardTitleMuted,
+            ]}
+            numberOfLines={1}
+          >
+            {service}
+          </ThemedText>
+          {category ? (
+            <ThemedText style={styles.pastCardCategory}>{category}</ThemedText>
+          ) : null}
+        </View>
+        <Ionicons name={getIcon()} size={24} color={getIconColor()} />
+      </View>
+
+      {/* Context line */}
+      <ThemedText style={styles.pastCardContext}>
+        {item.contextLine}
+      </ThemedText>
+
+      {/* Explanation line for expired/cancelled (dashed separator + explanation) */}
+      {isExpiredOrCancelled && item.explanation && (
+        <View style={styles.pastCardExplanation}>
+          <View style={styles.dashedLine} />
+          <ThemedText style={styles.explanationText}>
+            {item.explanation}
+          </ThemedText>
+        </View>
+      )}
+
+      {/* Review badge for completed */}
+      {item.pastType === "completed" && (
+        <>
+          {item.hasReview ? (
+            <View style={styles.pastCardReviewBadge}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <Ionicons
+                  key={star}
+                  name={star <= (item.reviewRating || 0) ? "star" : "star-outline"}
+                  size={14}
+                  color="#F59E0B"
+                />
+              ))}
+              <ThemedText style={styles.pastCardReviewText}>Reviewed</ThemedText>
+            </View>
+          ) : (
+            <Pressable
+              style={styles.leaveReviewBtn}
+              onPress={() =>
+                router.push({
+                  pathname: "/(dashboard)/myquotes/review",
+                  params: { quoteId: item.quoteId },
+                })
+              }
+            >
+              <ThemedText style={styles.leaveReviewBtnText}>Leave Review</ThemedText>
+            </Pressable>
+          )}
+        </>
+      )}
+
+      {/* Amount for completed */}
+      {item.pastType === "completed" && item.priceInfo && (
+        <ThemedText style={styles.pastCardAmount}>
+          {item.priceInfo}
+        </ThemedText>
+      )}
+    </Pressable>
+  );
+}
+
+// Section header for Done tab groupings
+function DoneSectionHeader({ title, count, expanded, onToggle }) {
+  return (
+    <Pressable style={styles.sectionHeader} onPress={onToggle}>
+      <View style={styles.sectionHeaderLeft}>
+        <ThemedText style={styles.sectionHeaderTitle}>{title}</ThemedText>
+        {typeof count === "number" && (
+          <ThemedText style={styles.sectionHeaderCount}>({count})</ThemedText>
+        )}
+      </View>
+      {onToggle && (
+        <View style={styles.sectionHeaderRight}>
+          <ThemedText style={styles.sectionHeaderToggle}>
+            {expanded ? "Hide" : "Show all"}
+          </ThemedText>
+          <Ionicons
+            name={expanded ? "chevron-up" : "chevron-down"}
+            size={16}
+            color="#374151"
+          />
         </View>
       )}
     </Pressable>
@@ -1099,13 +1233,14 @@ export default function ClientProjects() {
           quoteId: q.quote_id,
           title: q.request_suggested_title || q.project_title || "Job",
           requestType: "direct",
-          contextLine: `${q.trade_business_name} · £${formatNumber(q.grand_total)}`,
+          contextLine: `${q.trade_business_name} · Completed ${formatDate(q.completion_confirmed_at || q.updated_at)} · £${formatNumber(q.grand_total)}`,
           statusType: "completed",
           statusText: "Completed",
           statusDetail: formatDate(q.completion_confirmed_at || q.updated_at),
-          priceInfo: null,
+          priceInfo: `£${formatNumber(q.grand_total)}`,
           hasReview: !!q.client_review_rating,
           reviewRating: q.client_review_rating,
+          pastType: "completed",
           actions: q.client_review_rating
             ? null
             : [
@@ -1128,39 +1263,45 @@ export default function ClientProjects() {
           sortPriority: q.client_review_rating ? 5 : 2,
         });
       } else if (status === "declined") {
+        // Client declined - this means client chose another trade or cancelled
         allProjects.push({
-          id: `declined-${q.quote_id}`,
-          type: "declined",
-          stage: "DONE",
+          id: `cancelled-${q.quote_id}`,
+          type: "cancelled",
+          stage: "CANCELLED",
           stageIndex: 3,
-          progressPosition: 100,
+          progressPosition: 37.5,
           requestId: reqId,
           quoteId: q.quote_id,
           title: q.request_suggested_title || q.project_title || "Quote",
           requestType: "direct",
-          contextLine: "Open request",
-          statusType: "completed",
-          statusText: "You declined all quotes",
+          contextLine: `You cancelled · ${daysSince(q.updated_at)} days ago`,
+          statusType: "cancelled",
+          statusText: "You declined this quote",
           statusDetail: `${daysSince(q.updated_at)} days ago`,
           priceInfo: null,
+          pastType: "cancelled",
+          explanation: "You declined this quote",
           sortPriority: 5,
         });
       } else if (status === "expired") {
+        // Quote received but client never responded - goes to EXPIRED in Done tab
         allProjects.push({
           id: `expired-${q.quote_id}`,
           type: "expired",
-          stage: "DONE",
-          stageIndex: 3,
-          progressPosition: 100,
+          stage: "EXPIRED",
+          stageIndex: 1,
+          progressPosition: 37.5,
           requestId: reqId,
           quoteId: q.quote_id,
           title: q.request_suggested_title || q.project_title || "Quote",
           requestType: "direct",
-          contextLine: `Direct request · ${q.trade_business_name}`,
-          statusType: "completed",
+          contextLine: `${q.trade_business_name || "Trade"} · £${formatNumber(q.grand_total)} quoted · Expired ${daysSince(q.updated_at)} days ago`,
+          statusType: "expired",
           statusText: "Quote expired",
           statusDetail: "No response within 14 days",
-          priceInfo: null,
+          priceInfo: `£${formatNumber(q.grand_total)}`,
+          pastType: "expired",
+          explanation: "You didn't respond to the quote in time",
           sortPriority: 5,
         });
       }
@@ -1340,21 +1481,44 @@ export default function ClientProjects() {
       case "active":
         return projects.filter((p) => p.stage === "HIRED");
       case "done":
-        return projects.filter((p) => p.stage === "DONE");
+        // Done includes completed, expired, and cancelled
+        return projects.filter((p) => DONE_STAGES.includes(p.stage));
       default:
-        return projects.filter((p) => p.stage !== "DONE");
+        // "All" shows everything except done stages
+        return projects.filter((p) => !DONE_STAGES.includes(p.stage));
     }
   }, [projects, filter]);
 
+  // Grouped done projects for Done tab
+  const doneGrouped = useMemo(() => {
+    const doneProjects = projects.filter((p) => DONE_STAGES.includes(p.stage));
+    return {
+      completed: doneProjects.filter((p) => p.stage === "DONE"),
+      expired: doneProjects.filter((p) => p.stage === "EXPIRED"),
+      cancelled: doneProjects.filter((p) => p.stage === "CANCELLED"),
+    };
+  }, [projects]);
+
+  // Section expansion state for Done tab
+  const [expandedDoneSections, setExpandedDoneSections] = useState({
+    completed: true,
+    expired: true,
+    cancelled: false,
+  });
+
+  const toggleDoneSection = (section) => {
+    setExpandedDoneSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
   // Counts
   const counts = useMemo(() => {
-    const all = projects.filter((p) => p.stage !== "DONE").length;
+    const doneCount = projects.filter((p) => DONE_STAGES.includes(p.stage)).length;
+    const all = projects.filter((p) => !DONE_STAGES.includes(p.stage)).length;
     const quotes = projects.filter(
       (p) => p.stage === "POSTED" || p.stage === "QUOTES"
     ).length;
     const active = projects.filter((p) => p.stage === "HIRED").length;
-    const done = projects.filter((p) => p.stage === "DONE").length;
-    return { all, quotes, active, done };
+    return { all, quotes, active, done: doneCount };
   }, [projects]);
 
   const isLoading = initialLoading || isFocusLoading;
@@ -1422,7 +1586,8 @@ export default function ClientProjects() {
       >
         {isLoading && <ProjectsPageSkeleton paddingTop={0} />}
 
-        {!isLoading && filteredProjects.length > 0 && (
+        {/* Regular project cards for non-Done tabs */}
+        {!isLoading && filter !== "done" && filteredProjects.length > 0 && (
           <View style={styles.projectsList}>
             {filteredProjects.map((project) => (
               <ProjectCard
@@ -1442,7 +1607,83 @@ export default function ClientProjects() {
           </View>
         )}
 
-        {!isLoading && filteredProjects.length === 0 && filter === "all" && (
+        {/* Grouped sections for Done tab */}
+        {!isLoading && filter === "done" && (
+          <View style={styles.projectsList}>
+            {/* COMPLETED Section */}
+            {doneGrouped.completed.length > 0 && (
+              <>
+                <DoneSectionHeader
+                  title="COMPLETED"
+                  count={doneGrouped.completed.length}
+                />
+                {doneGrouped.completed.map((project) => (
+                  <ClientPastCard
+                    key={project.id}
+                    item={project}
+                    onPress={() => {
+                      if (project.quoteId) {
+                        router.push(`/(dashboard)/myquotes/${project.quoteId}`);
+                      }
+                    }}
+                  />
+                ))}
+              </>
+            )}
+
+            {/* EXPIRED Section */}
+            {doneGrouped.expired.length > 0 && (
+              <>
+                <DoneSectionHeader
+                  title="EXPIRED"
+                  count={doneGrouped.expired.length}
+                  expanded={expandedDoneSections.expired}
+                  onToggle={() => toggleDoneSection("expired")}
+                />
+                {expandedDoneSections.expired &&
+                  doneGrouped.expired.map((project) => (
+                    <ClientPastCard
+                      key={project.id}
+                      item={project}
+                      onPress={() => {
+                        if (project.quoteId) {
+                          router.push(`/(dashboard)/myquotes/${project.quoteId}`);
+                        } else if (project.requestId) {
+                          router.push(`/(dashboard)/myquotes/request/${project.requestId}`);
+                        }
+                      }}
+                    />
+                  ))}
+              </>
+            )}
+
+            {/* CANCELLED Section */}
+            {doneGrouped.cancelled.length > 0 && (
+              <>
+                <DoneSectionHeader
+                  title="CANCELLED"
+                  count={doneGrouped.cancelled.length}
+                  expanded={expandedDoneSections.cancelled}
+                  onToggle={() => toggleDoneSection("cancelled")}
+                />
+                {expandedDoneSections.cancelled &&
+                  doneGrouped.cancelled.map((project) => (
+                    <ClientPastCard
+                      key={project.id}
+                      item={project}
+                      onPress={() => {
+                        if (project.quoteId) {
+                          router.push(`/(dashboard)/myquotes/${project.quoteId}`);
+                        }
+                      }}
+                    />
+                  ))}
+              </>
+            )}
+          </View>
+        )}
+
+        {!isLoading && filter !== "done" && filteredProjects.length === 0 && filter === "all" && (
           <EmptyState
             icon="clipboard-outline"
             title="No projects yet"
@@ -1474,11 +1715,11 @@ export default function ClientProjects() {
           />
         )}
 
-        {!isLoading && filteredProjects.length === 0 && filter === "done" && (
+        {!isLoading && filter === "done" && doneGrouped.completed.length === 0 && doneGrouped.expired.length === 0 && doneGrouped.cancelled.length === 0 && (
           <EmptyState
             icon="checkmark-circle-outline"
-            title="No completed projects"
-            subtitle="Your completed jobs will appear here"
+            title="No past projects"
+            subtitle="Completed, expired and cancelled projects will appear here"
           />
         )}
 
@@ -1730,5 +1971,134 @@ const styles = StyleSheet.create({
     color: "#374151",
     fontSize: 16,
     fontWeight: "600",
+  },
+  // Past card styles for Done tab
+  pastCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  pastCardMuted: {
+    backgroundColor: "#F9FAFB",
+    borderStyle: "dashed",
+    borderColor: "#D1D5DB",
+  },
+  pastCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  pastCardTitleContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  pastCardTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1F2937",
+  },
+  pastCardTitleMuted: {
+    color: "#6B7280",
+  },
+  pastCardCategory: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    marginTop: 2,
+  },
+  pastCardContext: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 8,
+  },
+  pastCardExplanation: {
+    marginTop: 12,
+  },
+  dashedLine: {
+    height: 1,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#D1D5DB",
+    marginBottom: 8,
+  },
+  explanationText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    fontStyle: "italic",
+  },
+  pastCardActionBtn: {
+    marginTop: 12,
+    alignSelf: "flex-end",
+  },
+  pastCardActionBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: TINT,
+  },
+  pastCardReviewBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    marginTop: 12,
+  },
+  pastCardReviewText: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginLeft: 4,
+  },
+  leaveReviewBtn: {
+    marginTop: 12,
+    alignSelf: "flex-end",
+    backgroundColor: "#F3F4F6",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  leaveReviewBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: TINT,
+  },
+  pastCardAmount: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1F2937",
+    marginTop: 8,
+    textAlign: "right",
+  },
+  // Section header styles for Done tab
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  sectionHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  sectionHeaderTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#6B7280",
+    letterSpacing: 0.5,
+  },
+  sectionHeaderCount: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#9CA3AF",
+  },
+  sectionHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  sectionHeaderToggle: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#374151",
   },
 });

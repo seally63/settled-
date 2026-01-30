@@ -1128,7 +1128,9 @@ export default function MessageThread() {
             renderItem={renderItem}
             contentContainerStyle={styles.listContent}
             ListHeaderComponent={
-              quoteSummary ? (
+              // Only show QuoteHeader when quote exists and is in a visible state
+              // Hide for drafts - only show when quote has been sent/accepted/completed
+              quoteSummary && quoteSummary.status && !['draft', 'withdrawn'].includes(quoteSummary.status.toLowerCase()) ? (
                 <QuoteHeader
                   quote={quoteSummary}
                   displayName={heroDisplayName}
