@@ -1061,7 +1061,7 @@ export default function TradesmanHome() {
       }
       setConversationsByRequest(convByRequestId);
 
-      // Fetch client contact visibility
+      // Fetch client contact visibility and names
       let clientContactByRequestId = {};
       for (const reqId of reqIds) {
         try {
@@ -1071,9 +1071,49 @@ export default function TradesmanHome() {
           );
           if (contactData) {
             clientContactByRequestId[reqId] = contactData;
+            // Also populate clientNameByRequestId from contact data
+            // This ensures client names show even without messages
+            if (contactData.name && !clientNameByRequestId[reqId]) {
+              clientNameByRequestId[reqId] = contactData.name;
+            }
           }
         } catch {
           // Silently fail
+        }
+      }
+
+      // Fallback: Fetch client names directly from profiles for any missing names
+      // This handles cases where rpc_get_client_contact_for_request didn't return names
+      const requestIdsNeedingNames = reqIds.filter(
+        (reqId) => !clientNameByRequestId[reqId] && reqById[reqId]?.requester_id
+      );
+      if (requestIdsNeedingNames.length > 0) {
+        const clientIds = [...new Set(
+          requestIdsNeedingNames
+            .map((reqId) => reqById[reqId]?.requester_id)
+            .filter(Boolean)
+        )];
+
+        if (clientIds.length > 0) {
+          const { data: clientProfiles } = await supabase
+            .from("profiles")
+            .select("id, full_name")
+            .in("id", clientIds);
+
+          if (clientProfiles) {
+            const profileById = {};
+            clientProfiles.forEach((p) => {
+              profileById[p.id] = p.full_name;
+            });
+
+            // Map client names back to request IDs
+            requestIdsNeedingNames.forEach((reqId) => {
+              const clientId = reqById[reqId]?.requester_id;
+              if (clientId && profileById[clientId]) {
+                clientNameByRequestId[reqId] = profileById[clientId];
+              }
+            });
+          }
         }
       }
 

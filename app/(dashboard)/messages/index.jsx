@@ -151,8 +151,12 @@ export default function MessagesIndex() {
         setConversations([]);
         return;
       }
-      // DEBUG: Log loaded conversations (improved messages tab)
-      setConversations(data || []);
+      // Filter out conversations with no actual messages
+      // Only show conversations where communication has started
+      const filtered = (data || []).filter(
+        (conv) => conv.last_message_body && conv.last_message_body.trim().length > 0
+      );
+      setConversations(filtered);
     } finally {
       setLoading(false);
     }
@@ -195,7 +199,7 @@ export default function MessagesIndex() {
 
       <FlatList
         data={conversations}
-        keyExtractor={(item) => String(item.request_id)}
+        keyExtractor={(item, index) => item.conversation_id ? String(item.conversation_id) : `${item.request_id}-${item.other_party_id || index}`}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }

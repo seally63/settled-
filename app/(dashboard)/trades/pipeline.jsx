@@ -117,7 +117,7 @@ export default function PipelinePage() {
         });
       }
 
-      // Fetch client contact visibility
+      // Fetch client contact visibility and populate names
       let clientContactByRequestId = {};
       for (const reqId of reqIds) {
         try {
@@ -127,9 +127,42 @@ export default function PipelinePage() {
           );
           if (contactData) {
             clientContactByRequestId[reqId] = contactData;
+            // Also populate clientNameByRequestId from contact data
+            if (contactData.name && !clientNameByRequestId[reqId]) {
+              clientNameByRequestId[reqId] = contactData.name;
+            }
           }
         } catch {
           // Silently fail
+        }
+      }
+
+      // Fallback: Fetch client names directly from profiles for any missing names
+      // Get client IDs from quotes
+      const clientIds = [...new Set(
+        (quotes || [])
+          .map((q) => q.client_id)
+          .filter(Boolean)
+      )];
+
+      if (clientIds.length > 0) {
+        const { data: clientProfiles } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", clientIds);
+
+        if (clientProfiles) {
+          const profileById = {};
+          clientProfiles.forEach((p) => {
+            profileById[p.id] = p.full_name;
+          });
+
+          // Map client names back to request IDs via quotes
+          (quotes || []).forEach((q) => {
+            if (q.client_id && profileById[q.client_id] && !clientNameByRequestId[q.request_id]) {
+              clientNameByRequestId[q.request_id] = profileById[q.client_id];
+            }
+          });
         }
       }
 

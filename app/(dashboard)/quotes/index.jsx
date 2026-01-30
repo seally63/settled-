@@ -38,6 +38,8 @@ const STATUS_COLORS = {
   issue: { text: "#DC2626", icon: "alert-circle" },       // Red
   completed: { text: "#6B7280", icon: "checkmark" },      // Gray
   new: { text: "#3B82F6", icon: "sparkles" },             // Blue
+  expired: { text: "#6B7280", icon: "close-circle" },     // Gray with close icon
+  declined: { text: "#6B7280", icon: "close" },           // Gray with X
 };
 
 // Format number with thousand separators
@@ -334,6 +336,118 @@ function ProjectCard({ item, onPress }) {
   );
 }
 
+// Past card component for expired/declined items - visual treatment with dashed border and explanation
+function PastCard({ item, onPress }) {
+  const { service, category } = parseTitle(item.title);
+
+  // Determine icon based on past type
+  const getIcon = () => {
+    if (item.pastType === "completed") return "checkmark-circle";
+    if (item.pastType === "expired") return "close-circle-outline";
+    if (item.pastType === "declined") return "close";
+    return "ellipse-outline";
+  };
+
+  const getIconColor = () => {
+    if (item.pastType === "completed") return "#10B981";
+    return "#9CA3AF";
+  };
+
+  const isExpiredOrDeclined = item.pastType === "expired" || item.pastType === "declined";
+
+  return (
+    <Pressable
+      style={[
+        styles.pastCard,
+        isExpiredOrDeclined && styles.pastCardMuted,
+      ]}
+      onPress={onPress}
+    >
+      {/* Title row with icon */}
+      <View style={styles.pastCardHeader}>
+        <View style={styles.pastCardTitleContent}>
+          <ThemedText
+            style={[
+              styles.pastCardTitle,
+              isExpiredOrDeclined && styles.pastCardTitleMuted,
+            ]}
+            numberOfLines={1}
+          >
+            {service}
+          </ThemedText>
+          {category ? (
+            <ThemedText style={styles.pastCardCategory}>{category}</ThemedText>
+          ) : null}
+        </View>
+        <Ionicons name={getIcon()} size={24} color={getIconColor()} />
+      </View>
+
+      {/* Context line */}
+      <ThemedText style={styles.pastCardContext}>
+        {item.contextLine}
+      </ThemedText>
+
+      {/* Explanation line for expired/declined (dashed separator + explanation) */}
+      {isExpiredOrDeclined && item.explanation && (
+        <View style={styles.pastCardExplanation}>
+          <View style={styles.dashedLine} />
+          <ThemedText style={styles.explanationText}>
+            {item.explanation}
+          </ThemedText>
+        </View>
+      )}
+
+      {/* Quote amount for expired quotes that had a price */}
+      {item.quoteAmount && item.pastType === "expired" && (
+        <ThemedText style={styles.pastCardQuoteInfo}>
+          Your quote: £{formatNumber(item.quoteAmount)} · Sent {item.daysSinceSent || "?"} days ago
+        </ThemedText>
+      )}
+
+      {/* Review badge for completed */}
+      {item.pastType === "completed" && item.hasReview && (
+        <View style={styles.pastCardReviewBadge}>
+          {[1, 2, 3, 4, 5].map((star) => (
+            <Ionicons
+              key={star}
+              name={star <= (item.reviewRating || 0) ? "star" : "star-outline"}
+              size={14}
+              color="#F59E0B"
+            />
+          ))}
+          <ThemedText style={styles.pastCardReviewText}>Client review</ThemedText>
+        </View>
+      )}
+
+      {/* Amount for completed */}
+      {item.pastType === "completed" && item.quoteAmount && (
+        <ThemedText style={styles.pastCardAmount}>
+          £{formatNumber(item.quoteAmount)}
+        </ThemedText>
+      )}
+    </Pressable>
+  );
+}
+
+// Section header for Past tab groupings
+function SectionHeader({ title, count, expanded, onToggle }) {
+  return (
+    <Pressable style={styles.sectionHeader} onPress={onToggle}>
+      <View style={styles.sectionHeaderLeft}>
+        <ThemedText style={styles.sectionHeaderTitle}>{title}</ThemedText>
+        {typeof count === "number" && (
+          <ThemedText style={styles.sectionHeaderCount}>({count})</ThemedText>
+        )}
+      </View>
+      {onToggle && (
+        <ThemedText style={styles.sectionHeaderToggle}>
+          {expanded ? "Hide" : "Show all"}
+        </ThemedText>
+      )}
+    </Pressable>
+  );
+}
+
 // Empty state component
 function EmptyState({ icon, title, subtitle, primaryAction }) {
   return (
@@ -475,7 +589,7 @@ export default function TradesmanProjects() {
         });
       }
 
-      // Fetch client contact visibility
+      // Fetch client contact visibility and names
       for (const reqId of reqIds) {
         try {
           const { data: contactData } = await supabase.rpc(
@@ -484,9 +598,48 @@ export default function TradesmanProjects() {
           );
           if (contactData) {
             clientContactByRequestId[reqId] = contactData;
+            // Also populate clientNameByRequestId from contact data
+            if (contactData.name && !clientNameByRequestId[reqId]) {
+              clientNameByRequestId[reqId] = contactData.name;
+            }
           }
         } catch {
           // Silently fail
+        }
+      }
+
+      // Fallback: Fetch client names directly from profiles for any missing names
+      const requestIdsNeedingNames = reqIds.filter(
+        (reqId) => !clientNameByRequestId[reqId] && reqById[reqId]?.requester_id
+      );
+
+      if (requestIdsNeedingNames.length > 0) {
+        const clientIds = [...new Set(
+          requestIdsNeedingNames
+            .map((reqId) => reqById[reqId]?.requester_id)
+            .filter(Boolean)
+        )];
+
+        if (clientIds.length > 0) {
+          const { data: clientProfiles } = await supabase
+            .from("profiles")
+            .select("id, full_name")
+            .in("id", clientIds);
+
+          if (clientProfiles) {
+            const profileById = {};
+            clientProfiles.forEach((p) => {
+              profileById[p.id] = p.full_name;
+            });
+
+            // Map client names back to request IDs
+            requestIdsNeedingNames.forEach((reqId) => {
+              const clientId = reqById[reqId]?.requester_id;
+              if (clientId && profileById[clientId]) {
+                clientNameByRequestId[reqId] = profileById[clientId];
+              }
+            });
+          }
         }
       }
 
@@ -802,12 +955,41 @@ export default function TradesmanProjects() {
 
     // Process inbox items (new requests) - Stage: REQUEST or QUOTE (if accepted but no quote yet)
     inboxRows.forEach((item) => {
-      if (item.state === "declined") return;
+      const stateStr = (item.state || "").toLowerCase();
+
+      // Handle declined - trade declined this request (skip, don't show)
+      if (stateStr === "declined") return;
+
+      // Handle expired request_targets
+      if (stateStr === "expired") {
+        const contextLine = `${item.clientName || "Client"} · No response · Expired ${item.requestAge - 14 > 0 ? item.requestAge - 14 : 0} days ago`;
+        const wasAccepted = item.wasAccepted || false; // Need to track if was previously accepted
+
+        allProjects.push({
+          id: `inbox-expired-${item.request_id}`,
+          type: "expired_request",
+          stage: "EXPIRED",
+          stageIndex: 1,
+          progressPosition: 12.5,
+          requestId: item.request_id,
+          title: item.title,
+          requestType: item.request_type,
+          contextLine,
+          statusType: "expired",
+          statusText: wasAccepted ? "Quote not sent" : "No response",
+          statusDetail: `Expired ${item.requestAge - 14 > 0 ? item.requestAge - 14 : 0} days ago`,
+          pastType: "expired",
+          explanation: wasAccepted
+            ? "You accepted but didn't send a quote in time"
+            : "You didn't respond to this request",
+          sortPriority: 5,
+        });
+        return;
+      }
 
       const apptStatus = item.nextAppointment?.status?.toLowerCase();
       const isDirectRequest = item.request_type === "client";
       // Check all accepted states: "accepted", "trade_accepted", "client_accepted"
-      const stateStr = (item.state || "").toLowerCase();
       const isAccepted = stateStr.includes("accepted");
 
       // Always show client info in context line
@@ -1163,7 +1345,7 @@ export default function TradesmanProjects() {
         statusDetail = "Waiting for client to confirm";
         subStatus = "issue_resolved_pending";
       } else if (status === "completed") {
-        stage = "DONE";
+        stage = "COMPLETED";
         stageIndex = 3;
         statusType = "completed";
         statusText = "Completed";
@@ -1171,23 +1353,37 @@ export default function TradesmanProjects() {
         subStatus = null;
         actions = null;
       } else if (status === "declined") {
-        stage = "DONE";
+        stage = "DECLINED";
         stageIndex = 3;
-        statusType = "completed";
+        statusType = "declined";
         statusText = "Client chose another trade";
         statusDetail = `${item.daysSinceIssued || 0} days ago`;
       } else if (status === "expired") {
-        stage = "DONE";
+        // Quote sent but client never responded
+        stage = "EXPIRED";
         stageIndex = 3;
-        statusType = "completed";
-        statusText = "Quote expired";
-        statusDetail = "No response after 14 days";
+        statusType = "expired";
+        statusText = "Client didn't respond";
+        statusDetail = `Expired ${item.daysSinceIssued ? item.daysSinceIssued - 14 : 0} days ago`;
       }
 
       const quoteAmount =
         item.hasAcceptedQuote && item.acceptedQuoteTotal
           ? item.acceptedQuoteTotal
           : item.grand_total;
+
+      // Determine pastType and explanation for Past tab cards
+      let pastType = null;
+      let explanation = null;
+      if (stage === "COMPLETED") {
+        pastType = "completed";
+      } else if (stage === "DECLINED") {
+        pastType = "declined";
+        explanation = "Client chose another trade for this job";
+      } else if (stage === "EXPIRED") {
+        pastType = "expired";
+        explanation = "Your quote: £" + formatNumber(quoteAmount || 0) + " · Sent " + (item.daysSinceIssued || "?") + " days ago";
+      }
 
       allProjects.push({
         id: `quote-${item.id}`,
@@ -1209,6 +1405,10 @@ export default function TradesmanProjects() {
         actions,
         hasReview: !!item.client_review_rating,
         reviewRating: item.client_review_rating,
+        // Past tab fields
+        pastType,
+        explanation,
+        daysSinceSent: item.daysSinceIssued,
         sortPriority:
           statusType === "issue"
             ? 0
@@ -1233,6 +1433,9 @@ export default function TradesmanProjects() {
     return allProjects;
   }, [inboxRows, sentRows, router, formatDate, formatTime, user, load]);
 
+  // Past stages for filtering
+  const PAST_STAGES = ["COMPLETED", "EXPIRED", "DECLINED"];
+
   // Filter projects
   const filteredProjects = useMemo(() => {
     switch (filter) {
@@ -1243,21 +1446,44 @@ export default function TradesmanProjects() {
           (p) => p.stage === "QUOTE" || p.stage === "WORK"
         );
       case "past":
-        return projects.filter((p) => p.stage === "DONE");
+        // Past includes completed, expired, and declined
+        return projects.filter((p) => PAST_STAGES.includes(p.stage));
       default:
-        return projects.filter((p) => p.stage !== "DONE");
+        // All excludes past items
+        return projects.filter((p) => !PAST_STAGES.includes(p.stage));
     }
   }, [projects, filter]);
 
+  // Grouped past projects for Past tab
+  const pastGrouped = useMemo(() => {
+    const pastProjects = projects.filter((p) => PAST_STAGES.includes(p.stage));
+    return {
+      completed: pastProjects.filter((p) => p.stage === "COMPLETED"),
+      expired: pastProjects.filter((p) => p.stage === "EXPIRED"),
+      declined: pastProjects.filter((p) => p.stage === "DECLINED"),
+    };
+  }, [projects]);
+
+  // Section expansion state for Past tab
+  const [expandedSections, setExpandedSections] = useState({
+    completed: true,
+    expired: true,
+    declined: false,
+  });
+
+  const toggleSection = (section) => {
+    setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
   // Counts
   const counts = useMemo(() => {
-    const all = projects.filter((p) => p.stage !== "DONE").length;
+    const pastCount = projects.filter((p) => PAST_STAGES.includes(p.stage)).length;
+    const all = projects.filter((p) => !PAST_STAGES.includes(p.stage)).length;
     const newCount = projects.filter((p) => p.stage === "REQUEST").length;
     const active = projects.filter(
       (p) => p.stage === "QUOTE" || p.stage === "WORK"
     ).length;
-    const past = projects.filter((p) => p.stage === "DONE").length;
-    return { all, new: newCount, active, past };
+    return { all, new: newCount, active, past: pastCount };
   }, [projects]);
 
   if (loading) {
@@ -1314,7 +1540,8 @@ export default function TradesmanProjects() {
         }
         showsVerticalScrollIndicator={false}
       >
-        {filteredProjects.length > 0 && (
+        {/* Regular project cards for non-Past tabs */}
+        {filter !== "past" && filteredProjects.length > 0 && (
           <View style={styles.projectsList}>
             {filteredProjects.map((project) => (
               <ProjectCard
@@ -1334,7 +1561,83 @@ export default function TradesmanProjects() {
           </View>
         )}
 
-        {filteredProjects.length === 0 && filter === "all" && (
+        {/* Grouped sections for Past tab */}
+        {filter === "past" && (
+          <View style={styles.projectsList}>
+            {/* COMPLETED Section */}
+            {pastGrouped.completed.length > 0 && (
+              <>
+                <SectionHeader
+                  title="COMPLETED"
+                  count={pastGrouped.completed.length}
+                />
+                {pastGrouped.completed.map((project) => (
+                  <PastCard
+                    key={project.id}
+                    item={project}
+                    onPress={() => {
+                      if (project.quoteId) {
+                        router.push(`/quotes/${project.quoteId}`);
+                      }
+                    }}
+                  />
+                ))}
+              </>
+            )}
+
+            {/* EXPIRED Section */}
+            {pastGrouped.expired.length > 0 && (
+              <>
+                <SectionHeader
+                  title="EXPIRED"
+                  count={pastGrouped.expired.length}
+                  expanded={expandedSections.expired}
+                  onToggle={() => toggleSection("expired")}
+                />
+                {expandedSections.expired &&
+                  pastGrouped.expired.map((project) => (
+                    <PastCard
+                      key={project.id}
+                      item={project}
+                      onPress={() => {
+                        if (project.quoteId) {
+                          router.push(`/quotes/${project.quoteId}`);
+                        } else if (project.requestId) {
+                          router.push(`/quotes/request/${project.requestId}`);
+                        }
+                      }}
+                    />
+                  ))}
+              </>
+            )}
+
+            {/* DECLINED Section */}
+            {pastGrouped.declined.length > 0 && (
+              <>
+                <SectionHeader
+                  title="DECLINED"
+                  count={pastGrouped.declined.length}
+                  expanded={expandedSections.declined}
+                  onToggle={() => toggleSection("declined")}
+                />
+                {expandedSections.declined &&
+                  pastGrouped.declined.map((project) => (
+                    <PastCard
+                      key={project.id}
+                      item={project}
+                      onPress={() => {
+                        if (project.quoteId) {
+                          router.push(`/quotes/${project.quoteId}`);
+                        }
+                      }}
+                    />
+                  ))}
+              </>
+            )}
+          </View>
+        )}
+
+        {filter !== "past" && filteredProjects.length === 0 && filter === "all" && (
           <EmptyState
             icon="briefcase-outline"
             title="No active projects"
@@ -1362,11 +1665,11 @@ export default function TradesmanProjects() {
           />
         )}
 
-        {filteredProjects.length === 0 && filter === "past" && (
+        {filter === "past" && pastGrouped.completed.length === 0 && pastGrouped.expired.length === 0 && pastGrouped.declined.length === 0 && (
           <EmptyState
             icon="checkmark-circle-outline"
-            title="No completed projects"
-            subtitle="Completed quotes will appear here"
+            title="No past projects"
+            subtitle="Completed, expired and declined quotes will appear here"
           />
         )}
 
@@ -1644,5 +1947,112 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "600",
+  },
+  // Past card styles
+  pastCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  pastCardMuted: {
+    backgroundColor: "#F9FAFB",
+    borderStyle: "dashed",
+    borderColor: "#D1D5DB",
+  },
+  pastCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  pastCardTitleContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  pastCardTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1F2937",
+  },
+  pastCardTitleMuted: {
+    color: "#6B7280",
+  },
+  pastCardCategory: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    marginTop: 2,
+  },
+  pastCardContext: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 8,
+  },
+  pastCardExplanation: {
+    marginTop: 12,
+  },
+  dashedLine: {
+    height: 1,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#D1D5DB",
+    marginBottom: 8,
+  },
+  explanationText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    fontStyle: "italic",
+  },
+  pastCardQuoteInfo: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 8,
+  },
+  pastCardReviewBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    marginTop: 12,
+  },
+  pastCardReviewText: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginLeft: 4,
+  },
+  pastCardAmount: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1F2937",
+    marginTop: 8,
+    textAlign: "right",
+  },
+  // Section header styles
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  sectionHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  sectionHeaderTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#6B7280",
+    letterSpacing: 0.5,
+  },
+  sectionHeaderCount: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#9CA3AF",
+  },
+  sectionHeaderToggle: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: TINT,
   },
 });

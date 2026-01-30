@@ -452,7 +452,7 @@ export default function QuoteDetails() {
 
           // Fallback: If no avatar found and we have a requester_id (client), fetch directly
           // This handles cases where the conversation RPC didn't return the avatar
-          if (clientIdFromRequest && userRole === "trade") {
+          if (clientIdFromRequest && userRole === "trades") {
             try {
               const { data: clientProfile } = await supabase
                 .from("profiles")
