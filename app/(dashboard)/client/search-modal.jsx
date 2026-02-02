@@ -25,6 +25,12 @@ import {
 } from "../../../lib/api/homeScreen";
 import { searchTrades } from "../../../lib/api/profile";
 import { Image } from "react-native";
+import {
+  getCategoryIcon,
+  getServiceTypeIcon,
+  defaultCategoryIcon,
+  defaultServiceTypeIcon,
+} from "../../../assets/icons";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -73,12 +79,9 @@ const SEARCH_INDEX = [
   { category: "Handyman", service: "General repairs", keywords: ["repair", "fix", "broken", "general", "odd job", "handyman"] },
 ];
 
-// Get category icon by name
-function getCategoryIcon(categoryName) {
-  const cat = CATEGORIES.find(
-    (c) => c.name.toLowerCase() === categoryName.toLowerCase()
-  );
-  return cat?.icon || "🛠️";
+// Get category icon source by name (returns PNG source for Image component)
+function getCategoryIconSource(categoryName) {
+  return getCategoryIcon(categoryName);
 }
 
 // Get category data by name
@@ -124,7 +127,8 @@ function searchServices(query) {
       results.push({
         ...item,
         matchType,
-        icon: getCategoryIcon(item.category),
+        iconSource: getCategoryIconSource(item.category),
+        serviceIconSource: getServiceTypeIcon(item.service),
       });
     }
   }
@@ -138,6 +142,9 @@ function searchServices(query) {
 
 // Result item component
 function ServiceResultItem({ item, onPress }) {
+  // Prefer service-specific icon, fallback to category icon, then default
+  const iconSource = item.serviceIconSource || item.iconSource || defaultServiceTypeIcon;
+
   return (
     <Pressable
       style={({ pressed }) => [
@@ -146,7 +153,7 @@ function ServiceResultItem({ item, onPress }) {
       ]}
       onPress={onPress}
     >
-      <ThemedText style={styles.resultIcon}>{item.icon}</ThemedText>
+      <Image source={iconSource} style={styles.resultIconImage} resizeMode="contain" />
       <View style={styles.resultText}>
         <ThemedText style={styles.resultService}>{item.service}</ThemedText>
         <ThemedText style={styles.resultCategory}>{item.category}</ThemedText>
@@ -157,6 +164,8 @@ function ServiceResultItem({ item, onPress }) {
 
 // Category list item
 function CategoryListItem({ category, onPress }) {
+  const iconSource = getCategoryIconSource(category.name) || defaultCategoryIcon;
+
   return (
     <Pressable
       style={({ pressed }) => [
@@ -165,7 +174,7 @@ function CategoryListItem({ category, onPress }) {
       ]}
       onPress={onPress}
     >
-      <ThemedText style={styles.categoryIcon}>{category.icon}</ThemedText>
+      <Image source={iconSource} style={styles.categoryIconImage} resizeMode="contain" />
       <ThemedText style={styles.categoryName}>{category.name}</ThemedText>
       <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
     </Pressable>
@@ -583,8 +592,9 @@ const styles = StyleSheet.create({
   categoryItemPressed: {
     backgroundColor: "#F9FAFB",
   },
-  categoryIcon: {
-    fontSize: 24,
+  categoryIconImage: {
+    width: 24,
+    height: 24,
     marginRight: 12,
   },
   categoryName: {
@@ -603,8 +613,9 @@ const styles = StyleSheet.create({
   resultItemPressed: {
     backgroundColor: "#F9FAFB",
   },
-  resultIcon: {
-    fontSize: 24,
+  resultIconImage: {
+    width: 24,
+    height: 24,
     marginRight: 12,
   },
   resultText: {

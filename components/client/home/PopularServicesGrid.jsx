@@ -1,16 +1,17 @@
 // components/client/home/PopularServicesGrid.jsx
 // Horizontal scrolling grid of service categories
-import { View, FlatList, Pressable, StyleSheet, Dimensions } from "react-native";
+import { View, FlatList, Pressable, StyleSheet, Dimensions, Image } from "react-native";
 import ThemedText from "../../ThemedText";
+import { getCategoryIcon, defaultCategoryIcon } from "../../../assets/icons";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-// Hardcoded categories with emojis and service types
+// Hardcoded categories with service types
+// Icons are now PNG files loaded from assets/icons/categories/
 export const CATEGORIES = [
   {
     id: "plumbing",
     name: "Plumbing",
-    icon: "🔧",
     services: [
       "Leak or drip",
       "Blocked drain",
@@ -23,7 +24,6 @@ export const CATEGORIES = [
   {
     id: "electrical",
     name: "Electrical",
-    icon: "⚡",
     services: [
       "Socket or switch issue",
       "Lighting problem",
@@ -36,7 +36,6 @@ export const CATEGORIES = [
   {
     id: "bathroom",
     name: "Bathroom",
-    icon: "🚿",
     services: [
       "Full bathroom refit",
       "Shower installation",
@@ -49,7 +48,6 @@ export const CATEGORIES = [
   {
     id: "kitchen",
     name: "Kitchen",
-    icon: "🍳",
     services: [
       "Full kitchen refit",
       "Appliance installation",
@@ -62,7 +60,6 @@ export const CATEGORIES = [
   {
     id: "cleaning",
     name: "Cleaning",
-    icon: "✨",
     services: [
       "Deep clean",
       "End of tenancy",
@@ -75,7 +72,6 @@ export const CATEGORIES = [
   {
     id: "handyman",
     name: "Handyman",
-    icon: "🛠️",
     services: [
       "Furniture assembly",
       "Painting / decorating",
@@ -93,6 +89,8 @@ const CARD_HEIGHT = 92;
 const GAP = 10;
 
 function CategoryCard({ category, onPress }) {
+  const iconSource = getCategoryIcon(category.name) || defaultCategoryIcon;
+
   return (
     <Pressable
       style={({ pressed }) => [
@@ -103,7 +101,7 @@ function CategoryCard({ category, onPress }) {
       accessibilityLabel={`${category.name} services`}
       accessibilityRole="button"
     >
-      <ThemedText style={styles.emoji}>{category.icon}</ThemedText>
+      <Image source={iconSource} style={styles.iconImage} resizeMode="contain" />
       <ThemedText style={styles.label} numberOfLines={1}>
         {category.name}
       </ThemedText>
@@ -168,8 +166,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#F9FAFB",
     borderColor: "#6849a7",
   },
-  emoji: {
-    fontSize: 32,
+  iconImage: {
+    width: 32,
+    height: 32,
     marginBottom: 6,
   },
   label: {

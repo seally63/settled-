@@ -120,8 +120,8 @@ const styles = StyleSheet.create({
   },
   handleContainer: {
     alignItems: "center",
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
   handle: {
     width: 36,
@@ -133,7 +133,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
   },

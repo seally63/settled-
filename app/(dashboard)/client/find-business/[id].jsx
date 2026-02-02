@@ -1,6 +1,6 @@
 // app/(dashboard)/client/find-business/[id].jsx
 // Client view of Trade Profile - shows trade details with Request a Quote button
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -17,7 +17,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import ImageViewing from "react-native-image-viewing";
@@ -33,7 +33,13 @@ import { Colors } from "../../../../constants/Colors";
 import { getTradeById, getMyRole } from "../../../../lib/api/profile";
 import { requestDirectQuote, checkServiceAreaDistance } from "../../../../lib/api/directRequest";
 import { getBusinessVerificationPublic, getTradePublicMetrics90d } from "../../../../lib/api/trust";
-import { uploadRequestImages } from "../../../../lib/api/attachments";
+import {
+  uploadTempImage,
+  moveTempToRequest,
+  deleteTempImages,
+  generateUploadSessionId,
+} from "../../../../lib/api/attachments";
+import PhotoUploadThumbnail from "../../../../components/PhotoUploadThumbnail";
 import {
   getServiceCategories,
   getServiceTypes,
@@ -41,6 +47,12 @@ import {
   getTimingOptions,
 } from "../../../../lib/api/services";
 import { supabase } from "../../../../lib/supabase";
+import {
+  getCategoryIcon,
+  getServiceTypeIcon,
+  defaultCategoryIcon,
+  defaultServiceTypeIcon,
+} from "../../../../assets/icons";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const PRIMARY = Colors?.light?.tint || "#7C3AED";
@@ -86,16 +98,22 @@ function getServiceAreasDisplay(serviceAreas) {
   return null;
 }
 
-// Helper to render icon from either Ionicons or MaterialCommunityIcons
-const ServiceIcon = ({ name, size, color }) => {
-  if (name && name.startsWith("mci:")) {
-    const iconName = name.replace("mci:", "");
-    return <MaterialCommunityIcons name={iconName} size={size} color={color} />;
-  }
-  return <Ionicons name={name || "help-outline"} size={size} color={color} />;
+// Helper to render category icon (PNG) with fallback to default icon
+const CategoryIcon = ({ category, size = 28 }) => {
+  const pngIcon = getCategoryIcon(category?.name);
+  const iconSource = pngIcon || defaultCategoryIcon;
+  return <Image source={iconSource} style={{ width: size, height: size }} resizeMode="contain" />;
+};
+
+// Helper to render service type icon (PNG) with fallback to default icon
+const ServiceTypeIcon = ({ serviceType, size = 20 }) => {
+  const pngIcon = getServiceTypeIcon(serviceType?.name);
+  const iconSource = pngIcon || defaultServiceTypeIcon;
+  return <Image source={iconSource} style={{ width: size, height: size }} resizeMode="contain" />;
 };
 
 // Budget options for the form
+// Values must match the CHECK constraint on quote_requests.budget_band
 const BUDGET_OPTIONS = [
   { id: "under_250", label: "Under £250", value: "<£250" },
   { id: "250_500", label: "£250 - £500", value: "£250–£500" },
@@ -104,26 +122,8 @@ const BUDGET_OPTIONS = [
   { id: "3000_7500", label: "£3,000 - £7,500", value: "£3k–£7.5k" },
   { id: "7500_15000", label: "£7,500 - £15,000", value: "£7.5k–£15k" },
   { id: "over_15000", label: "£15,000+", value: ">£15k" },
-  { id: "not_sure", label: "I'm not sure yet", value: "Not specified" },
+  { id: "not_sure", label: "I'm not sure yet", value: null }, // null is allowed by constraint
 ];
-
-// Minimal image processing
-async function makeThumbnails(uris) {
-  const out = [];
-  for (const uri of uris) {
-    try {
-      const { uri: processedUri } = await ImageManipulator.manipulateAsync(
-        uri,
-        [{ resize: { width: 1200 } }],
-        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: false }
-      );
-      out.push({ uri: processedUri });
-    } catch (e) {
-      out.push({ uri });
-    }
-  }
-  return out;
-}
 
 // Verification Badge Component - matches trade-profile.jsx exactly
 function VerificationBadge({ icon, label, status }) {
@@ -316,26 +316,38 @@ export default function TradeProfileClient() {
   const [selectedBudget, setSelectedBudget] = useState(null);
 
   // Step 5: Photos & Timing
+  // Photo state: { id, uri, status, progress, tempPath, error }
+  // status: 'pending' | 'optimizing' | 'uploading' | 'uploaded' | 'error' | 'retrying'
   const [photos, setPhotos] = useState([]);
+  const [uploadSessionId, setUploadSessionId] = useState(null);
   const [timingOptions, setTimingOptions] = useState([]);
   const [selectedTiming, setSelectedTiming] = useState(null);
-
-  // Photo preparation overlay
-  const [prepVisible, setPrepVisible] = useState(false);
 
   // Image viewer
   const [viewer, setViewer] = useState({ open: false, index: 0 });
 
+  // Refs to prevent state updates on unmounted component
+  const isMountedRef = useRef(true);
+  const retryTimeoutsRef = useRef(new Map()); // Track auto-retry timeouts by photoId
+
   // Submission
   const [submitting, setSubmitting] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadIdx, setUploadIdx] = useState(0);
-  const [uploadTotal, setUploadTotal] = useState(0);
 
   // Service area warning modal
   const [showServiceAreaWarning, setShowServiceAreaWarning] = useState(false);
   const [serviceAreaInfo, setServiceAreaInfo] = useState(null);
   const [checkingServiceArea, setCheckingServiceArea] = useState(false);
+
+  // Cleanup on component unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Clear all pending retry timeouts
+      retryTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      retryTimeoutsRef.current.clear();
+    };
+  }, []);
 
   // Load service names for display
   useEffect(() => {
@@ -473,8 +485,20 @@ export default function TradeProfileClient() {
     }
   }
 
-  // Reset form state
-  function resetForm() {
+  // Reset form state and cleanup temp uploads
+  async function resetForm() {
+    // Clear all pending retry timeouts
+    retryTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    retryTimeoutsRef.current.clear();
+
+    // Cleanup any uploaded temp images
+    const tempPaths = photos
+      .filter((p) => p.tempPath)
+      .map((p) => p.tempPath);
+    if (tempPaths.length > 0) {
+      deleteTempImages(tempPaths).catch(() => {});
+    }
+
     setRequestStep(1);
     setSelectedCategory(null);
     setSelectedServiceType(null);
@@ -483,10 +507,94 @@ export default function TradeProfileClient() {
     setSelectedPropertyType(null);
     setSelectedBudget(null);
     setPhotos([]);
+    setUploadSessionId(null);
     setSelectedTiming(null);
   }
 
-  // Photo handling
+  // Initialize upload session when modal opens
+  useEffect(() => {
+    if (showRequestModal && !uploadSessionId) {
+      // Get user ID and create session
+      supabase.auth.getUser().then(({ data }) => {
+        if (data?.user?.id) {
+          setUploadSessionId(generateUploadSessionId(data.user.id));
+        }
+      });
+    }
+  }, [showRequestModal, uploadSessionId]);
+
+  // Upload a single photo to temp storage
+  async function uploadPhotoToTemp(photoId, uri, sessionId) {
+    // Check if still mounted before updating state
+    if (!isMountedRef.current) return;
+
+    // Update status to uploading
+    setPhotos((prev) =>
+      prev.map((p) =>
+        p.id === photoId ? { ...p, status: "uploading", progress: 0 } : p
+      )
+    );
+
+    const result = await uploadTempImage(sessionId, { uri }, (progress) => {
+      if (!isMountedRef.current) return;
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId ? { ...p, progress } : p
+        )
+      );
+    });
+
+    // Check if still mounted before updating state
+    if (!isMountedRef.current) return;
+
+    if (result.success) {
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId
+            ? { ...p, status: "uploaded", progress: 100, tempPath: result.tempPath }
+            : p
+        )
+      );
+      // Clear any existing retry timeout for this photo
+      if (retryTimeoutsRef.current.has(photoId)) {
+        clearTimeout(retryTimeoutsRef.current.get(photoId));
+        retryTimeoutsRef.current.delete(photoId);
+      }
+    } else {
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId
+            ? { ...p, status: "error", error: result.error }
+            : p
+        )
+      );
+      // Auto-retry after 3 seconds, with proper cleanup tracking
+      const timeoutId = setTimeout(() => {
+        if (!isMountedRef.current) return;
+        retryTimeoutsRef.current.delete(photoId);
+        retryUpload(photoId);
+      }, 3000);
+      retryTimeoutsRef.current.set(photoId, timeoutId);
+    }
+  }
+
+  // Retry a failed upload
+  function retryUpload(photoId) {
+    if (!isMountedRef.current) return;
+
+    const photo = photos.find((p) => p.id === photoId);
+    if (!photo || photo.status !== "error") return;
+
+    setPhotos((prev) =>
+      prev.map((p) =>
+        p.id === photoId ? { ...p, status: "retrying", error: null } : p
+      )
+    );
+
+    uploadPhotoToTemp(photoId, photo.uri, uploadSessionId);
+  }
+
+  // Photo handling - pick from library
   async function pickFromLibrary() {
     try {
       const remaining = 5 - photos.length;
@@ -507,48 +615,98 @@ export default function TradeProfileClient() {
       });
       if (result.canceled) return;
 
-      const newUris = (result.assets || []).slice(0, remaining).map((a) => a.uri);
-      if (!newUris.length) return;
+      const newAssets = (result.assets || []).slice(0, remaining);
+      if (!newAssets.length) return;
 
-      setPrepVisible(true);
-      try {
-        const thumbs = await makeThumbnails(newUris);
-        setPhotos((prev) => [...prev, ...thumbs].slice(0, 5));
-      } finally {
-        setTimeout(() => setPrepVisible(false), 300);
+      // Process each image: optimize then start upload
+      for (const asset of newAssets) {
+        const photoId = `photo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Add photo with pending status
+        setPhotos((prev) => [
+          ...prev,
+          {
+            id: photoId,
+            uri: asset.uri,
+            status: "optimizing",
+            progress: 0,
+            tempPath: null,
+            error: null,
+          },
+        ].slice(0, 5));
+
+        // Optimize the image
+        try {
+          const { uri: processedUri } = await ImageManipulator.manipulateAsync(
+            asset.uri,
+            [{ resize: { width: 1200 } }],
+            { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: false }
+          );
+
+          // Update URI with processed version and start upload
+          setPhotos((prev) =>
+            prev.map((p) =>
+              p.id === photoId ? { ...p, uri: processedUri, status: "pending" } : p
+            )
+          );
+
+          // Start background upload if we have a session
+          if (uploadSessionId) {
+            uploadPhotoToTemp(photoId, processedUri, uploadSessionId);
+          }
+        } catch (e) {
+          // If optimization fails, use original and start upload
+          setPhotos((prev) =>
+            prev.map((p) =>
+              p.id === photoId ? { ...p, status: "pending" } : p
+            )
+          );
+          if (uploadSessionId) {
+            uploadPhotoToTemp(photoId, asset.uri, uploadSessionId);
+          }
+        }
       }
     } catch (e) {
-      setPrepVisible(false);
+      console.warn("pickFromLibrary error:", e?.message || e);
     }
   }
 
+  // Remove a photo (also delete from temp storage if uploaded)
   function removePhoto(idx) {
+    const photo = photos[idx];
+    if (photo?.tempPath) {
+      deleteTempImages([photo.tempPath]).catch(() => {});
+    }
     setPhotos((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  async function uploadAndAttach(requestId) {
-    const totalPhotos = photos.length;
-    if (totalPhotos === 0) return;
+  // Move temp images to request folder on submit
+  async function finalizePhotos(requestId) {
+    const uploadedPhotos = photos.filter((p) => p.status === "uploaded" && p.tempPath);
+    if (uploadedPhotos.length === 0) return { success: true, count: 0 };
 
-    setUploadTotal(totalPhotos);
-    setUploadIdx(0);
-    setUploading(true);
+    const tempPaths = uploadedPhotos.map((p) => p.tempPath);
+    const result = await moveTempToRequest(String(requestId), tempPaths);
 
-    let uploadedPaths = [];
-    try {
-      uploadedPaths = await uploadRequestImages(String(requestId), photos, (done, total) => {
-        setUploadTotal(total);
-        setUploadIdx(done);
-      });
-    } catch (e) {
-      console.warn("uploadRequestImages error:", e?.message || e);
-    } finally {
-      setUploading(false);
-    }
+    return {
+      success: result.success,
+      count: result.movedPaths.length,
+      errors: result.errors,
+    };
+  }
 
-    if (totalPhotos && !uploadedPaths.length) {
-      Alert.alert("Photos not attached", "We couldn't upload your photos, but your request was still sent.");
-    }
+  // Check if all photos are ready for submission
+  function arePhotosReady() {
+    if (photos.length === 0) return true;
+    // All photos must be uploaded (or we have none)
+    return photos.every((p) => p.status === "uploaded");
+  }
+
+  // Get count of photos still uploading
+  function getUploadingCount() {
+    return photos.filter((p) =>
+      ["pending", "optimizing", "uploading", "retrying"].includes(p.status)
+    ).length;
   }
 
   // Check service area before submitting
@@ -642,12 +800,31 @@ export default function TradeProfileClient() {
 
       const newRequestId = res?.id || res?.request_id || res?.data?.id || res?.data?.request_id || null;
 
-      if (newRequestId) {
-        await uploadAndAttach(String(newRequestId));
+      // Move temp photos to the request folder
+      if (newRequestId && photos.length > 0) {
+        const photoResult = await finalizePhotos(newRequestId);
+        if (!photoResult.success && photoResult.count === 0 && photos.length > 0) {
+          // All photos failed to attach
+          Alert.alert("Photos not attached", "We couldn't attach your photos, but your request was still sent.");
+        }
       }
 
+      // Clear all pending retry timeouts before closing modal
+      retryTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      retryTimeoutsRef.current.clear();
+
       setShowRequestModal(false);
-      resetForm();
+      // Don't cleanup temp images since they were moved
+      setRequestStep(1);
+      setSelectedCategory(null);
+      setSelectedServiceType(null);
+      setDescription("");
+      setPostcode("");
+      setSelectedPropertyType(null);
+      setSelectedBudget(null);
+      setPhotos([]);
+      setUploadSessionId(null);
+      setSelectedTiming(null);
       setServiceAreaInfo(null);
 
       Alert.alert("Request sent", "Your quote request has been sent.", [
@@ -1016,7 +1193,7 @@ export default function TradeProfileClient() {
                           }}
                         >
                           <View style={styles.categoryIconWrap}>
-                            <ServiceIcon name={cat.icon} size={28} color="#374151" />
+                            <CategoryIcon category={cat} size={28} />
                           </View>
                           <ThemedText style={styles.categoryName}>{cat.name}</ThemedText>
                         </Pressable>
@@ -1051,7 +1228,7 @@ export default function TradeProfileClient() {
                           }}
                         >
                           <View style={styles.serviceTypeIcon}>
-                            <ServiceIcon name={type.icon} size={20} color="#374151" />
+                            <ServiceTypeIcon serviceType={type} size={20} />
                           </View>
                           <ThemedText style={styles.serviceTypeName}>{type.name}</ThemedText>
                           <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -1075,7 +1252,7 @@ export default function TradeProfileClient() {
                     <ThemedTextInput
                       style={styles.textArea}
                       placeholder="e.g., Need to fix a leaky tap under the kitchen sink..."
-                      placeholderTextColor="#9CA3AF"
+                      placeholderTextColor="#6B7280"
                       value={description}
                       onChangeText={(t) => { if (t.length <= 500) setDescription(t); }}
                       multiline
@@ -1116,7 +1293,7 @@ export default function TradeProfileClient() {
                     <ThemedTextInput
                       style={styles.textInput}
                       placeholder="e.g., EH48 3NN"
-                      placeholderTextColor="#9CA3AF"
+                      placeholderTextColor="#6B7280"
                       value={postcode}
                       onChangeText={(t) => setPostcode(t.toUpperCase())}
                       autoCapitalize="characters"
@@ -1171,14 +1348,14 @@ export default function TradeProfileClient() {
                     <ThemedText style={styles.sectionTitle}>Add photos (optional)</ThemedText>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
                       {photos.map((p, i) => (
-                        <View key={`${p.uri}-${i}`} style={styles.photoCell}>
-                          <Pressable style={{ flex: 1 }} onPress={() => setViewer({ open: true, index: i })}>
-                            <Image source={{ uri: p.uri }} style={styles.photoImg} />
-                          </Pressable>
-                          <Pressable onPress={() => removePhoto(i)} style={styles.photoRemove} hitSlop={8}>
-                            <Ionicons name="close" size={14} color="#fff" />
-                          </Pressable>
-                        </View>
+                        <PhotoUploadThumbnail
+                          key={p.id}
+                          photo={p}
+                          index={i}
+                          onRemove={removePhoto}
+                          onPress={(idx) => setViewer({ open: true, index: idx })}
+                          onRetry={(idx) => retryUpload(photos[idx]?.id)}
+                        />
                       ))}
                       {photos.length < 5 && (
                         <Pressable onPress={pickFromLibrary} style={styles.addPhotoCell}>
@@ -1187,6 +1364,26 @@ export default function TradeProfileClient() {
                         </Pressable>
                       )}
                     </ScrollView>
+                    {/* Upload status indicator */}
+                    {photos.length > 0 && (
+                      <View style={styles.uploadStatusRow}>
+                        {arePhotosReady() ? (
+                          <View style={styles.uploadStatusReady}>
+                            <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                            <ThemedText style={styles.uploadStatusText}>
+                              {photos.length} photo{photos.length !== 1 ? "s" : ""} ready
+                            </ThemedText>
+                          </View>
+                        ) : (
+                          <View style={styles.uploadStatusPending}>
+                            <ActivityIndicator size="small" color="#3B82F6" />
+                            <ThemedText style={styles.uploadStatusText}>
+                              Uploading {getUploadingCount()} photo{getUploadingCount() !== 1 ? "s" : ""}...
+                            </ThemedText>
+                          </View>
+                        )}
+                      </View>
+                    )}
                   </View>
 
                   <View style={styles.sectionContainer}>
@@ -1258,11 +1455,17 @@ export default function TradeProfileClient() {
 
                   <ThemedButton
                     onPress={checkServiceAreaBeforeSubmit}
-                    disabled={submitting || checkingServiceArea}
+                    disabled={submitting || checkingServiceArea || (photos.length > 0 && !arePhotosReady())}
                     style={styles.continueButton}
                   >
                     <ThemedText style={styles.continueButtonText}>
-                      {checkingServiceArea ? "Checking…" : submitting ? "Submitting…" : "Submit Request"}
+                      {checkingServiceArea
+                        ? "Checking…"
+                        : submitting
+                        ? "Submitting…"
+                        : photos.length > 0 && !arePhotosReady()
+                        ? `Waiting for uploads (${getUploadingCount()})…`
+                        : "Submit Request"}
                     </ThemedText>
                   </ThemedButton>
 
@@ -1275,20 +1478,6 @@ export default function TradeProfileClient() {
           </KeyboardAvoidingView>
         </ThemedView>
 
-        {/* Upload Overlay */}
-        {(prepVisible || uploading) && (
-          <View style={styles.uploadOverlay}>
-            <View style={styles.uploadCard}>
-              <ActivityIndicator size="large" color={Colors.primary} />
-              <ThemedText style={styles.uploadTitle}>
-                {prepVisible ? "Preparing photos…" : "Uploading photos…"}
-              </ThemedText>
-              {uploading && uploadTotal > 0 && (
-                <ThemedText style={styles.uploadSub}>{uploadIdx} of {uploadTotal}</ThemedText>
-              )}
-            </View>
-          </View>
-        )}
 
         {/* Image Viewer */}
         <ImageViewing
@@ -2051,30 +2240,6 @@ const styles = StyleSheet.create({
   photoScroll: {
     flexDirection: "row",
   },
-  photoCell: {
-    width: 100,
-    height: 100,
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: "#eee",
-    marginRight: 10,
-    position: "relative",
-  },
-  photoImg: {
-    width: "100%",
-    height: "100%",
-  },
-  photoRemove: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   addPhotoCell: {
     width: 100,
     height: 100,
@@ -2090,6 +2255,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#666",
     marginTop: 4,
+  },
+  uploadStatusRow: {
+    marginTop: 12,
+    paddingHorizontal: 4,
+  },
+  uploadStatusReady: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  uploadStatusPending: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  uploadStatusText: {
+    fontSize: 13,
+    color: "#6B7280",
   },
   timingList: {
     marginTop: 8,
@@ -2183,33 +2366,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 16,
     paddingHorizontal: 20,
-  },
-
-  // Upload overlay
-  uploadOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  uploadCard: {
-    width: "80%",
-    maxWidth: 300,
-    borderRadius: 16,
-    paddingVertical: 24,
-    paddingHorizontal: 20,
-    backgroundColor: "#fff",
-    alignItems: "center",
-  },
-  uploadTitle: {
-    marginTop: 12,
-    fontWeight: "700",
-    fontSize: 16,
-  },
-  uploadSub: {
-    marginTop: 4,
-    fontSize: 13,
-    color: "#666",
   },
 
   // Service Area Warning Modal

@@ -12,8 +12,8 @@ import {
   ActivityIndicator,
   Dimensions,
 } from "react-native";
-import { useState, useEffect } from "react";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useState, useEffect, useRef } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -31,7 +31,13 @@ import ThemedButton from "../../../components/ThemedButton";
 import { CategoryGridSkeleton, ServiceTypesListSkeleton } from "../../../components/Skeleton";
 import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
 import { Colors } from "../../../constants/Colors";
-import { uploadRequestImages } from "../../../lib/api/attachments";
+import {
+  uploadTempImage,
+  moveTempToRequest,
+  deleteTempImages,
+  generateUploadSessionId,
+} from "../../../lib/api/attachments";
+import PhotoUploadThumbnail from "../../../components/PhotoUploadThumbnail";
 import {
   getServiceCategories,
   getServiceTypes,
@@ -45,78 +51,34 @@ import {
 import { geocodeUKPostcode } from "../../../lib/api/places";
 import { checkServiceAreaDistance } from "../../../lib/api/directRequest";
 import { CATEGORIES as HOME_CATEGORIES } from "../../../components/client/home/PopularServicesGrid";
+import {
+  getCategoryIcon,
+  getServiceTypeIcon,
+  defaultCategoryIcon,
+  defaultServiceTypeIcon,
+} from "../../../assets/icons";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-// Ensure at least N frames paint
-const paintFrames = (n = 2) =>
-  new Promise((resolve) => {
-    const step = () => (n-- <= 0 ? resolve() : requestAnimationFrame(step));
-    requestAnimationFrame(step);
-  });
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-const MIN_PREP_MS = 600;
-const CELL = 96;
-
-// Minimal image processing - just copy to cache to get a file:// URI
-// This avoids the heavy base64 encoding that causes freezes
-async function makeThumbnails(uris) {
-  const out = [];
-  for (const uri of uris) {
-    try {
-      // Do minimal resize to get a file:// URI that FileSystem can read
-      const { uri: processedUri } = await ImageManipulator.manipulateAsync(
-        uri,
-        [{ resize: { width: 1200 } }],
-        {
-          compress: 0.8,
-          format: ImageManipulator.SaveFormat.JPEG,
-          base64: false, // Don't generate base64 - this is what causes the freeze
-        }
-      );
-      out.push({ uri: processedUri });
-    } catch (e) {
-      console.warn("makeThumbnails error:", e);
-      // Fallback to original URI
-      out.push({ uri });
-    }
+// Helper to render category icon (PNG) with fallback
+const CategoryIconComponent = ({ categoryName, size = 32 }) => {
+  const pngIcon = getCategoryIcon(categoryName);
+  if (pngIcon) {
+    return <Image source={pngIcon} style={{ width: size, height: size }} resizeMode="contain" />;
   }
-  return out;
-}
-
-// Helper to check if a string is an emoji
-function isEmoji(str) {
-  if (!str) return false;
-  // Emoji regex pattern - matches most common emojis
-  const emojiRegex = /^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}\u{1F100}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{231A}-\u{231B}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}\u{2614}-\u{2615}\u{2648}-\u{2653}\u{267F}\u{2693}\u{26A1}\u{26AA}-\u{26AB}\u{26BD}-\u{26BE}\u{26C4}-\u{26C5}\u{26CE}\u{26D4}\u{26EA}\u{26F2}-\u{26F3}\u{26F5}\u{26FA}\u{26FD}\u{2702}\u{2705}\u{2708}-\u{270D}\u{270F}\u{2712}\u{2714}\u{2716}\u{271D}\u{2721}\u{2728}\u{2733}-\u{2734}\u{2744}\u{2747}\u{274C}\u{274E}\u{2753}-\u{2755}\u{2757}\u{2763}-\u{2764}\u{2795}-\u{2797}\u{27A1}\u{27B0}\u{27BF}\u{2934}-\u{2935}\u{2B05}-\u{2B07}\u{2B1B}-\u{2B1C}\u{2B50}\u{2B55}\u{3030}\u{303D}\u{3297}\u{3299}]+$/u;
-  return emojiRegex.test(str);
-}
-
-// Helper to render icon from either Ionicons, MaterialCommunityIcons, or emoji
-// Icons prefixed with "mci:" use MaterialCommunityIcons, emojis render as text, otherwise Ionicons
-const ServiceIcon = ({ name, size, color, emojiStyle }) => {
-  // Check if it's an emoji
-  if (isEmoji(name)) {
-    return <ThemedText style={[{ fontSize: size }, emojiStyle]}>{name}</ThemedText>;
-  }
-  // Check if it's a MaterialCommunityIcons icon
-  if (name && name.startsWith("mci:")) {
-    const iconName = name.replace("mci:", "");
-    return <MaterialCommunityIcons name={iconName} size={size} color={color} />;
-  }
-  // Default to Ionicons
-  return <Ionicons name={name || "help-outline"} size={size} color={color} />;
+  // Fallback to default icon
+  return <Image source={defaultCategoryIcon} style={{ width: size, height: size }} resizeMode="contain" />;
 };
 
-// Helper to get emoji for category from HOME_CATEGORIES
-function getCategoryEmoji(categoryName) {
-  const homeCat = HOME_CATEGORIES.find(
-    (c) => c.name.toLowerCase() === categoryName?.toLowerCase()
-  );
-  return homeCat?.icon || null;
-}
+// Helper to render service type icon (PNG) with fallback
+const ServiceTypeIconComponent = ({ serviceTypeName, size = 22 }) => {
+  const pngIcon = getServiceTypeIcon(serviceTypeName);
+  if (pngIcon) {
+    return <Image source={pngIcon} style={{ width: size, height: size }} resizeMode="contain" />;
+  }
+  // Fallback to default icon
+  return <Image source={defaultServiceTypeIcon} style={{ width: size, height: size }} resizeMode="contain" />;
+};
 
 
 export default function ClientHome() {
@@ -158,7 +120,10 @@ export default function ClientHome() {
   const [selectedBudget, setSelectedBudget] = useState(null);
 
   // Step 5: Photos & Timing (timing options are dynamic based on job profile)
+  // Photo state: { id, uri, status, progress, tempPath, error }
+  // status: 'pending' | 'optimizing' | 'uploading' | 'uploaded' | 'error' | 'retrying'
   const [photos, setPhotos] = useState([]);
+  const [uploadSessionId, setUploadSessionId] = useState(null);
   const [selectedTiming, setSelectedTiming] = useState(null);
 
   // Compute budget and timing options based on selected service type's job profile
@@ -166,13 +131,9 @@ export default function ClientHome() {
   const budgetOptions = getBudgetOptionsForProfile(jobProfile);
   const timingOptions = getTimingOptionsForProfile(jobProfile);
 
-  // Photo preparation overlay
-  const [prepVisible, setPrepVisible] = useState(false);
-  const [prepUris, setPrepUris] = useState(new Set());
-  const [prepStartedAt, setPrepStartedAt] = useState(0);
-  const [prepPhase, setPrepPhase] = useState("preparing");
-  const [prepDone, setPrepDone] = useState(0);
-  const [prepTotal, setPrepTotal] = useState(0);
+  // Refs to prevent state updates on unmounted component
+  const isMountedRef = useRef(true);
+  const retryTimeoutsRef = useRef(new Map());
 
   // Full-screen image viewer
   const [viewer, setViewer] = useState({ open: false, index: 0 });
@@ -186,13 +147,26 @@ export default function ClientHome() {
   const [serviceAreaInfo, setServiceAreaInfo] = useState(null);
   const [pendingSubmitData, setPendingSubmitData] = useState(null);
 
-  // Upload overlay
-  const [uploading, setUploading] = useState(false);
-  const [uploadIdx, setUploadIdx] = useState(0);
-  const [uploadTotal, setUploadTotal] = useState(0);
-
   // Track if we've already applied prefill to prevent duplicate application
   const [prefillApplied, setPrefillApplied] = useState(false);
+
+  // ===== Cleanup on unmount =====
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Clear all pending retry timeouts
+      retryTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      retryTimeoutsRef.current.clear();
+    };
+  }, []);
+
+  // ===== Initialize upload session when form starts =====
+  useEffect(() => {
+    if (user?.id && !uploadSessionId) {
+      setUploadSessionId(generateUploadSessionId(user.id));
+    }
+  }, [user?.id, uploadSessionId]);
 
   // ===== Load data on mount =====
   useEffect(() => {
@@ -301,45 +275,78 @@ export default function ClientHome() {
     }
   }
 
-  // ===== Photo handling =====
-  function resetPhotoUI() {
-    setPrepVisible(false);
-    setPrepUris(new Set());
-    setPrepPhase("preparing");
-    setPrepDone(0);
-    setPrepTotal(0);
-    setUploading(false);
-    setUploadIdx(0);
-    setUploadTotal(0);
-  }
+  // ===== Photo handling - Progressive Upload Pattern =====
 
-  function beginPreparing(count) {
-    if (!count || count <= 0) return;
-    setPrepStartedAt(Date.now());
-    setPrepVisible(true);
-    setPrepPhase("preparing");
-    setPrepDone(0);
-    setPrepTotal(count);
-  }
+  // Upload a single photo to temp storage
+  async function uploadPhotoToTemp(photoId, uri, sessionId) {
+    if (!isMountedRef.current) return;
 
-  useEffect(() => {
-    if (!prepVisible) return;
-    if (prepUris.size > 0) return;
-    const elapsed = Date.now() - prepStartedAt;
-    const remain = Math.max(0, MIN_PREP_MS - elapsed);
-    const t = setTimeout(() => setPrepVisible(false), remain);
-    return () => clearTimeout(t);
-  }, [prepUris, prepVisible, prepStartedAt]);
+    // Update status to uploading
+    setPhotos((prev) =>
+      prev.map((p) =>
+        p.id === photoId ? { ...p, status: "uploading", progress: 0 } : p
+      )
+    );
 
-  const markThumbLoaded = (uri) => {
-    setPrepUris((prev) => {
-      if (!prev.size) return prev;
-      const next = new Set(prev);
-      next.delete(uri);
-      return next;
+    const result = await uploadTempImage(sessionId, { uri }, (progress) => {
+      if (!isMountedRef.current) return;
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId ? { ...p, progress } : p
+        )
+      );
     });
-  };
 
+    if (!isMountedRef.current) return;
+
+    if (result.success) {
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId
+            ? { ...p, status: "uploaded", progress: 100, tempPath: result.tempPath }
+            : p
+        )
+      );
+      // Clear any existing retry timeout for this photo
+      if (retryTimeoutsRef.current.has(photoId)) {
+        clearTimeout(retryTimeoutsRef.current.get(photoId));
+        retryTimeoutsRef.current.delete(photoId);
+      }
+    } else {
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId
+            ? { ...p, status: "error", error: result.error }
+            : p
+        )
+      );
+      // Auto-retry after 3 seconds
+      const timeoutId = setTimeout(() => {
+        if (!isMountedRef.current) return;
+        retryTimeoutsRef.current.delete(photoId);
+        retryUpload(photoId);
+      }, 3000);
+      retryTimeoutsRef.current.set(photoId, timeoutId);
+    }
+  }
+
+  // Retry a failed upload
+  function retryUpload(photoId) {
+    if (!isMountedRef.current) return;
+
+    const photo = photos.find((p) => p.id === photoId);
+    if (!photo || photo.status !== "error") return;
+
+    setPhotos((prev) =>
+      prev.map((p) =>
+        p.id === photoId ? { ...p, status: "retrying", error: null } : p
+      )
+    );
+
+    uploadPhotoToTemp(photoId, photo.uri, uploadSessionId);
+  }
+
+  // Pick photos from library
   async function pickFromLibrary() {
     try {
       const remaining = 5 - photos.length;
@@ -360,126 +367,119 @@ export default function ClientHome() {
       });
       if (result.canceled) return;
 
-      const newUris = (result.assets || []).slice(0, remaining).map((a) => a.uri);
-      if (!newUris.length) return;
+      const newAssets = (result.assets || []).slice(0, remaining);
+      if (!newAssets.length) return;
 
-      // Show processing overlay BEFORE starting thumbnail work
-      // Set state and wait for React to paint the overlay
-      setPrepVisible(true);
-      setPrepPhase("preparing");
-      setPrepTotal(newUris.length);
-      setPrepDone(0);
-      setPrepStartedAt(Date.now());
+      // Process each image: optimize then start upload
+      for (const asset of newAssets) {
+        const photoId = `photo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // Wait for overlay to render before starting heavy work
-      await paintFrames(2);
+        // Add photo with optimizing status
+        setPhotos((prev) => [
+          ...prev,
+          {
+            id: photoId,
+            uri: asset.uri,
+            status: "optimizing",
+            progress: 0,
+            tempPath: null,
+            error: null,
+          },
+        ].slice(0, 5));
 
-      try {
-        const thumbs = await makeThumbnails(newUris);
-        setPhotos((prev) => [...prev, ...thumbs].slice(0, 5));
-      } finally {
-        // Keep overlay briefly visible for smooth UX
-        setTimeout(() => setPrepVisible(false), 300);
+        // Optimize the image
+        try {
+          const { uri: processedUri } = await ImageManipulator.manipulateAsync(
+            asset.uri,
+            [{ resize: { width: 1200 } }],
+            { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: false }
+          );
+
+          // Update URI with processed version and start upload
+          setPhotos((prev) =>
+            prev.map((p) =>
+              p.id === photoId ? { ...p, uri: processedUri, status: "pending" } : p
+            )
+          );
+
+          // Start background upload if we have a session
+          if (uploadSessionId) {
+            uploadPhotoToTemp(photoId, processedUri, uploadSessionId);
+          }
+        } catch (e) {
+          // If optimization fails, use original and start upload
+          setPhotos((prev) =>
+            prev.map((p) =>
+              p.id === photoId ? { ...p, status: "pending" } : p
+            )
+          );
+          if (uploadSessionId) {
+            uploadPhotoToTemp(photoId, asset.uri, uploadSessionId);
+          }
+        }
       }
     } catch (e) {
-      setPrepVisible(false);
-      console.warn("pickFromLibrary error:", e);
+      console.warn("pickFromLibrary error:", e?.message || e);
     }
   }
 
-  async function takePhoto() {
-    try {
-      if (photos.length >= 5) {
-        Alert.alert("Limit reached", "You can add up to 5 photos.");
-        return;
-      }
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (perm.status !== "granted") {
-        Alert.alert("Permission needed", "Please allow camera access to take photos.");
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-      });
-      if (result.canceled) return;
-      const asset = result.assets?.[0];
-      if (!asset?.uri) return;
-
-      // Show processing overlay BEFORE starting thumbnail work
-      setPrepVisible(true);
-      setPrepPhase("preparing");
-      setPrepTotal(1);
-      setPrepDone(0);
-      setPrepStartedAt(Date.now());
-
-      // Wait for overlay to render before starting heavy work
-      await paintFrames(2);
-
-      try {
-        const [thumb] = await makeThumbnails([asset.uri]);
-        setPhotos((prev) => [...prev, thumb].slice(0, 5));
-      } finally {
-        setTimeout(() => setPrepVisible(false), 300);
-      }
-    } catch {
-      setPrepVisible(false);
-    }
-  }
-
+  // Remove a photo (also delete from temp storage if uploaded)
   function removePhoto(idx) {
-    const removed = photos[idx];
-    if (removed?.uri) {
-      setPrepUris((prevSet) => {
-        if (!prevSet.size) return prevSet;
-        const next = new Set(prevSet);
-        next.delete(removed.uri);
-        return next;
-      });
+    const photo = photos[idx];
+    if (photo?.tempPath) {
+      deleteTempImages([photo.tempPath]).catch(() => {});
+    }
+    // Clear any pending retry timeout
+    if (photo?.id && retryTimeoutsRef.current.has(photo.id)) {
+      clearTimeout(retryTimeoutsRef.current.get(photo.id));
+      retryTimeoutsRef.current.delete(photo.id);
     }
     setPhotos((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  async function uploadAndAttach(requestId) {
-    const totalPhotos = photos.length;
-    if (totalPhotos === 0) {
-      setUploading(false);
-      return;
+  // Move temp images to request folder on submit
+  async function finalizePhotos(requestId) {
+    const uploadedPhotos = photos.filter((p) => p.status === "uploaded" && p.tempPath);
+    if (uploadedPhotos.length === 0) return { success: true, count: 0 };
+
+    const tempPaths = uploadedPhotos.map((p) => p.tempPath);
+    const result = await moveTempToRequest(String(requestId), tempPaths);
+
+    return {
+      success: result.success,
+      count: result.movedPaths.length,
+      errors: result.errors,
+    };
+  }
+
+  // Check if all photos are ready for submission
+  function arePhotosReady() {
+    if (photos.length === 0) return true;
+    return photos.every((p) => p.status === "uploaded");
+  }
+
+  // Get count of photos still uploading
+  function getUploadingCount() {
+    return photos.filter((p) =>
+      ["pending", "optimizing", "uploading", "retrying"].includes(p.status)
+    ).length;
+  }
+
+  // Reset form and cleanup temp uploads
+  function resetPhotoState() {
+    // Clear all pending retry timeouts
+    retryTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    retryTimeoutsRef.current.clear();
+
+    // Cleanup any uploaded temp images
+    const tempPaths = photos
+      .filter((p) => p.tempPath)
+      .map((p) => p.tempPath);
+    if (tempPaths.length > 0) {
+      deleteTempImages(tempPaths).catch(() => {});
     }
 
-    setUploadTotal(totalPhotos);
-    setUploadIdx(0);
-    setUploading(true);
-    await new Promise((r) => requestAnimationFrame(r));
-    await new Promise((r) => requestAnimationFrame(r));
-
-    let uploadedPaths = [];
-    try {
-      uploadedPaths = await uploadRequestImages(String(requestId), photos, (done, total) => {
-        setUploadTotal(total);
-        setUploadIdx(done);
-      });
-    } catch (e) {
-      console.warn("uploadRequestImages error:", e?.message || e);
-    } finally {
-      setUploading(false);
-      setUploadIdx(0);
-      setUploadTotal(0);
-    }
-
-    if (totalPhotos) {
-      if (!uploadedPaths.length) {
-        Alert.alert(
-          "Photos not attached",
-          "We couldn't upload your photos, but your request was still sent."
-        );
-      } else if (uploadedPaths.length !== totalPhotos) {
-        Alert.alert(
-          "Partial upload",
-          `Attached ${uploadedPaths.length} of ${totalPhotos} photos.`
-        );
-      }
-    }
+    setPhotos([]);
   }
 
   // ===== Check service area before submitting (for direct requests) =====
@@ -603,9 +603,21 @@ export default function ClientHome() {
 
       if (reqError) throw reqError;
 
-      // Upload photos
-      await uploadAndAttach(created.id);
-      resetPhotoUI();
+      // Move temp photos to the request folder
+      if (photos.length > 0) {
+        const photoResult = await finalizePhotos(created.id);
+        if (!photoResult.success && photoResult.count === 0) {
+          // All photos failed to attach
+          Alert.alert("Photos not attached", "We couldn't attach your photos, but your request was still sent.");
+        } else if (photoResult.count > 0 && photoResult.count < photos.filter(p => p.status === "uploaded").length) {
+          // Some photos failed
+          Alert.alert("Partial upload", `Attached ${photoResult.count} of ${photos.length} photos.`);
+        }
+      }
+
+      // Clear all pending retry timeouts before navigating
+      retryTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      retryTimeoutsRef.current.clear();
 
       // If requesting from a specific trade, create a direct request_target
       // Otherwise, run the match-trades function to find suitable trades
@@ -729,50 +741,6 @@ export default function ClientHome() {
     }
   }
 
-  // ===== Overlays =====
-  // Compute visibility outside the component to ensure consistent rendering
-  const isOverlayVisible = prepVisible || (uploading && uploadTotal > 0);
-  const uploadPct = uploading && uploadTotal ? Math.round((uploadIdx / uploadTotal) * 100) : 0;
-  const overlayTitle = prepVisible
-    ? prepPhase === "preparing"
-      ? "Preparing your photos…"
-      : "Rendering your photos…"
-    : "Uploading your photos…";
-
-  const UploadOverlay = () => (
-    <Modal
-      visible={isOverlayVisible}
-      transparent
-      animationType="fade"
-      statusBarTranslucent
-      hardwareAccelerated
-      presentationStyle="overFullScreen"
-      onRequestClose={() => {}}
-    >
-      <View style={styles.uploadBackdrop}>
-        <View style={styles.uploadCard}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <ThemedText style={styles.uploadTitle}>{overlayTitle}</ThemedText>
-          {prepVisible && prepPhase === "preparing" ? (
-            <ThemedText style={styles.uploadSub}>
-              {prepDone} of {prepTotal}
-            </ThemedText>
-          ) : null}
-          {!prepVisible && uploading && uploadTotal > 0 ? (
-            <>
-              <ThemedText style={styles.uploadSub}>
-                {uploadIdx} of {uploadTotal}
-              </ThemedText>
-              <View style={styles.uploadBar}>
-                <View style={[styles.uploadFill, { width: `${uploadPct}%`, backgroundColor: Colors.primary }]} />
-              </View>
-            </>
-          ) : null}
-        </View>
-      </View>
-    </Modal>
-  );
-
   // ===== Full-screen image viewer with zoom and swipe-to-dismiss =====
   const closeViewer = () => setViewer({ open: false, index: 0 });
 
@@ -884,31 +852,22 @@ export default function ClientHome() {
           <CategoryGridSkeleton />
         ) : (
           <View style={styles.categoryGrid}>
-            {categories.map((cat) => {
-              // Use emoji from HOME_CATEGORIES if available, otherwise fall back to icon
-              const emoji = getCategoryEmoji(cat.name);
-              return (
-                <Pressable
-                  key={cat.id}
-                  style={styles.categoryCard}
-                  onPress={() => handleCategorySelect(cat)}
-                >
-                  <View style={styles.categoryIconWrap}>
-                    {emoji ? (
-                      <ThemedText style={styles.categoryEmoji}>{emoji}</ThemedText>
-                    ) : (
-                      <ServiceIcon name={cat.icon} size={32} color="#374151" />
-                    )}
-                  </View>
-                  <ThemedText style={styles.categoryName}>{cat.name}</ThemedText>
-                </Pressable>
-              );
-            })}
+            {categories.map((cat) => (
+              <Pressable
+                key={cat.id}
+                style={styles.categoryCard}
+                onPress={() => handleCategorySelect(cat)}
+              >
+                <View style={styles.categoryIconWrap}>
+                  <CategoryIconComponent categoryName={cat.name} size={32} />
+                </View>
+                <ThemedText style={styles.categoryName}>{cat.name}</ThemedText>
+              </Pressable>
+            ))}
           </View>
         )}
       </ScrollView>
-      <UploadOverlay />
-    </ThemedView>
+          </ThemedView>
   );
 
   // ===== Step 2: Service Type Selection (List) =====
@@ -944,7 +903,7 @@ export default function ClientHome() {
                 onPress={() => handleServiceTypeSelect(type)}
               >
                 <View style={styles.serviceTypeIcon}>
-                  <ServiceIcon name={type.icon} size={22} color="#6849a7" />
+                  <ServiceTypeIconComponent serviceTypeName={type.name} size={22} />
                 </View>
                 <ThemedText style={styles.serviceTypeName}>{type.name}</ThemedText>
                 <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -953,8 +912,7 @@ export default function ClientHome() {
           </View>
         )}
       </ScrollView>
-      <UploadOverlay />
-    </ThemedView>
+          </ThemedView>
   );
 
   // ===== Step 3: Details Form =====
@@ -987,6 +945,7 @@ export default function ClientHome() {
             <ThemedTextInput
               style={styles.textArea}
               placeholder="e.g., Need to fix a leaky tap under the kitchen sink..."
+              placeholderTextColor="#6B7280"
               value={description}
               onChangeText={(t) => {
                 if (t.length <= 500) setDescription(t);
@@ -1006,6 +965,7 @@ export default function ClientHome() {
             <ThemedTextInput
               style={styles.textInput}
               placeholder="e.g., EH48 3NN"
+              placeholderTextColor="#6B7280"
               value={postcode}
               onChangeText={(t) => setPostcode(t.toUpperCase())}
               autoCapitalize="characters"
@@ -1073,8 +1033,7 @@ export default function ClientHome() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-      <UploadOverlay />
-      <KeyboardDoneButton />
+            <KeyboardDoneButton />
     </ThemedView>
   );
 
@@ -1175,18 +1134,14 @@ export default function ClientHome() {
               contentContainerStyle={styles.photoScrollContent}
             >
               {photos.map((p, i) => (
-                <View key={`${p.uri}-${i}`} style={styles.photoCell}>
-                  <Pressable style={{ flex: 1 }} onPress={() => setViewer({ open: true, index: i })}>
-                    <Image
-                      source={{ uri: p.uri }}
-                      style={styles.photoImg}
-                      onLoadEnd={() => markThumbLoaded(p.uri)}
-                    />
-                  </Pressable>
-                  <Pressable onPress={() => removePhoto(i)} style={styles.photoRemove} hitSlop={8}>
-                    <Ionicons name="close" size={14} color="#fff" />
-                  </Pressable>
-                </View>
+                <PhotoUploadThumbnail
+                  key={p.id}
+                  photo={p}
+                  index={i}
+                  onRemove={removePhoto}
+                  onPress={(idx) => setViewer({ open: true, index: idx })}
+                  onRetry={(idx) => retryUpload(photos[idx]?.id)}
+                />
               ))}
               {photos.length < 5 && (
                 <Pressable onPress={pickFromLibrary} style={styles.addPhotoCell}>
@@ -1195,6 +1150,26 @@ export default function ClientHome() {
                 </Pressable>
               )}
             </ScrollView>
+            {/* Upload status indicator */}
+            {photos.length > 0 && (
+              <View style={styles.uploadStatusRow}>
+                {arePhotosReady() ? (
+                  <View style={styles.uploadStatusReady}>
+                    <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                    <ThemedText style={styles.uploadStatusText}>
+                      {photos.length} photo{photos.length !== 1 ? "s" : ""} ready
+                    </ThemedText>
+                  </View>
+                ) : (
+                  <View style={styles.uploadStatusPending}>
+                    <ActivityIndicator size="small" color="#3B82F6" />
+                    <ThemedText style={styles.uploadStatusText}>
+                      Uploading {getUploadingCount()} photo{getUploadingCount() !== 1 ? "s" : ""}...
+                    </ThemedText>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
 
           {/* Timing Section */}
@@ -1245,8 +1220,7 @@ export default function ClientHome() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-      <UploadOverlay />
-      <ImageViewing
+            <ImageViewing
         images={imageViewerImages}
         imageIndex={viewer.index}
         visible={viewer.open && photos.length > 0}
@@ -1399,11 +1373,15 @@ export default function ClientHome() {
         <View style={styles.continueButtonContainer}>
           <ThemedButton
             onPress={checkServiceAreaBeforeSubmit}
-            disabled={submitting}
+            disabled={submitting || (photos.length > 0 && !arePhotosReady())}
             style={styles.continueButton}
           >
             <ThemedText style={styles.continueButtonText}>
-              {submitting ? "Submitting…" : "Submit request"}
+              {submitting
+                ? "Submitting…"
+                : photos.length > 0 && !arePhotosReady()
+                ? `Waiting for uploads (${getUploadingCount()})…`
+                : "Submit request"}
             </ThemedText>
           </ThemedButton>
         </View>
@@ -1412,8 +1390,7 @@ export default function ClientHome() {
           By submitting, you agree to receive quotes from tradespeople
         </ThemedText>
       </ScrollView>
-      <UploadOverlay />
-
+      
       {/* Service Area Warning Modal for direct requests */}
       <Modal
         visible={showServiceAreaWarning}
@@ -1508,17 +1485,17 @@ const styles = StyleSheet.create({
 
   // Sub header with progress
   subHeader: {
-    paddingBottom: 16,
+    paddingBottom: 12,
     paddingHorizontal: 20,
     backgroundColor: "#fff",
   },
   backButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   progressTrackContainer: {
-    marginTop: 12,
+    marginTop: 8,
   },
   progressTrack: {
     height: 4,
@@ -1578,9 +1555,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
   },
-  categoryEmoji: {
-    fontSize: 32,
-  },
 
   // Service type list (Step 2)
   serviceTypeList: {
@@ -1609,9 +1583,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: "500",
-  },
-  serviceTypeEmoji: {
-    fontSize: 22,
   },
 
   // Details form (Step 3)
@@ -1725,29 +1696,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 10,
   },
-  photoCell: {
-    width: 100,
-    height: 100,
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: "#eee",
-    position: "relative",
-  },
-  photoImg: {
-    width: "100%",
-    height: "100%",
-  },
-  photoRemove: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   addPhotoCell: {
     width: 100,
     height: 100,
@@ -1763,6 +1711,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#666",
     marginTop: 4,
+  },
+  uploadStatusRow: {
+    marginTop: 12,
+    paddingHorizontal: 4,
+  },
+  uploadStatusReady: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  uploadStatusPending: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  uploadStatusText: {
+    fontSize: 13,
+    color: "#6B7280",
   },
   timingList: {
     marginTop: 12,
@@ -1896,35 +1862,6 @@ const styles = StyleSheet.create({
   continueButtonContainer: { paddingHorizontal: 20, marginTop: 24 },
   continueButton: { borderRadius: 28, paddingVertical: 14, marginVertical: 0 },
   continueButtonText: { color: "white", fontSize: 16, fontWeight: "600", textAlign: "center" },
-
-  // Upload overlay
-  uploadBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  uploadCard: {
-    width: "86%",
-    maxWidth: 360,
-    borderRadius: 16,
-    paddingVertical: 20,
-    paddingHorizontal: 18,
-    backgroundColor: "#fff",
-    alignItems: "center",
-  },
-  uploadTitle: { marginTop: 12, fontWeight: "800", fontSize: 16 },
-  uploadSub: { marginTop: 4, fontSize: 13, color: "#666" },
-  uploadBar: {
-    marginTop: 12,
-    width: "100%",
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "rgba(0,0,0,0.08)",
-    overflow: "hidden",
-  },
-  uploadFill: { height: 6, borderRadius: 3 },
 
   // Image viewer
   viewerBackdrop: {
