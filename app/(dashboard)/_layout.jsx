@@ -40,10 +40,9 @@ export default function DashboardLayout() {
     const currentTab = segments[1];
 
     // If already on messages tab in a nested route (e.g., /messages/[id]),
-    // go back to the index - use router.back() for proper back animation
+    // replace with messages index to reset the stack
     if (currentTab === 'messages' && segments.length > 2) {
-      // Simply go back - this gives the proper "back" animation
-      router.back();
+      router.replace('/(dashboard)/messages');
       setMessagesNeedsReset(false);
       return true;
     }
@@ -51,7 +50,7 @@ export default function DashboardLayout() {
     // If coming from a different tab and messages needs reset, go to messages index
     if (currentTab !== 'messages' && messagesNeedsReset) {
       setMessagesNeedsReset(false);
-      router.replace('/messages');
+      router.replace('/(dashboard)/messages');
       return true;
     }
 

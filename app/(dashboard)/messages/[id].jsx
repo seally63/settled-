@@ -22,13 +22,16 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import * as ImageManipulator from "expo-image-manipulator";
+import { decode } from "base64-arraybuffer";
+import ImageViewing from "react-native-image-viewing";
 
 import { supabase } from "../../../lib/supabase";
 import { useUser } from "../../../hooks/useUser";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
-import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
 import { Colors } from "../../../constants/Colors";
 
 const TINT = Colors?.light?.tint || "#0ea5e9";
@@ -118,19 +121,74 @@ function parseDetails(details) {
   return res;
 }
 
-function MessageBubble({ message, isMine }) {
+function MessageBubble({ message, isMine, onImagePress, imageStartIndex }) {
   // Check if message has image attachments
-  const hasImages = message.paths && Array.isArray(message.paths) && message.paths.length > 0;
+  // Support both 'paths' (from rpc_send_message) and 'attachment_paths' (from DB column)
+  // Also support 'localUris' for optimistic UI (before upload completes)
+  const imagePaths = message.paths || message.attachment_paths;
+  const localUris = message.localUris; // For optimistic UI
+  const hasImages = (imagePaths && Array.isArray(imagePaths) && imagePaths.length > 0) ||
+                    (localUris && Array.isArray(localUris) && localUris.length > 0);
   const hasText = message.body && message.body.trim().length > 0;
 
-  // Build image URLs from paths
-  const imageUrls = useMemo(() => {
-    if (!hasImages) return [];
-    return message.paths.map(path => {
-      const cleanPath = String(path || "").replace(/^\//, "");
-      return supabase.storage.from(MESSAGE_PHOTOS_BUCKET).getPublicUrl(cleanPath).data?.publicUrl;
-    }).filter(Boolean);
-  }, [message.paths, hasImages]);
+  // State for signed URLs
+  const [imageUrls, setImageUrls] = useState([]);
+
+  // Fetch signed URLs for images (bucket is private)
+  // Skip if we have local URIs (optimistic message)
+  useEffect(() => {
+    // If we have local URIs, use those directly (optimistic UI)
+    if (localUris && localUris.length > 0) {
+      setImageUrls(localUris);
+      return;
+    }
+
+    if (!imagePaths || imagePaths.length === 0) {
+      setImageUrls([]);
+      return;
+    }
+
+    let mounted = true;
+
+    (async () => {
+      try {
+        const cleanPaths = imagePaths.map(p => String(p || "").replace(/^\//, ""));
+        const { data, error } = await supabase.storage
+          .from(MESSAGE_PHOTOS_BUCKET)
+          .createSignedUrls(cleanPaths, 3600); // 1 hour expiry
+
+        if (error) {
+          console.warn("Failed to get signed URLs:", error.message);
+          setImageUrls([]);
+          return;
+        }
+
+        if (mounted) {
+          const urls = (data || [])
+            .map(item => item?.signedUrl || item?.signed_url)
+            .filter(Boolean);
+          setImageUrls(urls);
+        }
+      } catch (e) {
+        console.warn("Error fetching signed URLs:", e?.message || e);
+        if (mounted) setImageUrls([]);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [imagePaths, localUris]);
+
+  // Determine grid layout based on number of images
+  const imageCount = imageUrls.length;
+  const isSingleImage = imageCount === 1;
+
+  // Handle image tap - use pre-calculated start index
+  const handleImageTap = (localIndex) => {
+    if (!onImagePress || imageStartIndex < 0) return;
+    onImagePress(imageStartIndex + localIndex);
+  };
 
   return (
     <View
@@ -146,17 +204,59 @@ function MessageBubble({ message, isMine }) {
           hasImages && !hasText && styles.bubbleImageOnly,
         ]}
       >
-        {/* Render images */}
+        {/* Render images - WhatsApp style grid */}
         {imageUrls.length > 0 && (
-          <View style={styles.messageImagesWrap}>
-            {imageUrls.map((url, idx) => (
-              <Image
-                key={idx}
-                source={{ uri: url }}
-                style={styles.messageImage}
-                resizeMode="cover"
-              />
-            ))}
+          <View style={styles.messageImagesContainer}>
+            {imageCount === 1 && (
+              // Single image - full width, preserve aspect ratio
+              <Pressable onPress={() => handleImageTap(0)}>
+                <Image
+                  source={{ uri: imageUrls[0] }}
+                  style={styles.imageSingle}
+                  resizeMode="cover"
+                />
+              </Pressable>
+            )}
+            {imageCount === 2 && (
+              // Two images - side by side
+              <View style={styles.imageRow}>
+                {imageUrls.map((url, idx) => (
+                  <Pressable key={idx} onPress={() => handleImageTap(idx)} style={styles.imageHalf}>
+                    <Image source={{ uri: url }} style={styles.imageHalfImg} resizeMode="cover" />
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            {imageCount === 3 && (
+              // Three images - one large left, two stacked right
+              <View style={styles.imageRow}>
+                <Pressable onPress={() => handleImageTap(0)} style={styles.imageTwoThirds}>
+                  <Image source={{ uri: imageUrls[0] }} style={styles.imageTwoThirdsImg} resizeMode="cover" />
+                </Pressable>
+                <View style={styles.imageStackRight}>
+                  {imageUrls.slice(1).map((url, idx) => (
+                    <Pressable key={idx} onPress={() => handleImageTap(idx + 1)} style={styles.imageStackItem}>
+                      <Image source={{ uri: url }} style={styles.imageStackItemImg} resizeMode="cover" />
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
+            {imageCount >= 4 && (
+              // Four+ images - 2x2 grid with +N overlay on last
+              <View style={styles.imageGrid2x2}>
+                {imageUrls.slice(0, 4).map((url, idx) => (
+                  <Pressable key={idx} onPress={() => handleImageTap(idx)} style={styles.imageGridItem}>
+                    <Image source={{ uri: url }} style={styles.imageGridItemImg} resizeMode="cover" />
+                    {idx === 3 && imageCount > 4 && (
+                      <View style={styles.imageOverlay}>
+                        <ThemedText style={styles.imageOverlayText}>+{imageCount - 4}</ThemedText>
+                      </View>
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+            )}
           </View>
         )}
         {/* Render text if present */}
@@ -588,7 +688,6 @@ export default function MessageThread() {
 
   const tradeName = tradeNameParam || "Tradesperson";
   const quoteId = quoteIdParam || null;
-  const avatarUrl = avatarParam || null;
   const avatarInitials = getInitials(tradeName);
 
   // Generate a consistent color based on name (same as index.jsx)
@@ -608,6 +707,16 @@ export default function MessageThread() {
   // Image picking state
   const [selectedImages, setSelectedImages] = useState([]);
   const [uploadingImages, setUploadingImages] = useState(false);
+  // Fetched avatar URL (when not passed as param)
+  const [fetchedAvatarUrl, setFetchedAvatarUrl] = useState(null);
+  // Full-screen image viewer state
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [imageViewerIndex, setImageViewerIndex] = useState(0);
+  // Cache for all conversation image URLs (for the viewer)
+  const [allConversationImages, setAllConversationImages] = useState([]);
+
+  // Use passed avatar param or fetched avatar
+  const avatarUrl = avatarParam || fetchedAvatarUrl || null;
 
   // Request camera permissions
   const requestCameraPermission = async () => {
@@ -630,10 +739,22 @@ export default function MessageThread() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       allowsMultipleSelection: true,
       selectionLimit: 5,
-      quality: 0.8,
+      quality: 0.7,
+      base64: true, // Get base64 directly from picker - avoids file read issues
+    });
+
+    console.log("ImagePicker result:", {
+      canceled: result.canceled,
+      assetsCount: result.assets?.length,
+      assets: result.assets?.map((a, i) => ({
+        index: i,
+        uri: a.uri?.substring(0, 50) + "...",
+        hasBase64: !!a.base64,
+        base64Length: a.base64?.length || 0,
+      })),
     });
 
     if (!result.canceled && result.assets?.length > 0) {
@@ -650,7 +771,8 @@ export default function MessageThread() {
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      quality: 0.8,
+      quality: 0.7,
+      base64: true, // Get base64 directly from camera - avoids file read issues
     });
 
     if (!result.canceled && result.assets?.length > 0) {
@@ -693,38 +815,117 @@ export default function MessageThread() {
     setSelectedImages((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Compress image if too large (target ~4MB max to stay under 5MB bucket limit)
+  const compressImageIfNeeded = async (image) => {
+    const MAX_BASE64_SIZE = 5 * 1024 * 1024; // ~3.75MB actual file (base64 is ~33% larger)
+
+    let base64Data = image.base64;
+    let uri = image.uri;
+
+    // If no base64, read from file
+    if (!base64Data && uri) {
+      base64Data = await FileSystem.readAsStringAsync(uri, {
+        encoding: "base64",
+      });
+    }
+
+    if (!base64Data) return null;
+
+    // If under limit, return as-is
+    if (base64Data.length <= MAX_BASE64_SIZE) {
+      return base64Data;
+    }
+
+    // Need to compress - use ImageManipulator
+    console.log(`Image too large (${(base64Data.length / 1024 / 1024).toFixed(2)}MB), compressing...`);
+
+    // Try progressively lower quality until under limit
+    const qualities = [0.6, 0.4, 0.3, 0.2];
+
+    for (const quality of qualities) {
+      try {
+        const result = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 1920 } }], // Also resize to max 1920px width
+          { compress: quality, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+
+        if (result.base64 && result.base64.length <= MAX_BASE64_SIZE) {
+          console.log(`Compressed to ${(result.base64.length / 1024 / 1024).toFixed(2)}MB at quality ${quality}`);
+          return result.base64;
+        }
+      } catch (e) {
+        console.warn(`Compression at quality ${quality} failed:`, e?.message);
+      }
+    }
+
+    // Last resort - very aggressive compression
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 1280 } }],
+        { compress: 0.15, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      if (result.base64) {
+        console.log(`Aggressive compression: ${(result.base64.length / 1024 / 1024).toFixed(2)}MB`);
+        return result.base64;
+      }
+    } catch (e) {
+      console.warn("Aggressive compression failed:", e?.message);
+    }
+
+    return null;
+  };
+
   // Upload images to Supabase storage
   const uploadImages = async (images) => {
+    console.log("uploadImages called with", images.length, "images");
     const uploadedPaths = [];
+    const baseTime = Date.now();
 
-    for (const image of images) {
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      console.log(`Processing image ${i}:`, {
+        hasUri: !!image.uri,
+        hasBase64: !!image.base64,
+        base64Length: image.base64?.length || 0,
+      });
       try {
-        const uri = image.uri;
-        const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        // Use index to ensure unique filenames even for rapid uploads
+        const fileName = `${user.id}/${baseTime}_${i}_${Math.random().toString(36).substring(2, 9)}.jpg`;
 
-        // Fetch image as blob
-        const response = await fetch(uri);
-        const blob = await response.blob();
+        // Compress if needed
+        const base64Data = await compressImageIfNeeded(image);
+
+        if (!base64Data) {
+          console.warn("No image data available for image", i);
+          continue;
+        }
+
+        // Convert base64 to ArrayBuffer for Supabase upload
+        const arrayBuffer = decode(base64Data);
 
         // Upload to Supabase storage
         const { data, error } = await supabase.storage
           .from(MESSAGE_PHOTOS_BUCKET)
-          .upload(fileName, blob, {
+          .upload(fileName, arrayBuffer, {
             contentType: "image/jpeg",
             upsert: false,
           });
 
         if (error) {
-          console.warn("Image upload error:", error.message);
+          console.warn(`Image ${i} upload error:`, error.message);
           continue;
         }
 
+        console.log(`Image ${i} uploaded successfully:`, data.path);
         uploadedPaths.push(data.path);
       } catch (e) {
-        console.warn("Failed to upload image:", e?.message || e);
+        console.warn(`Failed to upload image ${i}:`, e?.message || e);
       }
     }
 
+    console.log("uploadImages completed, uploadedPaths:", uploadedPaths);
     return uploadedPaths;
   };
 
@@ -850,6 +1051,72 @@ export default function MessageThread() {
     loadAppointments();
   }, [loadMessages, loadQuote, loadRequest, loadAppointments]);
 
+  // Collect all image URLs from messages for the full-screen viewer
+  // This allows swiping through all conversation images
+  useEffect(() => {
+    const collectImages = async () => {
+      const allUrls = [];
+
+      for (const msg of messages) {
+        const paths = msg.paths || msg.attachment_paths;
+        const localUris = msg.localUris;
+
+        // Use local URIs for optimistic messages
+        if (localUris && localUris.length > 0) {
+          allUrls.push(...localUris);
+          continue;
+        }
+
+        // Fetch signed URLs for server messages
+        if (paths && paths.length > 0) {
+          try {
+            const cleanPaths = paths.map(p => String(p || "").replace(/^\//, ""));
+            const { data, error } = await supabase.storage
+              .from(MESSAGE_PHOTOS_BUCKET)
+              .createSignedUrls(cleanPaths, 3600);
+
+            if (!error && data) {
+              const urls = data
+                .map(item => item?.signedUrl || item?.signed_url)
+                .filter(Boolean);
+              allUrls.push(...urls);
+            }
+          } catch (e) {
+            console.warn("Error fetching signed URLs for viewer:", e?.message);
+          }
+        }
+      }
+
+      setAllConversationImages(allUrls);
+    };
+
+    collectImages();
+  }, [messages]);
+
+  // Handle opening image viewer
+  const handleOpenImageViewer = useCallback((index) => {
+    setImageViewerIndex(index);
+    setImageViewerVisible(true);
+  }, []);
+
+  // Mark conversation as read when opening
+  useEffect(() => {
+    if (!requestId || !user?.id) return;
+
+    const markAsRead = async () => {
+      try {
+        await supabase.rpc("rpc_mark_conversation_read", {
+          p_request_id: requestId,
+        });
+      } catch (e) {
+        // Silently fail - not critical
+        console.warn("Failed to mark conversation as read:", e?.message);
+      }
+    };
+
+    markAsRead();
+  }, [requestId, user?.id]);
+
   // Fetch user role
   useEffect(() => {
     let mounted = true;
@@ -875,6 +1142,65 @@ export default function MessageThread() {
       mounted = false;
     };
   }, [user?.id]);
+
+  // Fetch other party's avatar if not provided as param
+  useEffect(() => {
+    if (avatarParam || !requestId || !user?.id || !userRole) return;
+
+    let mounted = true;
+
+    (async () => {
+      try {
+        // Determine who the other party is based on user role
+        if (userRole === 'trades') {
+          // Trade viewing: fetch client (requester) photo
+          const { data: reqData } = await supabase
+            .from('quote_requests')
+            .select('requester_id')
+            .eq('id', requestId)
+            .maybeSingle();
+
+          if (reqData?.requester_id && mounted) {
+            const { data: profileData } = await supabase
+              .from('profiles')
+              .select('photo_url')
+              .eq('id', reqData.requester_id)
+              .maybeSingle();
+
+            if (mounted && profileData?.photo_url) {
+              setFetchedAvatarUrl(profileData.photo_url);
+            }
+          }
+        } else {
+          // Client viewing: fetch trade photo from request_targets
+          const { data: targetData } = await supabase
+            .from('request_targets')
+            .select('trade_id')
+            .eq('request_id', requestId)
+            .limit(1)
+            .maybeSingle();
+
+          if (targetData?.trade_id && mounted) {
+            const { data: profileData } = await supabase
+              .from('profiles')
+              .select('photo_url')
+              .eq('id', targetData.trade_id)
+              .maybeSingle();
+
+            if (mounted && profileData?.photo_url) {
+              setFetchedAvatarUrl(profileData.photo_url);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch other party avatar:', e?.message || e);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [avatarParam, requestId, user?.id, userRole]);
 
   const handleRespondToAppointment = useCallback(async (appointmentId, response) => {
     if (apptBusy || !appointmentId) return;
@@ -933,6 +1259,28 @@ export default function MessageThread() {
     if (!body && !hasImages) return;
     if (!requestId || !user?.id) return;
 
+    // Create optimistic message for instant display
+    const optimisticId = `optimistic-${Date.now()}`;
+    const optimisticMessage = {
+      id: optimisticId,
+      request_id: requestId,
+      sender_id: user.id,
+      body: body || null,
+      message_type: "text",
+      created_at: new Date().toISOString(),
+      // Use local URIs for instant image preview
+      localUris: hasImages ? selectedImages.map(img => img.uri) : null,
+      paths: null,
+      isOptimistic: true,
+    };
+
+    // Add optimistic message immediately
+    setMessages(prev => [...prev, optimisticMessage]);
+
+    // Clear input immediately for better UX
+    const imagesToUpload = [...selectedImages];
+    setInput("");
+    setSelectedImages([]);
     setSending(true);
     setUploadingImages(hasImages);
 
@@ -940,8 +1288,10 @@ export default function MessageThread() {
       // Upload images first if any
       let imagePaths = [];
       if (hasImages) {
-        imagePaths = await uploadImages(selectedImages);
+        imagePaths = await uploadImages(imagesToUpload);
         if (imagePaths.length === 0 && !body) {
+          // Remove optimistic message on failure
+          setMessages(prev => prev.filter(m => m.id !== optimisticId));
           Alert.alert("Upload failed", "Failed to upload images. Please try again.");
           return;
         }
@@ -955,20 +1305,45 @@ export default function MessageThread() {
       });
 
       if (error) {
+        // Remove optimistic message on failure
+        setMessages(prev => prev.filter(m => m.id !== optimisticId));
         Alert.alert("Send failed", error.message);
         return;
       }
 
-      setInput("");
-      setSelectedImages([]);
+      // Reload messages to get the real message from server
+      // This will replace the optimistic message
       await loadMessages();
     } catch (e) {
+      // Remove optimistic message on failure
+      setMessages(prev => prev.filter(m => m.id !== optimisticId));
       Alert.alert("Send failed", e?.message || "Unknown error");
     } finally {
       setSending(false);
       setUploadingImages(false);
     }
   }, [input, selectedImages, requestId, user?.id, loadMessages]);
+
+  // Calculate image start index for each message (for the image viewer)
+  const messageImageStartIndex = useMemo(() => {
+    const indexMap = {};
+    let currentIndex = 0;
+
+    for (const msg of messages) {
+      const paths = msg.paths || msg.attachment_paths;
+      const localUris = msg.localUris;
+      const imageCount = (localUris?.length) || (paths?.length) || 0;
+
+      if (imageCount > 0) {
+        indexMap[msg.id] = currentIndex;
+        currentIndex += imageCount;
+      } else {
+        indexMap[msg.id] = -1; // No images
+      }
+    }
+
+    return indexMap;
+  }, [messages]);
 
   const renderItem = ({ item }) => {
     const isMine = item.sender_id === user?.id;
@@ -995,8 +1370,17 @@ export default function MessageThread() {
       );
     }
 
-    // Regular text message
-    return <MessageBubble message={item} isMine={isMine} />;
+    // Regular text message with image viewer support
+    const imageStartIndex = messageImageStartIndex[item.id] ?? -1;
+
+    return (
+      <MessageBubble
+        message={item}
+        isMine={isMine}
+        onImagePress={handleOpenImageViewer}
+        imageStartIndex={imageStartIndex}
+      />
+    );
   };
 
   const parsed = useMemo(() => {
@@ -1084,13 +1468,13 @@ export default function MessageThread() {
       <View style={styles.topBar}>
         <Pressable
           onPress={() => {
-            // If returnTo param exists, navigate there instead of going back
+            // If returnTo param exists, navigate there directly
             if (returnToParam) {
-              router.replace(returnToParam);
+              router.navigate(returnToParam);
             } else if (router.canGoBack()) {
               router.back(); // gives you the proper "back" animation
             } else {
-              router.replace("/(dashboard)/messages");
+              router.navigate("/(dashboard)/messages");
             }
           }}
           hitSlop={10}
@@ -1184,7 +1568,6 @@ export default function MessageThread() {
             onChangeText={setInput}
             editable={!sending}
             multiline
-            inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
           />
 
           {/* Send button with loading indicator */}
@@ -1207,7 +1590,16 @@ export default function MessageThread() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
-      <KeyboardDoneButton />
+
+      {/* Full-screen image viewer with swipe navigation */}
+      <ImageViewing
+        images={allConversationImages.map(uri => ({ uri }))}
+        imageIndex={imageViewerIndex}
+        visible={imageViewerVisible}
+        onRequestClose={() => setImageViewerVisible(false)}
+        swipeToCloseEnabled={true}
+        doubleTapToZoomEnabled={true}
+      />
     </ThemedView>
   );
 }
@@ -1499,10 +1891,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#E5E7EB",
   },
   bubbleImageOnly: {
-    paddingHorizontal: 4,
-    paddingTop: 4,
-    paddingBottom: 8,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 4,
     backgroundColor: "transparent",
+    borderRadius: 12,
+    overflow: "hidden",
   },
   bubbleText: {
     fontSize: 14,
@@ -1525,17 +1919,76 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.75)",
   },
 
-  // Message images
-  messageImagesWrap: {
+  // Message images - WhatsApp style
+  messageImagesContainer: {
+    width: 240,
+    marginBottom: 4,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  // Single image
+  imageSingle: {
+    width: 240,
+    height: 280,
+    borderRadius: 12,
+  },
+  // Two images - side by side
+  imageRow: {
+    flexDirection: "row",
+    gap: 2,
+  },
+  imageHalf: {
+    flex: 1,
+  },
+  imageHalfImg: {
+    width: "100%",
+    height: 160,
+  },
+  // Three images - one large + two stacked
+  imageTwoThirds: {
+    flex: 2,
+  },
+  imageTwoThirdsImg: {
+    width: "100%",
+    height: 200,
+  },
+  imageStackRight: {
+    flex: 1,
+    gap: 2,
+    marginLeft: 2,
+  },
+  imageStackItem: {
+    flex: 1,
+  },
+  imageStackItemImg: {
+    width: "100%",
+    height: 99, // (200 - 2 gap) / 2
+  },
+  // Four+ images - 2x2 grid
+  imageGrid2x2: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 4,
-    marginBottom: 4,
+    gap: 2,
   },
-  messageImage: {
-    width: 180,
-    height: 180,
-    borderRadius: 12,
+  imageGridItem: {
+    width: "49%", // ~half minus gap
+    aspectRatio: 1,
+    position: "relative",
+  },
+  imageGridItemImg: {
+    width: "100%",
+    height: "100%",
+  },
+  imageOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  imageOverlayText: {
+    color: "#FFFFFF",
+    fontSize: 24,
+    fontWeight: "700",
   },
 
   // Selected images preview

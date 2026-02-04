@@ -8,6 +8,8 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Linking,
+  Platform,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,10 +22,16 @@ import Spacer from "../../../components/Spacer";
 import { Colors } from "../../../constants/Colors";
 
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
+import {
+  areNotificationsEnabled,
+  registerForPushNotifications,
+} from "../../../lib/api/notifications";
+import { useNotifications } from "../../../contexts/NotificationContext";
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isRegistered, registerNotifications } = useNotifications();
 
   const [settings, setSettings] = useState({
     push_enabled: true,
@@ -36,10 +44,17 @@ export default function NotificationsScreen() {
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [systemPermission, setSystemPermission] = useState(true);
 
   useEffect(() => {
     loadProfile();
+    checkSystemPermission();
   }, []);
+
+  async function checkSystemPermission() {
+    const enabled = await areNotificationsEnabled();
+    setSystemPermission(enabled);
+  }
 
   async function loadProfile() {
     try {
@@ -54,6 +69,34 @@ export default function NotificationsScreen() {
       console.log("Error loading profile:", e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleEnablePushNotifications() {
+    // Try to register for push notifications
+    await registerNotifications();
+    const enabled = await areNotificationsEnabled();
+    setSystemPermission(enabled);
+
+    if (!enabled) {
+      // If still not enabled, prompt user to go to settings
+      Alert.alert(
+        "Notifications Disabled",
+        "Please enable notifications in your device settings to receive updates.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Open Settings",
+            onPress: () => {
+              if (Platform.OS === "ios") {
+                Linking.openURL("app-settings:");
+              } else {
+                Linking.openSettings();
+              }
+            },
+          },
+        ]
+      );
     }
   }
 
@@ -133,6 +176,30 @@ export default function NotificationsScreen() {
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
       >
+        {/* System Permission Warning */}
+        {!systemPermission && (
+          <>
+            <Pressable
+              style={styles.warningBanner}
+              onPress={handleEnablePushNotifications}
+            >
+              <View style={styles.warningContent}>
+                <Ionicons name="warning" size={20} color="#92400E" />
+                <View style={styles.warningText}>
+                  <ThemedText style={styles.warningTitle}>
+                    Notifications are disabled
+                  </ThemedText>
+                  <ThemedText style={styles.warningDescription}>
+                    Tap here to enable notifications in your device settings
+                  </ThemedText>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#92400E" />
+            </Pressable>
+            <Spacer height={16} />
+          </>
+        )}
+
         {/* Channels Section */}
         <ThemedText style={styles.sectionTitle}>
           Notification channels
@@ -225,6 +292,35 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  warningBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FEF3C7",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+  },
+  warningContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 12,
+  },
+  warningText: {
+    flex: 1,
+  },
+  warningTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#92400E",
+  },
+  warningDescription: {
+    fontSize: 12,
+    color: "#A16207",
+    marginTop: 2,
   },
   header: {
     flexDirection: "row",

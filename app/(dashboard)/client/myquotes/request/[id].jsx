@@ -538,9 +538,7 @@ export default function ClientRequestDetails() {
         <View style={styles.headerRow}>
           <ThemedText style={styles.headerTitle}>Your Request</ThemedText>
           <Pressable
-            onPress={() =>
-              router.canGoBack?.() ? router.back() : router.replace("/(dashboard)/myquotes")
-            }
+            onPress={() => router.back()}
             hitSlop={10}
             style={styles.closeButton}
           >

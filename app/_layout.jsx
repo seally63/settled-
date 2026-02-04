@@ -6,6 +6,7 @@ import { Colors } from "../constants/Colors"
 import { StatusBar } from 'expo-status-bar'
 import { UserProvider } from '../contexts/UserContext'
 import { QuotesProvider } from '../contexts/QuotesContext'
+import { NotificationProvider } from '../contexts/NotificationContext'
 
 
 const RootLayout = () => {
@@ -17,17 +18,19 @@ const RootLayout = () => {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <UserProvider>
         <QuotesProvider>
-          <StatusBar value="auto" />
-          <Stack screenOptions={{
-              headerStyle: { backgroundColor: theme.navBackground },
-              headerTintColor: theme.title,
-          }}>
-            <Stack.Screen name='(auth)' options={{ headerShown: false}} />
-            <Stack.Screen name='(dashboard)' options={{ headerShown: false}} />
-            <Stack.Screen name='(admin)' options={{ headerShown: false}} />
-            <Stack.Screen name="index" options={{ title: 'Home'}}/>
+          <NotificationProvider>
+            <StatusBar value="auto" />
+            <Stack screenOptions={{
+                headerStyle: { backgroundColor: theme.navBackground },
+                headerTintColor: theme.title,
+            }}>
+              <Stack.Screen name='(auth)' options={{ headerShown: false}} />
+              <Stack.Screen name='(dashboard)' options={{ headerShown: false}} />
+              <Stack.Screen name='(admin)' options={{ headerShown: false}} />
+              <Stack.Screen name="index" options={{ title: 'Home'}}/>
 
-          </Stack>
+            </Stack>
+          </NotificationProvider>
         </QuotesProvider>
       </UserProvider>
     </GestureHandlerRootView>

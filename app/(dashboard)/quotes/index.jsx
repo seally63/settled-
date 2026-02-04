@@ -1040,20 +1040,24 @@ export default function TradesmanProjects() {
           extendedMatch: item.extendedMatch,
           actions: [
             {
-              label: "Schedule Visit",
+              label: "Message",
               primary: false,
               onPress: () =>
                 router.push({
-                  pathname: "/quotes/schedule",
-                  params: { requestId: item.request_id },
+                  pathname: "/(dashboard)/messages/[id]",
+                  params: {
+                    id: String(item.request_id),
+                    name: item.clientName || "Client",
+                    returnTo: "/(dashboard)/quotes",
+                  },
                 }),
             },
             {
-              label: "Send Quote",
+              label: "Schedule Visit",
               primary: true,
               onPress: () =>
                 router.push({
-                  pathname: "/quotes/create",
+                  pathname: "/quotes/schedule",
                   params: { requestId: item.request_id },
                 }),
             },

@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { useEffect, useState, useCallback } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
@@ -173,10 +173,14 @@ export default function MessagesIndex() {
     }
   }, [load]);
 
-  useEffect(() => {
-    if (!user?.id) return;
-    load();
-  }, [user?.id, load]);
+  // Reload conversations whenever screen comes into focus
+  // This ensures read status is updated after viewing a conversation
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id) return;
+      load();
+    }, [user?.id, load])
+  );
 
   const Empty = () => (
     <View style={styles.emptyWrap}>

@@ -5,6 +5,11 @@
     "slug": "tradify_app",
     "version": "1.0.0",
     "orientation": "portrait",
+    "extra": {
+      "eas": {
+        "projectId": "62d342c0-2c0c-472a-9bea-95c63bfbdca4"
+      }
+    },
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -15,12 +20,15 @@
     },
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.tradify.app",
       "infoPlist": {
         "NSCameraUsageDescription": "Camera access to take job photos",
-        "NSPhotoLibraryUsageDescription": "Photo access to attach job photos"
+        "NSPhotoLibraryUsageDescription": "Photo access to attach job photos",
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
     "android": {
+      "package": "com.tradify.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -40,6 +48,14 @@
         {
           "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to attach images to your quote request.",
           "cameraPermission": "Allow $(PRODUCT_NAME) to access the camera to take photos for your quote request."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#6849a7",
+          "defaultChannel": "default"
         }
       ]
     ]
