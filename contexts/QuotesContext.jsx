@@ -53,11 +53,22 @@ export function QuotesProvider({ children }) {
     return { subtotal: round2(subtotal), tax_total, grand_total }
   }
 
+  // Calculate valid_until date (7 days from now) for sent quotes
+  function getValidUntilDate() {
+    const date = new Date()
+    date.setDate(date.getDate() + 7)
+    return date.toISOString()
+  }
+
   // Insert with new fields (no title), totals, and owner
   async function createQuote(data) {
     try {
       const items = Array.isArray(data?.line_items) ? data.line_items : []
       const { subtotal, tax_total, grand_total } = computeTotals(items)
+
+      // Set issued_at and valid_until only when status is 'sent'
+      const isSent = data?.status === 'sent'
+      const now = new Date().toISOString()
 
       const payload = {
 
@@ -75,7 +86,10 @@ export function QuotesProvider({ children }) {
         // meta
         status: data?.status || 'draft',
         currency: data?.currency || 'GBP',
-        valid_until: data?.valid_until ?? null, // 'YYYY-MM-DD' or null
+        // Set valid_until to 7 days from now when sending, otherwise null
+        valid_until: isSent ? getValidUntilDate() : null,
+        // Set issued_at when sending
+        issued_at: isSent ? now : null,
 
         // structured arrays
         measurements: Array.isArray(data?.measurements) ? data.measurements : [],
@@ -116,11 +130,16 @@ export function QuotesProvider({ children }) {
       const items = Array.isArray(data?.line_items) ? data.line_items : []
       const { subtotal, tax_total, grand_total } = computeTotals(items)
 
+      // Set issued_at and valid_until only when status is 'sent'
+      const isSent = data?.status === 'sent'
+      const now = new Date().toISOString()
+
       const payload = {
         project_title: data?.project_title ?? null,
         comments: data?.comments ?? null,
         status: data?.status || 'draft',
-        valid_until: data?.valid_until ?? null,
+        // Set valid_until to 7 days from now when sending, otherwise keep as-is
+        ...(isSent && { valid_until: getValidUntilDate(), issued_at: now }),
         measurements: Array.isArray(data?.measurements) ? data.measurements : [],
         line_items: items,
         subtotal,

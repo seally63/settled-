@@ -1006,6 +1006,37 @@ export default function ClientProjects() {
         subStatus = "appointment_confirmed";
       }
 
+      // Build actions based on appointment status
+      let actions = null;
+      if (apptStatus === "proposed") {
+        actions = [
+          { label: "Decline", primary: false },
+          {
+            label: "Confirm",
+            primary: true,
+            onPress: () =>
+              router.push(`/(dashboard)/myquotes/request/${group.requestId}`),
+          },
+        ];
+      } else {
+        // Show Message button when trade has accepted (preparing quote)
+        actions = [
+          {
+            label: "Message",
+            primary: true,
+            onPress: () =>
+              router.push({
+                pathname: "/(dashboard)/messages/[id]",
+                params: {
+                  id: String(group.requestId),
+                  name: tradeName,
+                  returnTo: "/(dashboard)/myquotes",
+                },
+              }),
+          },
+        ];
+      }
+
       allProjects.push({
         id: `preparing-${group.requestId}`,
         type: "preparing",
@@ -1020,18 +1051,7 @@ export default function ClientProjects() {
         statusText,
         statusDetail,
         priceInfo: null,
-        actions:
-          apptStatus === "proposed"
-            ? [
-                { label: "Decline", primary: false },
-                {
-                  label: "Confirm",
-                  primary: true,
-                  onPress: () =>
-                    router.push(`/(dashboard)/myquotes/request/${group.requestId}`),
-                },
-              ]
-            : null,
+        actions,
         sortPriority: statusType === "action" ? 1 : 3,
       });
     });
