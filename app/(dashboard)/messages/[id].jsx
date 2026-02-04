@@ -308,7 +308,7 @@ function AppointmentMessageBubble({ message, appointment, isMine, userRole, onRe
       <View style={styles.appointmentBubble}>
         {/* Header with icon and title - centered */}
         <View style={styles.appointmentHeader}>
-          <Ionicons name="calendar" size={24} color={TINT} />
+          <Ionicons name="calendar" size={24} color="#0F172A" />
           <Spacer height={8} />
           <ThemedText style={styles.appointmentTitle}>
             {appointment.title || 'Site Survey Appointment'}
@@ -490,7 +490,7 @@ function AppointmentCard({ appointment, userRole, onAccept, onDecline, busy }) {
     <View style={styles.surveyCard}>
       <View style={styles.surveyCardRow}>
         <View style={styles.surveyIconWrap}>
-          <Ionicons name="calendar-outline" size={20} color={TINT} />
+          <Ionicons name="calendar-outline" size={20} color="#0F172A" />
         </View>
         <View style={styles.surveyCardMain}>
           <ThemedText style={styles.surveyTitle}>
