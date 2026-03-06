@@ -538,7 +538,7 @@ export default function ClientRequestDetails() {
         <View style={styles.headerRow}>
           <ThemedText style={styles.headerTitle}>Your Request</ThemedText>
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => router.dismiss(2)}
             hitSlop={10}
             style={styles.closeButton}
           >

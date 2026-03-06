@@ -169,7 +169,8 @@ export default function ClientHomeScreen() {
   };
 
   const handleSeeAllRequests = () => {
-    router.push("/client/myquotes");
+    // Switch to the actual Projects tab (not push onto Home tab's stack)
+    router.navigate("/(dashboard)/myquotes");
   };
 
   return (

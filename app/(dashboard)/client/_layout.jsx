@@ -53,7 +53,13 @@ export default function ClientStackLayout() {
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="clienthome" />
-      <Stack.Screen name="myquotes" />
+      <Stack.Screen
+        name="myquotes"
+        options={{
+          presentation: "fullScreenModal",
+          animation: "slide_from_bottom",
+        }}
+      />
       <Stack.Screen name="find-business" />
       <Stack.Screen name="trade-profile" />
       <Stack.Screen
