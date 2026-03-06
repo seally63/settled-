@@ -2,7 +2,7 @@
   "expo": {
     "scheme": "tradifyapp",
     "name": "tradify_app",
-    "slug": "tradify_app",
+    "slug": "settled-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "extra": {
