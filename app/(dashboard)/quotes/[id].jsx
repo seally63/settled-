@@ -2933,6 +2933,8 @@ export default function QuoteDetails() {
             onPress={() => {
               if (fromAppointments) {
                 router.push('/appointments');
+              } else if (fromPipeline) {
+                router.replace('/trades/pipeline');
               } else if (router.canGoBack?.()) {
                 router.back();
               } else {

@@ -21,6 +21,7 @@ export default function DashboardLayout() {
   // Track if we need to reset tabs when switching to them
   const [messagesNeedsReset, setMessagesNeedsReset] = useState(false);
   const [clientNeedsReset, setClientNeedsReset] = useState(false);
+  const [quotesNeedsReset, setQuotesNeedsReset] = useState(false);
 
   // When navigating to nested routes, mark for reset
   useEffect(() => {
@@ -32,6 +33,10 @@ export default function DashboardLayout() {
     // If we're in client nested route, mark that we need to reset when leaving
     if (currentTab === 'client' && segments.length > 2) {
       setClientNeedsReset(true);
+    }
+    // If we're in quotes nested route (e.g. /quotes/[id]), mark for reset
+    if (currentTab === 'quotes' && segments.length > 2) {
+      setQuotesNeedsReset(true);
     }
   }, [segments]);
 
@@ -71,6 +76,27 @@ export default function DashboardLayout() {
     // If already on client tab in a nested route, go to index
     if (currentTab === 'client' && segments.length > 2) {
       router.replace('/client');
+      return true;
+    }
+
+    return false;
+  };
+
+  // Handle quotes/projects tab press to reset to index
+  const handleQuotesTabPress = () => {
+    const currentTab = segments[1];
+
+    // If already on quotes tab in a nested route, go to index
+    if (currentTab === 'quotes' && segments.length > 2) {
+      router.replace('/(dashboard)/quotes');
+      setQuotesNeedsReset(false);
+      return true;
+    }
+
+    // If coming from a different tab and quotes needs reset, go to quotes index
+    if (currentTab !== 'quotes' && quotesNeedsReset) {
+      setQuotesNeedsReset(false);
+      router.replace('/(dashboard)/quotes');
       return true;
     }
 
@@ -162,6 +188,13 @@ export default function DashboardLayout() {
                 color={color}
               />
             ),
+          }}
+          listeners={{
+            tabPress: (e) => {
+              if (handleQuotesTabPress()) {
+                e.preventDefault();
+              }
+            },
           }}
         />
 

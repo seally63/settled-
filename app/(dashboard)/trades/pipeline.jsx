@@ -294,7 +294,7 @@ export default function PipelinePage() {
   }, [pipelineData]);
 
   const handleItemPress = (item) => {
-    router.push(`/quotes/${item.quoteId}`);
+    router.push(`/trades/quote/${item.quoteId}`);
   };
 
   const getStatusColor = (statusType) => {
