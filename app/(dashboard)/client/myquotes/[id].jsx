@@ -28,9 +28,7 @@ import Spacer from "../../../../components/Spacer";
 import { QuoteOverviewSkeleton } from "../../../../components/Skeleton";
 import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../../components/KeyboardDoneButton";
 import { Colors } from "../../../../constants/Colors";
-import { listRequestImagePaths } from "../../../../lib/api/attachments";
-
-const BUCKET = "request-attachments";
+import { listRequestImagePaths, getSignedUrls } from "../../../../lib/api/attachments";
 const CELL = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -157,15 +155,9 @@ export default function ClientMyQuoteDetail() {
         return;
       }
 
-      // Build public URLs from paths (bucket is public=true in your SQL)
-      const urls = p
-        .map((raw) => String(raw || "").replace(/^\//, ""))
-        .map(
-          (cleanPath) =>
-            supabase.storage.from(BUCKET).getPublicUrl(cleanPath).data
-              ?.publicUrl
-        )
-        .filter(Boolean);
+      // Use signed URLs for secure access
+      const signed = await getSignedUrls(p, 3600);
+      const urls = (signed || []).map((s) => s.url).filter(Boolean);
 
       setAttachments(urls);
     } catch (e) {

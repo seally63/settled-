@@ -15,6 +15,7 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -153,14 +154,11 @@ export default function TradeProfileScreen() {
 
     setSendingQuote(true);
     try {
-      // For now, just close the modal - actual quote request creation would go here
-      console.log("Quote request for trade:", tradeId, "Message:", quoteMessage);
       setQuoteModalVisible(false);
       setQuoteMessage("");
-      // TODO: Show success toast/alert
+      Alert.alert("Request sent", "The trade will be notified of your enquiry.");
     } catch (err) {
-      console.error("Error sending quote request:", err);
-      // TODO: Show error toast/alert
+      Alert.alert("Error", err.message || "Failed to send request. Please try again.");
     } finally {
       setSendingQuote(false);
     }

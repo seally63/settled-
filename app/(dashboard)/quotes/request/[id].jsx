@@ -26,9 +26,7 @@ import { supabase } from "../../../../lib/supabase";
 
 // RPC wrappers
 import { acceptRequest, declineRequest } from "../../../../lib/api/requests";
-import { listRequestImagePaths } from "../../../../lib/api/attachments";
-
-const BUCKET = "request-attachments"; // change if your bucket name differs
+import { listRequestImagePaths, getSignedUrls } from "../../../../lib/api/attachments";
 const CELL = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -674,15 +672,9 @@ export default function RequestDetails() {
         return;
       }
 
-      // Build public URLs from paths (bucket must be public=true)
-      const urls = p
-        .map((raw) => String(raw || "").replace(/^\//, ""))
-        .map(
-          (cleanPath) =>
-            supabase.storage.from(BUCKET).getPublicUrl(cleanPath).data
-              ?.publicUrl
-        )
-        .filter(Boolean);
+      // Use signed URLs for secure access
+      const signed = await getSignedUrls(p, 3600);
+      const urls = (signed || []).map((s) => s.url).filter(Boolean);
 
       setAttachments(urls);
     } catch (e) {

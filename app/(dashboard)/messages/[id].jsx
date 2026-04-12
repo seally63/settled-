@@ -1247,7 +1247,7 @@ export default function MessageThread() {
   }, [apptBusy, loadMessages, loadAppointments]);
 
   const handleEditAppointment = useCallback((appointmentId) => {
-    // TODO: Implement edit appointment modal
+    // Future feature: edit appointment modal (reschedule from within messages)
     Alert.alert('Edit Appointment', 'This feature will be available soon!');
   }, []);
 

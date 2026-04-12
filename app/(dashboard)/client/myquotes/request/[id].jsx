@@ -23,9 +23,7 @@ import { RequestDetailSkeleton } from "../../../../../components/Skeleton";
 import { Colors } from "../../../../../constants/Colors";
 import { useUser } from "../../../../../hooks/useUser";
 import { supabase } from "../../../../../lib/supabase";
-import { listRequestImagePaths } from "../../../../../lib/api/attachments";
-
-const BUCKET = "request-attachments";
+import { listRequestImagePaths, getSignedUrls } from "../../../../../lib/api/attachments";
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
 // Helper to get last 4 characters of quote ID for display
@@ -156,13 +154,9 @@ export default function ClientRequestDetails() {
         return;
       }
 
-      const urls = p
-        .map((raw) => String(raw || "").replace(/^\//, ""))
-        .map(
-          (cleanPath) =>
-            supabase.storage.from(BUCKET).getPublicUrl(cleanPath).data?.publicUrl
-        )
-        .filter(Boolean);
+      // Use signed URLs for secure access
+      const signed = await getSignedUrls(p, 3600);
+      const urls = (signed || []).map((s) => s.url).filter(Boolean);
 
       setAttachments(urls);
     } catch (e) {

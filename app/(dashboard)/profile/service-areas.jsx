@@ -103,22 +103,13 @@ export default function ServiceAreasScreen() {
 
       // Save travel radius (convert miles to km)
       const radiusKm = Math.round(travelRadius * MILES_TO_KM);
-      console.log("[DEBUG] handleSave called");
-      console.log("[DEBUG] travelRadius (miles):", travelRadius);
-      console.log("[DEBUG] radiusKm:", radiusKm);
-
-      console.log("[DEBUG] Calling updateServiceRadius...");
-      const result = await updateServiceRadius(radiusKm);
-      console.log("[DEBUG] updateServiceRadius result:", result);
+      await updateServiceRadius(radiusKm);
 
       // Save extended travel settings
       if (extendedTravelEnabled) {
         const extRadiusKm = Math.round(extendedRadius * MILES_TO_KM);
-        console.log("[DEBUG] Saving extended radius:", extRadiusKm, "km, min budget:", extendedMinBudget);
         await updateExtendedTravel(extRadiusKm, extendedMinBudget);
       } else {
-        // Disable extended travel
-        console.log("[DEBUG] Disabling extended travel");
         await updateExtendedTravel(null, null);
       }
 
@@ -126,9 +117,6 @@ export default function ServiceAreasScreen() {
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (e) {
-      console.log("[DEBUG] Save error object:", e);
-      console.log("[DEBUG] Save error message:", e?.message);
-      console.log("[DEBUG] Save error details:", JSON.stringify(e, null, 2));
       Alert.alert("Error", e.message || "Failed to save.");
     } finally {
       setSaving(false);

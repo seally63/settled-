@@ -25,6 +25,7 @@ import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
+import { supabase } from "../../../lib/supabase";
 import { getMyProfile } from "../../../lib/api/profile";
 import {
   getMyVerificationStatus,
@@ -93,10 +94,25 @@ export default function CredentialsScreen() {
 
       // Set initial step based on status
       if (status === "verified") {
-        // TODO: Fetch actual verified credentials from API
-        setVerifiedCredentials([
-          { type: "Gas Safe Register", number: "123456", expiry: "March 2026" },
-        ]);
+        // Fetch verified credentials from submissions table
+        try {
+          const { data: creds } = await supabase
+            .from("credential_submissions")
+            .select("credential_type, registration_number, review_status, created_at")
+            .eq("profile_id", user.id)
+            .eq("review_status", "approved");
+          if (creds && creds.length > 0) {
+            setVerifiedCredentials(creds.map(c => ({
+              type: c.credential_type || "Credential",
+              number: c.registration_number || "N/A",
+              expiry: null,
+            })));
+          } else {
+            setVerifiedCredentials([]);
+          }
+        } catch {
+          setVerifiedCredentials([]);
+        }
         setCurrentStep("verified");
       } else if (status === "under_review" || status === "pending_review") {
         setCurrentStep("submitted");

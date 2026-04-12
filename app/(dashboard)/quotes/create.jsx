@@ -186,12 +186,6 @@ export default function Create() {
           if (!error && data && alive) {
             const info = deriveProjectInfo(data);
 
-            console.log("[DEBUG Create Quote - Edit Mode] Raw data from DB:", JSON.stringify({
-              suggested_title: data?.suggested_title,
-              postcode: data?.postcode,
-              service_categories_name: data?.service_categories?.name,
-              service_types_name: data?.service_types?.name,
-            }));
 
             // Get category and service from joined tables
             let category = info.category;
@@ -208,7 +202,6 @@ export default function Create() {
               }
             }
 
-            console.log("[DEBUG Create Quote - Edit Mode] Final - category:", category, "service:", service, "postcode:", info.postcode);
 
             if (category) setProjectCategory(category);
             if (service) setProjectService(service);
@@ -285,35 +278,24 @@ export default function Create() {
 
         const info = deriveProjectInfo(data);
 
-        console.log("[DEBUG Create Quote] Raw data from DB:", JSON.stringify({
-          suggested_title: data?.suggested_title,
-          postcode: data?.postcode,
-          service_categories_name: data?.service_categories?.name,
-          service_types_name: data?.service_types?.name,
-        }));
-        console.log("[DEBUG Create Quote] deriveProjectInfo result:", JSON.stringify(info));
 
         // Get category and service from the joined tables (most reliable source)
         // These come from the foreign key relationships to service_categories and service_types tables
         let category = info.category; // From service_categories.name
         let service = info.service;   // From service_types.name
 
-        console.log("[DEBUG Create Quote] Using joined table data - category:", category, "service:", service);
-
         // Fallback: if joined tables are empty, try parsing suggested_title
         if (!category || !service) {
           if (data?.suggested_title) {
             // Format: "Category - Service" -> split by " - "
             const parts = data.suggested_title.split(" - ").map(s => s.trim());
-            console.log("[DEBUG Create Quote] Parsing suggested_title:", data.suggested_title, "parts:", parts);
+
             if (parts.length >= 2) {
               if (!category) category = parts[0];
               if (!service) service = parts.slice(1).join(" - ");
             }
           }
         }
-
-        console.log("[DEBUG Create Quote] Final - category:", category, "service:", service, "postcode:", info.postcode);
 
         // Set state
         if (category) setProjectCategory(category);

@@ -283,14 +283,6 @@ export default function ScheduleAppointment() {
       // Note is passed as part of location for now (or could be added to notes param if RPC supports it)
       const noteText = apptNote.trim();
 
-      console.log("[DEBUG] Schedule - Calling rpc_send_appointment_message with:", {
-        p_request_id: requestId,
-        p_quote_id: quoteId || null,
-        p_scheduled_at: apptDateTime.toISOString(),
-        p_title: typeLabel,
-        p_location: location || null,
-      });
-
       const { data, error } = await supabase.rpc(
         "rpc_send_appointment_message",
         {
@@ -301,8 +293,6 @@ export default function ScheduleAppointment() {
           p_location: location || null,
         }
       );
-
-      console.log("[DEBUG] Schedule - rpc_send_appointment_message result:", { data, error });
 
       if (error) {
         console.warn("appointment create error", error.message || error);

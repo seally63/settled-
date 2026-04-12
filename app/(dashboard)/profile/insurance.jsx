@@ -27,6 +27,7 @@ import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
+import { supabase } from "../../../lib/supabase";
 import { getMyProfile } from "../../../lib/api/profile";
 import {
   getMyVerificationStatus,
@@ -92,8 +93,24 @@ export default function InsuranceScreen() {
       // Set initial step based on status
       if (status === "verified") {
         setCurrentStep("verified");
+        // Fetch real coverage from submission data
+        let coverageDisplay = "N/A";
+        try {
+          const { data: sub } = await supabase
+            .from("insurance_submissions")
+            .select("coverage_amount_pence")
+            .eq("profile_id", user.id)
+            .eq("review_status", "approved")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (sub?.coverage_amount_pence) {
+            coverageDisplay = `£${(sub.coverage_amount_pence / 100).toLocaleString()}`;
+          }
+        } catch { /* fall back to N/A */ }
+
         setInsuranceData({
-          coverage: "£2,000,000", // TODO: Fetch from submission data
+          coverage: coverageDisplay,
           expiry: expiresAt ? new Date(expiresAt).toLocaleDateString("en-GB", {
             day: "numeric",
             month: "short",
