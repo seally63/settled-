@@ -30,6 +30,9 @@ import {
   getDocumentSignedUrl,
   approveSubmission,
   rejectSubmission,
+  getPendingTradeApprovals,
+  approveTradeProfile,
+  rejectTradeProfile,
 } from "../../lib/api/admin";
 
 const PRIMARY = Colors?.primary || "#7C3AED";
@@ -39,6 +42,7 @@ const FILTER_OPTIONS = [
   { id: "photo_id", label: "Photo ID" },
   { id: "insurance", label: "Insurance" },
   { id: "credentials", label: "Credentials" },
+  { id: "applications", label: "Applications" },
 ];
 
 export default function AdminReviewsScreen() {
@@ -52,11 +56,21 @@ export default function AdminReviewsScreen() {
   const [processingId, setProcessingId] = useState(null);
   const [rejectModalItem, setRejectModalItem] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [pendingTrades, setPendingTrades] = useState([]);
+
+  const isApplicationsTab = activeFilter === "applications";
 
   const loadSubmissions = useCallback(async () => {
     try {
-      const data = await getPendingReviews(activeFilter);
-      setSubmissions(data || []);
+      if (isApplicationsTab) {
+        const trades = await getPendingTradeApprovals();
+        setPendingTrades(trades || []);
+        setSubmissions([]);
+      } else {
+        const data = await getPendingReviews(activeFilter);
+        setSubmissions(data || []);
+        setPendingTrades([]);
+      }
     } catch (e) {
       console.log("Error loading submissions:", e);
       Alert.alert("Error", "Failed to load submissions");
@@ -64,7 +78,7 @@ export default function AdminReviewsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [activeFilter]);
+  }, [activeFilter, isApplicationsTab]);
 
   useEffect(() => {
     loadSubmissions();
@@ -155,6 +169,57 @@ export default function AdminReviewsScreen() {
     } finally {
       setProcessingId(null);
     }
+  }
+
+  function handleApproveApplication(trade) {
+    Alert.alert(
+      "Approve Trade",
+      `Approve ${trade.business_name || trade.full_name}? They will become visible to clients.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Approve",
+          onPress: async () => {
+            try {
+              setProcessingId(trade.id);
+              await approveTradeProfile(trade.id);
+              setPendingTrades((prev) => prev.filter((t) => t.id !== trade.id));
+              Alert.alert("Approved", `${trade.business_name || trade.full_name} is now live on Settled.`);
+            } catch (e) {
+              Alert.alert("Error", e.message || "Failed to approve");
+            } finally {
+              setProcessingId(null);
+            }
+          },
+        },
+      ]
+    );
+  }
+
+  function handleRejectApplication(trade) {
+    Alert.alert(
+      "Reject Trade",
+      `Reject ${trade.business_name || trade.full_name}? They will not be visible to clients.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reject",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setProcessingId(trade.id);
+              await rejectTradeProfile(trade.id);
+              setPendingTrades((prev) => prev.filter((t) => t.id !== trade.id));
+              Alert.alert("Rejected", "Trade application has been rejected.");
+            } catch (e) {
+              Alert.alert("Error", e.message || "Failed to reject");
+            } finally {
+              setProcessingId(null);
+            }
+          },
+        },
+      ]
+    );
   }
 
   function formatVerificationType(type) {
@@ -319,7 +384,90 @@ export default function AdminReviewsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {submissions.length === 0 ? (
+        {/* Trade Applications Tab */}
+        {isApplicationsTab ? (
+          pendingTrades.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="checkmark-circle-outline" size={48} color={Colors.light.subtitle} />
+              <ThemedText style={styles.emptyTitle}>All caught up!</ThemedText>
+              <ThemedText style={styles.emptyText}>
+                No pending trade applications.
+              </ThemedText>
+            </View>
+          ) : (
+            pendingTrades.map((trade) => {
+              const isProcessingTrade = processingId === trade.id;
+              return (
+                <View key={trade.id} style={styles.submissionCard}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderLeft}>
+                      <View style={[styles.typeBadge, { backgroundColor: "rgba(104,73,167,0.08)" }]}>
+                        <ThemedText style={styles.typeBadgeText}>Application</ThemedText>
+                      </View>
+                    </View>
+                    <ThemedText style={styles.dateText}>{formatDate(trade.created_at)}</ThemedText>
+                  </View>
+
+                  <View style={styles.userInfo}>
+                    <ThemedText style={styles.businessName}>
+                      {trade.business_name || trade.full_name}
+                    </ThemedText>
+                    {trade.business_name && trade.full_name && (
+                      <ThemedText style={styles.email}>{trade.full_name}</ThemedText>
+                    )}
+                  </View>
+
+                  {(trade.trade_title || trade.town_city || trade.base_postcode) && (
+                    <View style={styles.detailsSection}>
+                      {trade.trade_title && (
+                        <ThemedText style={styles.detailLabel}>{trade.trade_title}</ThemedText>
+                      )}
+                      {(trade.town_city || trade.base_postcode) && (
+                        <ThemedText style={styles.detailValue}>
+                          {trade.town_city || trade.base_postcode}
+                        </ThemedText>
+                      )}
+                    </View>
+                  )}
+
+                  <View style={styles.actionButtons}>
+                    <View style={styles.decisionButtons}>
+                      <Pressable
+                        style={[styles.rejectButton, isProcessingTrade && styles.buttonDisabled]}
+                        onPress={() => handleRejectApplication(trade)}
+                        disabled={isProcessingTrade}
+                      >
+                        {isProcessingTrade ? (
+                          <ActivityIndicator size="small" color="#DC2626" />
+                        ) : (
+                          <>
+                            <Ionicons name="close" size={18} color="#DC2626" />
+                            <ThemedText style={styles.rejectButtonText}>Reject</ThemedText>
+                          </>
+                        )}
+                      </Pressable>
+
+                      <Pressable
+                        style={[styles.approveButton, isProcessingTrade && styles.buttonDisabled]}
+                        onPress={() => handleApproveApplication(trade)}
+                        disabled={isProcessingTrade}
+                      >
+                        {isProcessingTrade ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                            <ThemedText style={styles.approveButtonText}>Approve</ThemedText>
+                          </>
+                        )}
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              );
+            })
+          )
+        ) : submissions.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="checkmark-circle-outline" size={48} color={Colors.light.subtitle} />
             <ThemedText style={styles.emptyTitle}>All caught up!</ThemedText>
