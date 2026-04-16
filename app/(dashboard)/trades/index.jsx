@@ -259,7 +259,7 @@ function SummaryCards({ stats, onJobsPress, onScheduledPress, onQuotesPress, onC
   const cards = [
     { key: "active", label: "Active", count: stats.activeJobs, color: STATUS_COLORS.action, onPress: onJobsPress },
     { key: "scheduled", label: "Scheduled", count: stats.scheduledCount, color: STATUS_COLORS.scheduled, onPress: onScheduledPress },
-    { key: "quotes", label: "Quotes", count: stats.pendingQuotes, color: STATUS_COLORS.new, onPress: onQuotesPress },
+    { key: "quotes", label: "Sent", count: stats.pendingQuotes, color: STATUS_COLORS.new, onPress: onQuotesPress },
     { key: "done", label: "Done", count: stats.completedThisMonth, color: STATUS_COLORS.waiting, onPress: onCompletedPress },
   ];
 
@@ -309,29 +309,29 @@ function PerformanceInfoModal({ visible, onClose }) {
               <ThemedText style={styles.infoSectionTitle}>Response Time</ThemedText>
             </View>
             <ThemedText style={styles.infoSectionText}>
-              This measures how quickly you respond to new quote requests and messages from clients.
+              This measures how quickly you respond to new requests and messages from clients.
             </ThemedText>
             <View style={styles.infoTipBox}>
               <ThemedText style={styles.infoTipTitle}>Why it matters</ThemedText>
               <ThemedText style={styles.infoTipText}>
-                Clients often reach out to multiple tradespeople. Those who respond within a few hours are much more likely to win the job. Aim to respond within 4 hours during business hours.
+                Clients on Settled chose you specifically — a fast reply shows you take their job seriously. Aim to respond within 4 hours during business hours.
               </ThemedText>
             </View>
           </View>
 
-          {/* Quote Rate */}
+          {/* Follow-through Rate */}
           <View style={styles.infoSection}>
             <View style={styles.infoSectionHeader}>
               <Ionicons name="checkmark" size={20} color={TINT} />
-              <ThemedText style={styles.infoSectionTitle}>Quote Rate</ThemedText>
+              <ThemedText style={styles.infoSectionTitle}>Follow-through Rate</ThemedText>
             </View>
             <ThemedText style={styles.infoSectionText}>
-              This shows the percentage of accepted requests that resulted in you sending a quote. You have 3 days after accepting before it affects your rate.
+              The percentage of accepted requests that you actually quoted. You have 3 days after accepting before it affects your rate.
             </ThemedText>
             <View style={styles.infoTipBox}>
               <ThemedText style={styles.infoTipTitle}>How it's calculated</ThemedText>
               <ThemedText style={styles.infoTipText}>
-                If you accept 10 requests and send quotes for 8 of them, your quote rate is 80%. Newly accepted requests won't affect your rate for 3 days, giving you time to schedule a survey or send a quote.
+                If you accept 10 requests and send quotes for 8 of them, your follow-through rate is 80%. Newly accepted requests won't affect your rate for 3 days, giving you time to schedule a survey or send a quote.
               </ThemedText>
             </View>
           </View>
@@ -380,15 +380,15 @@ function PerformanceSection({ stats, isNewTrade, onInfoPress }) {
     }
 
     if (stats.responseTimeHours !== null && stats.responseTimeHours < 4) {
-      return "You're faster than 78% of trades";
+      return "Replying fast — clients notice this";
     }
 
     if (stats.responseTimeHours !== null && stats.responseTimeHours > 12) {
-      return "Tip: Faster responses = more jobs";
+      return "Tip: Faster replies build trust";
     }
 
     if (stats.quoteRate !== null && stats.quoteRate >= 80) {
-      return "Great quote rate! Keep it up";
+      return "Strong follow-through — keep it up";
     }
 
     return null;
@@ -426,7 +426,7 @@ function PerformanceSection({ stats, isNewTrade, onInfoPress }) {
                 {stats.quoteRate !== null ? `${stats.quoteRate}%` : "--"}
               </ThemedText>
             </View>
-            <ThemedText style={styles.performanceLabel}>Quote rate</ThemedText>
+            <ThemedText style={styles.performanceLabel}>Follow-through</ThemedText>
           </View>
 
           <View style={styles.performanceDivider} />
