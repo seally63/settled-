@@ -147,9 +147,9 @@ function openDirections(postcode) {
 }
 
 // ============================================
-// HERO SECTION
+// HEADER (greeting + date)
 // ============================================
-function HeroSection({ firstName, isNewTrade }) {
+function Header({ firstName, isNewTrade }) {
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (isNewTrade) return "Welcome";
@@ -158,121 +158,98 @@ function HeroSection({ firstName, isNewTrade }) {
     return "Good evening";
   };
 
+  const today = new Date();
+  const dateStr = today.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
   return (
-    <View style={styles.heroSection}>
-      <ThemedText style={styles.heroGreeting}>
-        {getGreeting()}, {firstName}
+    <View style={styles.headerSection}>
+      <ThemedText style={styles.headerGreeting}>
+        {getGreeting()}{firstName ? `, ${firstName}` : ""}
       </ThemedText>
+      <ThemedText style={styles.headerDate}>{dateStr}</ThemedText>
     </View>
   );
 }
 
 // ============================================
-// PROFILE COMPLETION BANNER
+// GLANCE STRIP — single ambient line of key counts
 // ============================================
-function ProfileCompletionBanner({ profile, onPress }) {
-  // Calculate completion percentage
+function GlanceStrip({ todayCount, attentionCount, sentCount }) {
+  const parts = [];
+  parts.push(`${todayCount} ${todayCount === 1 ? "appointment" : "appointments"} today`);
+  if (attentionCount > 0) parts.push(`${attentionCount} ${attentionCount === 1 ? "item needs" : "items need"} attention`);
+  if (sentCount > 0) parts.push(`${sentCount} ${sentCount === 1 ? "quote" : "quotes"} awaiting`);
+
+  return (
+    <View style={styles.glanceStrip}>
+      <ThemedText style={styles.glanceText}>{parts.join("  ·  ")}</ThemedText>
+    </View>
+  );
+}
+
+// ============================================
+// PROFILE FOOTER — slim banner showing completion %
+// Hidden when profile is 100% complete.
+// ============================================
+function ProfileFooter({ profile, onPress }) {
   const calculateCompletion = () => {
     if (!profile) return { percentage: 0, missing: [] };
 
     const checks = [
-      { field: 'full_name', label: 'Name', weight: 10 },
-      { field: 'business_name', label: 'Business name', weight: 10 },
-      { field: 'photo_url', label: 'Profile photo', weight: 15 },
-      { field: 'bio', label: 'Bio', weight: 10 },
-      { field: 'job_titles', label: 'Job titles', weight: 10, check: (v) => v && v.length > 0 },
-      { field: 'base_postcode', label: 'Location', weight: 10 },
-      { field: 'service_radius_km', label: 'Service area', weight: 5 },
+      { field: 'full_name', label: 'name', weight: 10 },
+      { field: 'business_name', label: 'business name', weight: 10 },
+      { field: 'photo_url', label: 'profile photo', weight: 15 },
+      { field: 'bio', label: 'bio', weight: 10 },
+      { field: 'job_titles', label: 'job titles', weight: 10, check: (v) => v && v.length > 0 },
+      { field: 'base_postcode', label: 'location', weight: 10 },
+      { field: 'service_radius_km', label: 'service area', weight: 5 },
     ];
 
-    // Verification checks
     const verification = profile.verification || {};
     const verificationChecks = [
-      { status: verification.photo_id, label: 'Photo ID', weight: 10 },
-      { status: verification.insurance, label: 'Insurance', weight: 10 },
-      { status: verification.credentials, label: 'Credentials', weight: 10 },
+      { status: verification.photo_id, label: 'photo ID', weight: 10 },
+      { status: verification.insurance, label: 'insurance', weight: 10 },
+      { status: verification.credentials, label: 'credentials', weight: 10 },
     ];
 
     let total = 0;
     const missing = [];
-
     checks.forEach(({ field, label, weight, check }) => {
       const value = profile[field];
       const isComplete = check ? check(value) : !!value;
-      if (isComplete) {
-        total += weight;
-      } else {
-        missing.push(label);
-      }
+      if (isComplete) total += weight;
+      else missing.push(label);
     });
-
     verificationChecks.forEach(({ status, label, weight }) => {
-      if (status === 'verified') {
-        total += weight;
-      } else {
-        missing.push(label);
-      }
+      if (status === 'verified') total += weight;
+      else missing.push(label);
     });
 
     return { percentage: total, missing };
   };
 
   const { percentage, missing } = calculateCompletion();
-
-  // Don't show if 100% complete
   if (percentage >= 100) return null;
-
-  const isAlmostDone = percentage >= 80;
   const nextItem = missing[0];
 
   return (
-    <Pressable style={styles.completionBanner} onPress={onPress}>
-      <View style={styles.completionHeader}>
-        <ThemedText style={styles.completionTitle}>
-          {isAlmostDone ? "Almost there!" : "Complete your profile"}
+    <Pressable style={styles.profileFooter} onPress={onPress}>
+      <View style={{ flex: 1 }}>
+        <ThemedText style={styles.profileFooterTitle}>
+          Profile is {percentage}% complete
         </ThemedText>
+        {nextItem && (
+          <ThemedText style={styles.profileFooterSubtitle}>
+            Next: add your {nextItem}
+          </ThemedText>
+        )}
       </View>
-
-      <View style={styles.progressBarContainer}>
-        <View style={[styles.progressBarFill, { width: `${percentage}%` }]} />
-      </View>
-      <ThemedText style={styles.progressPercentage}>{percentage}%</ThemedText>
-
-      <ThemedText style={styles.completionSubtext}>
-        {isAlmostDone && nextItem
-          ? `Just add your ${nextItem.toLowerCase()} to get verified`
-          : "Verified trades get 3x more leads"}
-      </ThemedText>
-
-      <View style={styles.completionButton}>
-        <ThemedText style={styles.completionButtonText}>Complete</ThemedText>
-        <Ionicons name="chevron-forward" size={16} color="#111827" />
-      </View>
+      <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
     </Pressable>
-  );
-}
-
-// ============================================
-// SUMMARY CARDS
-// ============================================
-function SummaryCards({ stats, onJobsPress, onScheduledPress, onQuotesPress, onCompletedPress }) {
-  const cards = [
-    { key: "active", label: "Active", count: stats.activeJobs, color: STATUS_COLORS.action, onPress: onJobsPress },
-    { key: "scheduled", label: "Scheduled", count: stats.scheduledCount, color: STATUS_COLORS.scheduled, onPress: onScheduledPress },
-    { key: "quotes", label: "Sent", count: stats.pendingQuotes, color: STATUS_COLORS.new, onPress: onQuotesPress },
-    { key: "done", label: "Done", count: stats.completedThisMonth, color: STATUS_COLORS.waiting, onPress: onCompletedPress },
-  ];
-
-  return (
-    <View style={styles.summaryCardsRow}>
-      {cards.map((card) => (
-        <Pressable key={card.key} style={styles.summaryCard} onPress={card.onPress}>
-          <ThemedText style={styles.summaryCardCount}>{card.count}</ThemedText>
-          <ThemedText style={styles.summaryCardLabel} numberOfLines={1}>{card.label}</ThemedText>
-          <View style={[styles.summaryCardIndicator, { backgroundColor: card.color }]} />
-        </Pressable>
-      ))}
-    </View>
   );
 }
 
@@ -362,257 +339,215 @@ function PerformanceInfoModal({ visible, onClose }) {
 }
 
 // ============================================
-// PERFORMANCE SECTION
+// HEALTH ROW — compact strip of three metrics with info button
 // ============================================
-function PerformanceSection({ stats, isNewTrade, onInfoPress }) {
-  const hasData = stats.responseTimeHours !== null || stats.quoteRate !== null || stats.averageRating > 0;
-
+function HealthRow({ stats, onInfoPress }) {
   const formatResponseTime = (hours) => {
-    if (hours === null || hours === undefined) return "--";
-    if (hours < 1) return `${Math.round(hours * 60)} min`;
-    if (hours < 24) return `${hours.toFixed(1)} hrs`;
-    return `${Math.round(hours / 24)} days`;
+    if (hours === null || hours === undefined) return "—";
+    if (hours < 1) return `${Math.round(hours * 60)}m`;
+    if (hours < 24) return `${hours.toFixed(1)}h`;
+    return `${Math.round(hours / 24)}d`;
   };
-
-  const getPerformanceMessage = () => {
-    if (isNewTrade || !hasData) {
-      return "Complete your first job to see stats";
-    }
-
-    if (stats.responseTimeHours !== null && stats.responseTimeHours < 4) {
-      return "Replying fast — clients notice this";
-    }
-
-    if (stats.responseTimeHours !== null && stats.responseTimeHours > 12) {
-      return "Tip: Faster replies build trust";
-    }
-
-    if (stats.quoteRate !== null && stats.quoteRate >= 80) {
-      return "Strong follow-through — keep it up";
-    }
-
-    return null;
-  };
-
-  const performanceMessage = getPerformanceMessage();
 
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeaderRow}>
-        <ThemedText style={styles.sectionTitle}>Your Performance</ThemedText>
+        <ThemedText style={styles.sectionLabel}>YOUR HEALTH</ThemedText>
         <Pressable onPress={onInfoPress} hitSlop={10} style={styles.infoButton}>
-          <Ionicons name="information-circle-outline" size={20} color="#6B7280" />
+          <Ionicons name="information-circle-outline" size={16} color="#6B7280" />
         </Pressable>
       </View>
 
-      <View style={styles.performanceCard}>
-        <View style={styles.performanceRow}>
-          <View style={styles.performanceItem}>
-            <View style={styles.performanceIconRow}>
-              <Ionicons name="flash" size={14} color={TINT} />
-              <ThemedText style={styles.performanceValue}>
-                {formatResponseTime(stats.responseTimeHours)}
-              </ThemedText>
-            </View>
-            <ThemedText style={styles.performanceLabel}>Response</ThemedText>
-          </View>
-
-          <View style={styles.performanceDivider} />
-
-          <View style={styles.performanceItem}>
-            <View style={styles.performanceIconRow}>
-              <Ionicons name="checkmark" size={14} color={TINT} />
-              <ThemedText style={styles.performanceValue}>
-                {stats.quoteRate !== null ? `${stats.quoteRate}%` : "--"}
-              </ThemedText>
-            </View>
-            <ThemedText style={styles.performanceLabel}>Follow-through</ThemedText>
-          </View>
-
-          <View style={styles.performanceDivider} />
-
-          <View style={styles.performanceItem}>
-            <View style={styles.performanceIconRow}>
-              <Ionicons name="star" size={14} color="#F59E0B" />
-              <ThemedText style={styles.performanceValue}>
-                {stats.averageRating > 0 ? stats.averageRating.toFixed(1) : "--"}
-              </ThemedText>
-            </View>
-            <ThemedText style={styles.performanceLabel}>Rating</ThemedText>
-          </View>
+      <View style={styles.healthRow}>
+        <View style={styles.healthItem}>
+          <ThemedText style={styles.healthValue}>{formatResponseTime(stats.responseTimeHours)}</ThemedText>
+          <ThemedText style={styles.healthLabel}>Response</ThemedText>
         </View>
-
-        {performanceMessage && (
-          <View style={styles.performanceFooter}>
-            <ThemedText style={styles.performanceMessage}>
-              {performanceMessage}
+        <View style={styles.healthDivider} />
+        <View style={styles.healthItem}>
+          <ThemedText style={styles.healthValue}>
+            {stats.quoteRate !== null ? `${stats.quoteRate}%` : "—"}
+          </ThemedText>
+          <ThemedText style={styles.healthLabel}>Follow-through</ThemedText>
+        </View>
+        <View style={styles.healthDivider} />
+        <View style={styles.healthItem}>
+          <View style={styles.healthValueRow}>
+            <ThemedText style={styles.healthValue}>
+              {stats.averageRating > 0 ? stats.averageRating.toFixed(1) : "—"}
             </ThemedText>
+            {stats.averageRating > 0 && (
+              <Ionicons name="star" size={12} color="#F59E0B" />
+            )}
           </View>
-        )}
+          <ThemedText style={styles.healthLabel}>Rating</ThemedText>
+        </View>
       </View>
     </View>
   );
 }
 
 // ============================================
-// TODAY SECTION
+// TODAY SECTION — clean rows with Today + Tomorrow groups
 // ============================================
 function TodaySection({ todayAppointments, tomorrowAppointments, onSeeAll, onItemPress, onMessage, conversationsByRequest }) {
-  const today = new Date();
-  const todayStr = formatDateFull(today);
+  const getAppointmentIcon = (type) => APPOINTMENT_ICONS[type] || APPOINTMENT_ICONS.work;
 
-  const getAppointmentIcon = (type) => {
-    const config = APPOINTMENT_ICONS[type] || APPOINTMENT_ICONS.work;
-    return config;
-  };
-
-  const AppointmentCard = ({ appointment, showActions = true }) => {
+  const AppointmentRow = ({ appointment, showActions = true }) => {
     const iconConfig = getAppointmentIcon(appointment.type);
     const conversationId = conversationsByRequest[appointment.request_id];
 
     return (
       <Pressable
-        style={styles.appointmentCard}
+        style={styles.apptRow}
         onPress={() => onItemPress(appointment)}
       >
-        <View style={styles.appointmentHeader}>
-          <View style={styles.appointmentTimeRow}>
-            <Ionicons name={iconConfig.icon} size={16} color={TINT} />
-            <ThemedText style={styles.appointmentTime}>
-              {formatTime(appointment.scheduled_at)} · {iconConfig.label}
-            </ThemedText>
-          </View>
+        <View style={styles.apptTimeColumn}>
+          <ThemedText style={styles.apptTime}>{formatTime(appointment.scheduled_at)}</ThemedText>
         </View>
-
-        <ThemedText style={styles.appointmentTitle} numberOfLines={1}>
-          {appointment.serviceType || appointment.title}
-        </ThemedText>
-
-        <ThemedText style={styles.appointmentMeta} numberOfLines={1}>
-          {appointment.clientName} · {appointment.location}
-        </ThemedText>
-
-        {showActions && (
-          <View style={styles.appointmentActions}>
-            <Pressable
-              style={styles.appointmentActionBtn}
-              onPress={(e) => {
-                e.stopPropagation();
-                openDirections(appointment.location);
-              }}
-            >
-              <ThemedText style={styles.appointmentActionText}>Get Directions</ThemedText>
-            </Pressable>
-
-            <Pressable
-              style={styles.appointmentActionBtn}
-              onPress={(e) => {
-                e.stopPropagation();
-                if (conversationId) {
-                  onMessage(conversationId);
-                }
-              }}
-            >
-              <ThemedText style={styles.appointmentActionText}>Message</ThemedText>
-            </Pressable>
+        <View style={styles.apptBody}>
+          <View style={styles.apptTopLine}>
+            <Ionicons name={iconConfig.icon} size={13} color="#6B7280" />
+            <ThemedText style={styles.apptType}>{iconConfig.label}</ThemedText>
+            {appointment.clientName ? (
+              <>
+                <ThemedText style={styles.apptDot}>·</ThemedText>
+                <ThemedText style={styles.apptClient} numberOfLines={1}>
+                  {appointment.clientName}
+                </ThemedText>
+              </>
+            ) : null}
           </View>
-        )}
+          {(appointment.serviceType || appointment.title) && (
+            <ThemedText style={styles.apptTitle} numberOfLines={1}>
+              {appointment.serviceType || appointment.title}
+            </ThemedText>
+          )}
+          {appointment.location && (
+            <ThemedText style={styles.apptLocation} numberOfLines={1}>
+              {appointment.location}
+            </ThemedText>
+          )}
+          {showActions && (
+            <View style={styles.apptActions}>
+              <Pressable
+                style={styles.apptChip}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  openDirections(appointment.location);
+                }}
+              >
+                <Ionicons name="navigate-outline" size={12} color="#374151" />
+                <ThemedText style={styles.apptChipText}>Directions</ThemedText>
+              </Pressable>
+              {conversationId && (
+                <Pressable
+                  style={styles.apptChip}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onMessage(conversationId);
+                  }}
+                >
+                  <Ionicons name="chatbubble-outline" size={12} color="#374151" />
+                  <ThemedText style={styles.apptChipText}>Message</ThemedText>
+                </Pressable>
+              )}
+            </View>
+          )}
+        </View>
       </Pressable>
     );
   };
 
-  const hasAnyAppointments = todayAppointments.length > 0 || tomorrowAppointments.length > 0;
-
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeaderRow}>
-        <ThemedText style={styles.sectionTitle}>Today · {todayStr}</ThemedText>
-        <Pressable onPress={onSeeAll} style={styles.seeAllButton}>
-          <ThemedText style={styles.seeAllText}>See all</ThemedText>
-          <Ionicons name="chevron-forward" size={16} color="#111827" />
+        <ThemedText style={styles.sectionLabel}>TODAY</ThemedText>
+        <Pressable onPress={onSeeAll} style={styles.linkButton} hitSlop={8}>
+          <ThemedText style={styles.linkText}>View calendar</ThemedText>
+          <Ionicons name="chevron-forward" size={14} color="#374151" />
         </Pressable>
       </View>
 
       {todayAppointments.length === 0 ? (
-        <View style={styles.emptyStateCard}>
-          <ThemedText style={styles.emptyStateText}>
-            No appointments today
-          </ThemedText>
-        </View>
+        <ThemedText style={styles.inlineEmpty}>No appointments today</ThemedText>
       ) : (
-        <View style={styles.appointmentsList}>
+        <View style={styles.apptList}>
           {todayAppointments.slice(0, 3).map((appt) => (
-            <AppointmentCard key={appt.id} appointment={appt} showActions={true} />
+            <AppointmentRow key={appt.id} appointment={appt} showActions={true} />
           ))}
         </View>
       )}
 
       {tomorrowAppointments.length > 0 && (
-        <>
-          <View style={styles.tomorrowDivider}>
-            <View style={styles.dividerLine} />
-          </View>
-
-          <ThemedText style={styles.tomorrowLabel}>
-            Tomorrow · {formatDateFull(new Date(Date.now() + 86400000))}
-          </ThemedText>
-
-          <View style={styles.appointmentsList}>
+        <View style={styles.tomorrowGroup}>
+          <ThemedText style={styles.subLabel}>TOMORROW</ThemedText>
+          <View style={styles.apptList}>
             {tomorrowAppointments.slice(0, 2).map((appt) => (
-              <AppointmentCard key={appt.id} appointment={appt} showActions={false} />
+              <AppointmentRow key={appt.id} appointment={appt} showActions={false} />
             ))}
           </View>
-        </>
+        </View>
       )}
     </View>
   );
 }
 
 // ============================================
-// PIPELINE SECTION
+// PIPELINE LIST — clickable rows for each pipeline metric
 // ============================================
-function PipelineSummarySection({ stats, onPress }) {
-  if (stats.completedJobs === 0 && stats.earned === 0 && stats.activeJobs === 0) {
-    return null;
-  }
+function PipelineList({ activeJobs, sentQuotes, scheduled, completedThisMonth, onActivePress, onSentPress, onScheduledPress, onCompletedPress }) {
+  const rows = [
+    { key: "active", label: "Active jobs", value: activeJobs, onPress: onActivePress },
+    { key: "sent", label: "Quotes awaiting", value: sentQuotes, onPress: onSentPress },
+    { key: "scheduled", label: "Scheduled", value: scheduled, onPress: onScheduledPress },
+    { key: "completed", label: "Completed (this month)", value: completedThisMonth, onPress: onCompletedPress },
+  ];
 
   return (
     <View style={styles.section}>
-      <View style={styles.pipelineSummaryHeader}>
-        <View style={styles.pipelineSummaryHeaderLeft}>
-          <Ionicons name="stats-chart-outline" size={20} color="#111827" />
-          <ThemedText style={styles.sectionTitle}>Pipeline</ThemedText>
-        </View>
-        <Pressable onPress={onPress} style={styles.seeAllButton}>
-          <ThemedText style={styles.seeAllText}>See all</ThemedText>
-          <Ionicons name="chevron-forward" size={16} color="#111827" />
-        </Pressable>
+      <ThemedText style={styles.sectionLabel}>PIPELINE</ThemedText>
+      <View style={styles.pipelineList}>
+        {rows.map((row, idx) => (
+          <Pressable
+            key={row.key}
+            style={[
+              styles.pipelineRow,
+              idx < rows.length - 1 && styles.pipelineRowDivider,
+            ]}
+            onPress={row.onPress}
+          >
+            <ThemedText style={styles.pipelineLabel}>{row.label}</ThemedText>
+            <View style={styles.pipelineValueRow}>
+              <ThemedText style={styles.pipelineValue}>{row.value}</ThemedText>
+              <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+            </View>
+          </Pressable>
+        ))}
       </View>
+    </View>
+  );
+}
 
-      <Pressable style={styles.pipelineSummaryCard} onPress={onPress}>
-        <View style={styles.pipelineSummaryRow}>
-          <View style={styles.pipelineSummaryItem}>
-            <ThemedText style={styles.pipelineSummaryValue}>{stats.activeJobs}</ThemedText>
-            <ThemedText style={styles.pipelineSummaryLabel}>Active</ThemedText>
-          </View>
-          <View style={styles.pipelineSummaryDivider} />
-          <View style={styles.pipelineSummaryItem}>
-            <ThemedText style={styles.pipelineSummaryValue}>{stats.completedJobs}</ThemedText>
-            <ThemedText style={styles.pipelineSummaryLabel}>Completed</ThemedText>
-          </View>
-          <View style={styles.pipelineSummaryDivider} />
-          <View style={styles.pipelineSummaryItem}>
-            <ThemedText style={styles.pipelineSummaryValue}>{formatCurrency(stats.earned)}</ThemedText>
-            <ThemedText style={styles.pipelineSummaryLabel}>Earned</ThemedText>
-          </View>
+// ============================================
+// MONTH SUMMARY — earnings + active value
+// ============================================
+function MonthSummary({ earned, activeValue }) {
+  if (!earned && !activeValue) return null;
+
+  return (
+    <View style={styles.section}>
+      <ThemedText style={styles.sectionLabel}>THIS MONTH</ThemedText>
+      <View style={styles.monthList}>
+        <View style={[styles.monthRow, styles.monthRowDivider]}>
+          <ThemedText style={styles.monthLabel}>Earnings</ThemedText>
+          <ThemedText style={styles.monthValue}>{formatCurrency(earned)}</ThemedText>
         </View>
-        <View style={styles.pipelineSummaryFooter}>
-          <ThemedText style={styles.pipelineSummaryFooterText}>
-            Tap to view all projects and details
-          </ThemedText>
-          <Ionicons name="arrow-forward" size={16} color="#6B7280" />
+        <View style={styles.monthRow}>
+          <ThemedText style={styles.monthLabel}>Active job value</ThemedText>
+          <ThemedText style={styles.monthValue}>{formatCurrency(activeValue)}</ThemedText>
         </View>
-      </Pressable>
+      </View>
     </View>
   );
 }
@@ -624,17 +559,17 @@ function ActionItemsSection({ items, onItemPress, onSeeAll }) {
   const getItemConfig = (type) => {
     switch (type) {
       case "issue":
-        return { icon: "alert-circle", color: STATUS_COLORS.issue, label: "Issue reported" };
+        return { color: STATUS_COLORS.issue, label: "Issue reported" };
       case "direct_request":
-        return { icon: "chatbubble", color: STATUS_COLORS.direct, label: "Direct request" };
+        return { color: STATUS_COLORS.new, label: "New request" };
       case "send_quote":
-        return { icon: "document-text", color: STATUS_COLORS.action, label: "Send quote" };
+        return { color: STATUS_COLORS.action, label: "Send quote" };
       case "no_response":
-        return { icon: "time", color: STATUS_COLORS.action, label: "No response" };
+        return { color: STATUS_COLORS.action, label: "Awaiting reply" };
       case "schedule_work":
-        return { icon: "calendar", color: STATUS_COLORS.action, label: "Schedule work" };
+        return { color: STATUS_COLORS.scheduled, label: "Schedule work" };
       default:
-        return { icon: "ellipse", color: STATUS_COLORS.waiting, label: "Action needed" };
+        return { color: STATUS_COLORS.waiting, label: "Action needed" };
     }
   };
 
@@ -643,14 +578,11 @@ function ActionItemsSection({ items, onItemPress, onSeeAll }) {
     return (
       <View style={styles.section}>
         <View style={styles.sectionHeaderRow}>
-          <ThemedText style={styles.sectionTitle}>Needs Attention</ThemedText>
+          <ThemedText style={styles.sectionLabel}>NEEDS YOUR ATTENTION</ThemedText>
         </View>
-
-        <View style={styles.emptyStateCard}>
-          <ThemedText style={styles.emptyStateText}>
-            No items need your attention right now.
-          </ThemedText>
-        </View>
+        <ThemedText style={styles.inlineEmpty}>
+          You're all caught up.
+        </ThemedText>
       </View>
     );
   }
@@ -658,57 +590,53 @@ function ActionItemsSection({ items, onItemPress, onSeeAll }) {
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeaderRow}>
-        <ThemedText style={styles.sectionTitle}>
-          Needs Attention ({items.length})
+        <ThemedText style={styles.sectionLabel}>
+          NEEDS YOUR ATTENTION  ·  {items.length}
         </ThemedText>
-        <Pressable onPress={onSeeAll} style={styles.seeAllButton}>
-          <ThemedText style={styles.seeAllText}>See all</ThemedText>
-          <Ionicons name="chevron-forward" size={16} color="#111827" />
+        <Pressable onPress={onSeeAll} style={styles.linkButton} hitSlop={8}>
+          <ThemedText style={styles.linkText}>See all</ThemedText>
+          <Ionicons name="chevron-forward" size={14} color="#374151" />
         </Pressable>
       </View>
 
-      <View style={styles.actionItemsList}>
+      <View style={styles.attentionList}>
         {items.slice(0, 3).map((item, index) => {
           const config = getItemConfig(item.type);
           return (
             <Pressable
               key={`${item.type}-${item.requestId}-${index}`}
-              style={styles.actionItem}
+              style={styles.attentionCard}
               onPress={() => onItemPress(item)}
             >
-              <View style={[styles.actionItemIndicator, { backgroundColor: config.color }]}>
-                <Ionicons name={config.icon} size={14} color="#FFFFFF" />
-              </View>
-              <View style={styles.actionItemContent}>
-                <View style={styles.actionItemLabelRow}>
-                  <ThemedText style={styles.actionItemLabel}>{config.label}</ThemedText>
+              <View style={[styles.attentionDot, { backgroundColor: config.color }]} />
+              <View style={styles.attentionBody}>
+                <View style={styles.attentionLabelRow}>
+                  <ThemedText style={styles.attentionLabel}>{config.label}</ThemedText>
                   {item.extendedMatch && (
-                    <View style={styles.extendedMatchBadge}>
+                    <View style={styles.metaPill}>
                       <Ionicons name="car-outline" size={10} color="#3B82F6" />
-                      <ThemedText style={styles.extendedMatchText}>Extended travel</ThemedText>
+                      <ThemedText style={[styles.metaPillText, { color: "#3B82F6" }]}>
+                        Extended travel
+                      </ThemedText>
                     </View>
                   )}
                   {item.outsideServiceArea && (
-                    <View style={styles.outsideAreaBadge}>
+                    <View style={styles.metaPill}>
                       <Ionicons name="location-outline" size={10} color="#F59E0B" />
-                      <ThemedText style={styles.outsideAreaText}>
-                        {item.distanceMiles
-                          ? `${item.distanceMiles} mi away`
-                          : "Outside area"}
+                      <ThemedText style={[styles.metaPillText, { color: "#F59E0B" }]}>
+                        {item.distanceMiles ? `${item.distanceMiles} mi away` : "Outside area"}
                       </ThemedText>
                     </View>
                   )}
                 </View>
-                <ThemedText style={styles.actionItemTitle} numberOfLines={1}>
-                  {item.title} · {item.clientName}
+                <ThemedText style={styles.attentionTitle} numberOfLines={1}>
+                  {item.title}
                 </ThemedText>
-                {item.subtitle && (
-                  <ThemedText style={styles.actionItemSubtitle} numberOfLines={1}>
-                    {item.subtitle}
-                  </ThemedText>
-                )}
+                <ThemedText style={styles.attentionMeta} numberOfLines={1}>
+                  {item.clientName}{item.subtitle ? `  ·  ${item.subtitle}` : ""}
+                </ThemedText>
               </View>
-              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+              <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
             </Pressable>
           );
         })}
@@ -724,7 +652,7 @@ function NewTradeActionItems() {
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeaderRow}>
-        <ThemedText style={styles.sectionTitle}>Needs Attention</ThemedText>
+        <ThemedText style={styles.sectionLabel}>NEEDS YOUR ATTENTION</ThemedText>
       </View>
 
       <View style={styles.emptyStateCard}>
@@ -1029,16 +957,22 @@ export default function TradesmanHome() {
         ])
       );
 
-      // Fetch request docs
+      // Fetch request docs (joins service_types so we can show "Lighting problem"
+      // instead of just "Project" on action item cards)
       let reqById = {};
       if (reqIds.length) {
         const { data: reqs } = await supabase
           .from("quote_requests")
           .select(
-            "id, details, created_at, status, postcode, budget_band, suggested_title, requester_id, service_type"
+            `id, details, created_at, status, postcode, budget_band,
+             suggested_title, requester_id, service_type_id,
+             service_types ( id, name )`
           )
           .in("id", reqIds);
-        (reqs || []).forEach((r) => (reqById[r.id] = r));
+        (reqs || []).forEach((r) => {
+          const st = Array.isArray(r.service_types) ? r.service_types[0] : r.service_types;
+          reqById[r.id] = { ...r, service_type_name: st?.name || null };
+        });
       }
 
       // Fetch client names and conversation IDs via conversations
@@ -1248,7 +1182,8 @@ export default function TradesmanHome() {
             request_type: t.invited_by || "system",
             state: t.state,
             isAccepted,
-            title: r?.suggested_title || "Project",
+            title: r?.service_type_name || r?.suggested_title || "Project",
+            serviceTypeName: r?.service_type_name || null,
             budget_band: r?.budget_band || null,
             postcode: r?.postcode || null,
             requestAge,
@@ -1320,7 +1255,8 @@ export default function TradesmanHome() {
             request_id: requestId,
             status: primaryStatus,
             issued_at: primaryQuote.issued_at ?? primaryQuote.created_at,
-            title: r?.suggested_title || "Project",
+            title: r?.service_type_name || r?.suggested_title || "Project",
+            serviceTypeName: r?.service_type_name || null,
             request_type: t?.invited_by || "system",
             postcode: r?.postcode || null,
             grand_total: primaryQuote.grand_total,
@@ -1562,20 +1498,22 @@ export default function TradesmanHome() {
   };
 
   const handleActionItemPress = (item) => {
+    // Stay within the trades tab stack so the X button returns to the trade home
     if (item.hasAcceptedQuote && item.quoteId) {
-      router.push(`/quotes/${item.quoteId}`);
+      router.push(`/trades/quote/${item.quoteId}`);
     } else if (item.quoteId) {
-      router.push(`/quotes/${item.quoteId}`);
+      router.push(`/trades/quote/${item.quoteId}`);
     } else {
-      router.push(`/quotes/request/${item.requestId}`);
+      router.push(`/trades/request/${item.requestId}`);
     }
   };
 
   const handleAppointmentPress = (appt) => {
+    // Stay within the trades tab stack
     if (appt.quote_id) {
-      router.push(`/quotes/${appt.quote_id}`);
+      router.push(`/trades/quote/${appt.quote_id}`);
     } else {
-      router.push(`/quotes/request/${appt.request_id}`);
+      router.push(`/trades/request/${appt.request_id}`);
     }
   };
 
@@ -1619,33 +1557,13 @@ export default function TradesmanHome() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
       >
-        <HeroSection firstName={firstName} isNewTrade={isNewTrade} />
+        <Header firstName={firstName} isNewTrade={isNewTrade} />
 
-        <SummaryCards
-          stats={{
-            activeJobs: monthlyStats.activeJobs,
-            scheduledCount: performanceStats.scheduledCount || 0,
-            pendingQuotes: sentRows.filter(q => q.status === "sent").length,
-            completedThisMonth: monthlyStats.completedThisMonth,
-          }}
-          onJobsPress={handleJobsPress}
-          onScheduledPress={handleScheduledPress}
-          onQuotesPress={() => router.push({ pathname: "/quotes", params: { filter: "sent" } })}
-          onCompletedPress={() => router.push({ pathname: "/quotes", params: { filter: "completed" } })}
+        <GlanceStrip
+          todayCount={todayAppointments.length}
+          attentionCount={isNewTrade ? 0 : actionItems.length}
+          sentCount={sentRows.filter((q) => q.status === "sent").length}
         />
-
-        <Spacer height={24} />
-
-        {/* Needs Attention - first priority */}
-        {isNewTrade ? (
-          <NewTradeActionItems />
-        ) : (
-          <ActionItemsSection
-            items={actionItems}
-            onItemPress={handleActionItemPress}
-            onSeeAll={handleSeeAllActions}
-          />
-        )}
 
         <TodaySection
           todayAppointments={todayAppointments}
@@ -1656,24 +1574,38 @@ export default function TradesmanHome() {
           conversationsByRequest={conversationsByRequest}
         />
 
-        <PipelineSummarySection
-          stats={{
-            activeJobs: monthlyStats.activeJobs,
-            completedJobs: monthlyStats.completedJobs,
-            earned: monthlyStats.earnedThisMonth,
-          }}
-          onPress={handlePipelinePress}
+        {isNewTrade ? (
+          <NewTradeActionItems />
+        ) : (
+          <ActionItemsSection
+            items={actionItems}
+            onItemPress={handleActionItemPress}
+            onSeeAll={handleSeeAllActions}
+          />
+        )}
+
+        <PipelineList
+          activeJobs={monthlyStats.activeJobs}
+          sentQuotes={sentRows.filter((q) => q.status === "sent").length}
+          scheduled={performanceStats.scheduledCount || 0}
+          completedThisMonth={monthlyStats.completedThisMonth}
+          onActivePress={handleJobsPress}
+          onSentPress={() => router.push({ pathname: "/quotes", params: { filter: "sent" } })}
+          onScheduledPress={handleScheduledPress}
+          onCompletedPress={() => router.push({ pathname: "/quotes", params: { filter: "completed" } })}
         />
 
-        {/* Your Performance - at the bottom */}
-        <PerformanceSection
+        <MonthSummary
+          earned={monthlyStats.earnedThisMonth}
+          activeValue={monthlyStats.activeValue}
+        />
+
+        <HealthRow
           stats={performanceStats}
-          isNewTrade={isNewTrade}
           onInfoPress={() => setPerformanceInfoVisible(true)}
         />
 
-        {/* Complete Profile - very bottom */}
-        <ProfileCompletionBanner profile={profile} onPress={handleProfileCompletion} />
+        <ProfileFooter profile={profile} onPress={handleProfileCompletion} />
 
         <Spacer height={40} />
       </ScrollView>
@@ -1703,109 +1635,45 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 12,
     paddingBottom: 20,
   },
 
-  // Hero Section
-  heroSection: {
-    marginBottom: 16,
-  },
-  heroGreeting: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#111827",
-  },
-
-  // Profile Completion Banner
-  completionBanner: {
-    backgroundColor: "#FFFBEB",
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#FDE68A",
-  },
-  completionHeader: {
-    marginBottom: 8,
-  },
-  completionTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#92400E",
-  },
-  progressBarContainer: {
-    height: 6,
-    backgroundColor: "#FEF3C7",
-    borderRadius: 3,
-    marginBottom: 4,
-  },
-  progressBarFill: {
-    height: 6,
-    backgroundColor: "#F59E0B",
-    borderRadius: 3,
-  },
-  progressPercentage: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#92400E",
-    marginBottom: 8,
-  },
-  completionSubtext: {
-    fontSize: 13,
-    color: "#B45309",
+  // ============ HEADER ============
+  headerSection: {
     marginBottom: 12,
   },
-  completionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-end",
-  },
-  completionButtonText: {
-    fontSize: 14,
+  headerGreeting: {
+    fontSize: 22,
     fontWeight: "600",
     color: "#111827",
+    letterSpacing: -0.3,
   },
-
-  // Summary Cards
-  summaryCardsRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  summaryCard: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  summaryCardCount: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  summaryCardLabel: {
-    fontSize: 12,
-    fontWeight: "500",
+  headerDate: {
+    fontSize: 13,
     color: "#6B7280",
     marginTop: 2,
   },
-  summaryCardIndicator: {
-    width: 18,
-    height: 3,
-    borderRadius: 2,
-    marginTop: 5,
-  },
-  // Section Headers
-  section: {
+
+  // ============ GLANCE STRIP ============
+  glanceStrip: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
     marginBottom: 24,
+  },
+  glanceText: {
+    fontSize: 13,
+    color: "#374151",
+    fontWeight: "500",
+  },
+
+  // ============ SECTION SHARED ============
+  section: {
+    marginBottom: 28,
   },
   sectionHeaderRow: {
     flexDirection: "row",
@@ -1813,8 +1681,316 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  subLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#9CA3AF",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  linkButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  linkText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#374151",
+  },
+  inlineEmpty: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    paddingVertical: 8,
+  },
   infoButton: {
     padding: 4,
+  },
+
+  // ============ TODAY (appointments) ============
+  apptList: {
+    gap: 0,
+  },
+  apptRow: {
+    flexDirection: "row",
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#F3F4F6",
+    gap: 14,
+  },
+  apptTimeColumn: {
+    width: 56,
+    paddingTop: 1,
+  },
+  apptTime: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  apptBody: {
+    flex: 1,
+  },
+  apptTopLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    flexWrap: "wrap",
+  },
+  apptType: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#6B7280",
+  },
+  apptDot: {
+    fontSize: 12,
+    color: "#D1D5DB",
+  },
+  apptClient: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#6B7280",
+    flexShrink: 1,
+  },
+  apptTitle: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#111827",
+    marginTop: 2,
+  },
+  apptLocation: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 1,
+  },
+  apptActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+  },
+  apptChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: "#F3F4F6",
+  },
+  apptChipText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#374151",
+  },
+  tomorrowGroup: {
+    marginTop: 8,
+  },
+
+  // ============ NEEDS YOUR ATTENTION ============
+  attentionList: {
+    gap: 8,
+  },
+  attentionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+    backgroundColor: "#FFFFFF",
+  },
+  attentionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  attentionBody: {
+    flex: 1,
+  },
+  attentionLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  attentionLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#6B7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  attentionTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111827",
+    marginTop: 2,
+  },
+  attentionMeta: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 1,
+  },
+  metaPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+    backgroundColor: "#F9FAFB",
+  },
+  metaPillText: {
+    fontSize: 10,
+    fontWeight: "600",
+  },
+
+  // ============ PIPELINE ============
+  pipelineList: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
+  },
+  pipelineRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  pipelineRowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#F3F4F6",
+  },
+  pipelineLabel: {
+    fontSize: 14,
+    color: "#374151",
+  },
+  pipelineValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  pipelineValue: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
+  },
+
+  // ============ THIS MONTH ============
+  monthList: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
+  },
+  monthRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  monthRowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#F3F4F6",
+  },
+  monthLabel: {
+    fontSize: 14,
+    color: "#374151",
+  },
+  monthValue: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#111827",
+  },
+
+  // ============ HEALTH ============
+  healthRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+    backgroundColor: "#FFFFFF",
+  },
+  healthItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  healthDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: "#F3F4F6",
+  },
+  healthValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  healthValue: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  healthLabel: {
+    fontSize: 11,
+    color: "#6B7280",
+    marginTop: 3,
+    fontWeight: "500",
+  },
+
+  // ============ PROFILE FOOTER ============
+  profileFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+    backgroundColor: "#F9FAFB",
+    marginTop: 8,
+    gap: 12,
+  },
+  profileFooterTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  profileFooterSubtitle: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+
+  // ============ EMPTY STATE (for new trades) ============
+  emptyStateCard: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
   },
 
   // Performance Info Modal (80% height bottom sheet)
@@ -1901,276 +2077,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: "#6B7280",
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  seeAllButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-  },
-  seeAllText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#111827",
-  },
-
-  // Performance Section
-  performanceCard: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
-    padding: 16,
-  },
-  performanceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  performanceItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-  performanceIconRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  performanceValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  performanceLabel: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-  performanceDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: "#E5E7EB",
-  },
-  performanceFooter: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    alignItems: "center",
-  },
-  performanceMessage: {
-    fontSize: 13,
-    color: "#6B7280",
-  },
-
-  // Today Section
-  appointmentsList: {
-    gap: 10,
-  },
-  appointmentCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  appointmentHeader: {
-    marginBottom: 6,
-  },
-  appointmentTimeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  appointmentTime: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: TINT,
-  },
-  appointmentTitle: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#111827",
-    marginBottom: 2,
-  },
-  appointmentMeta: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginBottom: 12,
-  },
-  appointmentActions: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  appointmentActionBtn: {
-    flex: 1,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  appointmentActionText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  tomorrowDivider: {
-    marginVertical: 16,
-  },
-  dividerLine: {
-    height: 1,
-    backgroundColor: "#E5E7EB",
-  },
-  tomorrowLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#6B7280",
-    marginBottom: 10,
-  },
-
-  // Empty State Card
-  emptyStateCard: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
-    padding: 24,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: "#6B7280",
-    textAlign: "center",
-  },
-
-  // Pipeline Section
-  pipelineSummaryHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  pipelineSummaryHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  pipelineSummaryCard: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
-    padding: 16,
-  },
-  pipelineSummaryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  pipelineSummaryItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-  pipelineSummaryValue: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  pipelineSummaryLabel: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-  pipelineSummaryDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: "#E5E7EB",
-  },
-  pipelineSummaryFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-  },
-  pipelineSummaryFooterText: {
-    fontSize: 13,
-    color: "#6B7280",
-  },
-
-  // Action Items (Needs Attention)
-  actionItemsList: {
-    gap: 8,
-  },
-  actionItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    gap: 12,
-  },
-  actionItemIndicator: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionItemContent: {
-    flex: 1,
-  },
-  actionItemLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  actionItemLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#6B7280",
-  },
-  outsideAreaBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    backgroundColor: "#FEF3C7",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  outsideAreaText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#D97706",
-  },
-  extendedMatchBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    backgroundColor: "#DBEAFE",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  extendedMatchText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#2563EB",
-  },
-  actionItemTitle: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#111827",
-    marginTop: 2,
-  },
-  actionItemSubtitle: {
-    fontSize: 13,
-    color: "#9CA3AF",
-    marginTop: 1,
-  },
-
   // Calendar Modal
   calendarModal: {
     flex: 1,
