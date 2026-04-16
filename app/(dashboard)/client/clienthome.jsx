@@ -185,6 +185,21 @@ export default function ClientHome() {
     }
   }, [openSearch]);
 
+  // ===== Direct-only guard =====
+  // Settled is a browse-and-choose platform: every quote request must be sent
+  // to a specific trade the client picked. If this screen is opened without a
+  // prefillTradeId (legacy broadcast entry), bounce back to the home/browse screen.
+  useEffect(() => {
+    if (openSearch === "true") return; // search modal flow is allowed
+    if (!prefillTradeId) {
+      const timer = setTimeout(() => {
+        if (router.canGoBack()) router.back();
+        else router.replace("/client");
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [prefillTradeId, openSearch]);
+
   // Handle prefill when categories are loaded
   useEffect(() => {
     if (prefillApplied || !categories.length || loadingCategories) return;
@@ -619,20 +634,18 @@ export default function ClientHome() {
       retryTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
       retryTimeoutsRef.current.clear();
 
-      // If requesting from a specific trade, create a direct request_target
-      // Otherwise, run the match-trades function to find suitable trades
+      // Direct-only: every request targets the specific trade the client chose.
+      // The legacy broadcast path (match-trades edge function) is intentionally
+      // removed — Settled is browse-and-choose, never a bidding war.
       if (prefillTradeId) {
         try {
-          // Create a direct request target for the specific trade
-          // Use the areaCheck passed from the service area check
           const targetRow = {
             request_id: created.id,
             trade_id: prefillTradeId,
-            invited_by: "client", // Mark as client-initiated direct request
+            invited_by: "client",
             state: "invited",
           };
 
-          // Add service area flags if we have distance info from the pre-check
           if (areaCheck?.distanceMiles != null) {
             targetRow.distance_miles = areaCheck.distanceMiles;
             if (outsideServiceArea) {
@@ -643,15 +656,6 @@ export default function ClientHome() {
           await supabase.from("request_targets").insert(targetRow);
         } catch (matchErr) {
           console.log("Direct request target creation failed:", matchErr?.message || matchErr);
-        }
-      } else {
-        // Match trades automatically
-        try {
-          await supabase.functions.invoke("match-trades", {
-            body: { request_id: created.id, limit: 5 },
-          });
-        } catch (fnErr) {
-          console.log("match-trades failed:", fnErr?.message || fnErr);
         }
       }
 

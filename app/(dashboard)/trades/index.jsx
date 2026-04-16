@@ -627,8 +627,6 @@ function ActionItemsSection({ items, onItemPress, onSeeAll }) {
         return { icon: "alert-circle", color: STATUS_COLORS.issue, label: "Issue reported" };
       case "direct_request":
         return { icon: "chatbubble", color: STATUS_COLORS.direct, label: "Direct request" };
-      case "open_request":
-        return { icon: "download", color: STATUS_COLORS.new, label: "Open request" };
       case "send_quote":
         return { icon: "document-text", color: STATUS_COLORS.action, label: "Send quote" };
       case "no_response":
@@ -1502,20 +1500,9 @@ export default function TradesmanHome() {
         extendedMatch: i.extendedMatch,
       }));
 
-    // Priority 3: Open requests (new, from system)
-    inboxRows
-      .filter((i) => i.request_type !== "client" && !i.isAccepted && !i.isStale)
-      .forEach((i) => items.push({
-        priority: 3,
-        type: "open_request",
-        title: i.title,
-        clientName: i.clientName || "Client",
-        subtitle: i.budget_band ? `Budget: ${i.budget_band}` : null,
-        requestId: i.request_id,
-        outsideServiceArea: i.outsideServiceArea,
-        distanceMiles: i.distanceMiles,
-        extendedMatch: i.extendedMatch,
-      }));
+    // (Removed) Priority 3: Open requests (system broadcast).
+    // Settled is now direct-only — clients always pick a specific trade,
+    // so trades never receive system-broadcast "open" requests anymore.
 
     // Priority 4: Send quote needed (survey completed)
     inboxRows
