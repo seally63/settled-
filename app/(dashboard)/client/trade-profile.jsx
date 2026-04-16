@@ -190,11 +190,15 @@ export default function TradeProfileScreen() {
           <>
             <Pressable
               onPress={() => {
-                // Go back with proper back animation, then open search modal
-                router.back();
-                setTimeout(() => {
-                  router.push("/client/search-modal");
-                }, 100);
+                // Just go back — wherever the user came from (home feed,
+                // find-business list, or search modal). Do NOT auto-open the
+                // search modal; that was a legacy assumption from when trade
+                // profiles were only reachable via search.
+                if (router.canGoBack?.()) {
+                  router.back();
+                } else {
+                  router.replace("/client");
+                }
               }}
               hitSlop={10}
             >
