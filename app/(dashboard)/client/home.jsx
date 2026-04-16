@@ -1,5 +1,5 @@
 // app/(dashboard)/client/home.jsx
-// New Client Home Screen with action-first design
+// Client Home Screen — trade discovery feed (browse-and-choose model)
 import {
   StyleSheet,
   View,
@@ -20,16 +20,14 @@ import { SkeletonBox, SkeletonText, SkeletonCircle } from "../../../components/S
 import HomeHeader from "../../../components/client/home/HomeHeader";
 import SearchBar from "../../../components/client/home/SearchBar";
 import PopularServicesGrid from "../../../components/client/home/PopularServicesGrid";
-import ActiveRequestCard from "../../../components/client/home/ActiveRequestCard";
-import RecentlyCompletedFeed from "../../../components/client/home/RecentlyCompletedFeed";
+import TradesFeedSection from "../../../components/client/home/TradesFeedSection";
+import PostcodePrompt from "../../../components/client/home/PostcodePrompt";
 import TrustBadge from "../../../components/client/home/TrustBadge";
 
 // API functions
-import {
-  getRecentCompletions,
-  getClientActiveRequests,
-  getUserFirstName,
-} from "../../../lib/api/homeScreen";
+import { getUserFirstName } from "../../../lib/api/homeScreen";
+import { getMyProfile } from "../../../lib/api/profile";
+import { getClosestTrades, getWillingToTravel } from "../../../lib/api/feed";
 
 // Skeleton loader for client home screen
 function ClientHomeSkeleton() {
@@ -54,11 +52,13 @@ function ClientHomeSkeleton() {
         ))}
       </View>
 
-      {/* Recently completed skeleton */}
-      <SkeletonText width={200} height={18} style={{ marginTop: 24, marginBottom: 12 }} />
-      {[1, 2, 3].map((i) => (
-        <SkeletonBox key={i} width="100%" height={60} borderRadius={10} style={{ marginBottom: 8 }} />
-      ))}
+      {/* Trades feed skeleton */}
+      <SkeletonText width={180} height={18} style={{ marginTop: 24, marginBottom: 12 }} />
+      <View style={{ flexDirection: "row", gap: 12 }}>
+        {[1, 2].map((i) => (
+          <SkeletonBox key={i} width={200} height={100} borderRadius={12} />
+        ))}
+      </View>
     </View>
   );
 }
@@ -77,43 +77,49 @@ export default function ClientHomeScreen() {
     useCallback(() => {
       if (params.openSearch === "true" && !hasHandledOpenSearch.current) {
         hasHandledOpenSearch.current = true;
-        // Small delay to let the screen mount first
         const timer = setTimeout(() => {
           router.push("/client/search-modal");
         }, 100);
         return () => clearTimeout(timer);
       }
-      // Don't reset the flag - it should stay true for this navigation session
     }, [params.openSearch])
   );
 
   // State
   const [firstName, setFirstName] = useState(null);
-  const [activeRequest, setActiveRequest] = useState(null);
-  const [completions, setCompletions] = useState([]);
+  const [clientLocation, setClientLocation] = useState(null); // { lat, lon, postcode, town }
+  const [nearbyTrades, setNearbyTrades] = useState([]);
+  const [furtherTrades, setFurtherTrades] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-
+  const [showPostcodePrompt, setShowPostcodePrompt] = useState(false);
 
   // Load data on mount and when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      loadData(!hasLoadedOnce); // Only show skeleton on initial load
+      loadData(!hasLoadedOnce);
     }, [user?.id, hasLoadedOnce])
   );
 
   const loadData = async (showLoadingState = true) => {
-    // Only show loading skeleton on initial load, not on subsequent focus events
-    if (showLoadingState) {
-      setIsLoading(true);
-    }
+    if (showLoadingState) setIsLoading(true);
     try {
-      await Promise.all([
+      const [name, profile] = await Promise.all([
         loadUserName(),
-        loadActiveRequests(),
-        loadCompletions(),
+        loadProfileLocation(),
       ]);
+
+      // If we have a location, fetch trade feeds
+      if (profile?.base_lat != null && profile?.base_lon != null) {
+        await loadTradeFeeds(profile.base_lat, profile.base_lon);
+      } else {
+        // No location — prompt them once on initial load
+        setNearbyTrades([]);
+        setFurtherTrades([]);
+        if (!hasLoadedOnce) setShowPostcodePrompt(true);
+      }
+
       setHasLoadedOnce(true);
     } catch (e) {
       console.warn("Error loading home data:", e.message);
@@ -126,26 +132,49 @@ export default function ClientHomeScreen() {
     if (user?.id) {
       const name = await getUserFirstName(user.id);
       setFirstName(name);
+      return name;
     }
+    return null;
   };
 
-  const loadActiveRequests = async () => {
-    if (user?.id) {
-      const requests = await getClientActiveRequests(user.id);
-      // Only show the most recent active request
-      setActiveRequest(requests.length > 0 ? requests[0] : null);
+  const loadProfileLocation = async () => {
+    const profile = await getMyProfile();
+    if (profile?.base_lat != null && profile?.base_lon != null) {
+      setClientLocation({
+        lat: Number(profile.base_lat),
+        lon: Number(profile.base_lon),
+        postcode: profile.base_postcode,
+        town: profile.town_city,
+      });
     }
+    return profile;
   };
 
-  const loadCompletions = async () => {
-    const data = await getRecentCompletions(null, 3);
-    setCompletions(data);
+  const loadTradeFeeds = async (lat, lon) => {
+    try {
+      const [nearby, further] = await Promise.all([
+        getClosestTrades({ lat, lon, limit: 10 }),
+        getWillingToTravel({ lat, lon, limit: 10 }),
+      ]);
+      setNearbyTrades(nearby || []);
+      setFurtherTrades(further || []);
+    } catch (e) {
+      console.warn("Error loading trade feeds:", e.message);
+      setNearbyTrades([]);
+      setFurtherTrades([]);
+    }
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadData(false); // Don't show skeleton on pull-to-refresh
+    await loadData(false);
     setRefreshing(false);
+  };
+
+  const handlePostcodeSaved = async ({ lat, lon, postcode, town }) => {
+    setClientLocation({ lat, lon, postcode, town });
+    setShowPostcodePrompt(false);
+    await loadTradeFeeds(lat, lon);
   };
 
   // Navigation handlers
@@ -154,30 +183,25 @@ export default function ClientHomeScreen() {
   };
 
   const handleCategorySelect = (category) => {
-    // Navigate directly to quote form with category pre-filled (skip bottom sheet)
+    // Browse trades filtered by category (was: prefill request form)
     router.push({
-      pathname: "/client/clienthome",
-      params: {
-        prefillCategory: category.name,
-      },
+      pathname: "/client/find-business",
+      params: { category: category.name },
     });
   };
 
-
-  const handleActiveRequestPress = (requestId) => {
-    router.push(`/client/myquotes/request/${requestId}`);
-  };
-
-  const handleSeeAllRequests = () => {
-    // Switch to the actual Projects tab (not push onto Home tab's stack)
-    router.navigate("/(dashboard)/myquotes");
+  const handleTradePress = (trade) => {
+    router.push({
+      pathname: "/client/trade-profile",
+      params: { tradeId: trade.id },
+    });
   };
 
   return (
     <ThemedView style={styles.container}>
       <StatusBar style="dark" />
 
-      {/* Fixed safe area background - prevents content showing under notch */}
+      {/* Fixed safe area background */}
       <View style={[styles.safeAreaBackground, { height: insets.top }]} />
 
       <ScrollView
@@ -206,28 +230,47 @@ export default function ClientHomeScreen() {
             {/* Search bar */}
             <SearchBar onPress={handleSearchPress} />
 
-            {/* Popular services grid */}
+            {/* Popular services grid — browses trades by category */}
             <PopularServicesGrid onCategorySelect={handleCategorySelect} />
 
-            {/* Active request card (conditional) */}
-            <ActiveRequestCard
-              request={activeRequest}
-              onPress={handleActiveRequestPress}
-              onSeeAll={handleSeeAllRequests}
+            {/* Trades near you */}
+            <TradesFeedSection
+              title="Trades near you"
+              subtitle={
+                clientLocation?.town
+                  ? `Verified trades around ${clientLocation.town}`
+                  : "Verified trades in your area"
+              }
+              trades={nearbyTrades}
+              onTradePress={handleTradePress}
+              emptyMessage={
+                clientLocation
+                  ? "No trades in your area yet. Try checking back soon."
+                  : "Add your postcode to see trades near you."
+              }
             />
 
-            {/* Recently completed feed (conditional) */}
-            <RecentlyCompletedFeed
-              completions={completions}
-              isLoading={false}
-            />
+            {/* Trades further away */}
+            {furtherTrades.length > 0 && (
+              <TradesFeedSection
+                title="Willing to travel"
+                subtitle="Trades based further away who cover your area"
+                trades={furtherTrades}
+                onTradePress={handleTradePress}
+              />
+            )}
 
-            {/* Trust badge - verification info */}
+            {/* Trust badge */}
             <TrustBadge />
           </>
         )}
       </ScrollView>
 
+      <PostcodePrompt
+        visible={showPostcodePrompt}
+        onClose={() => setShowPostcodePrompt(false)}
+        onSaved={handlePostcodeSaved}
+      />
     </ThemedView>
   );
 }

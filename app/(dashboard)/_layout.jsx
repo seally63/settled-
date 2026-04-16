@@ -40,23 +40,35 @@ export default function DashboardLayout() {
     }
   }, [segments]);
 
+  // Pop all pushed screens in the current stack (returns true if anything was dismissed).
+  // Falls back to router.replace for environments without dismissAll support.
+  const popAllPushedScreens = (fallbackPath) => {
+    try {
+      if (typeof router.canDismiss === 'function' && router.canDismiss()) {
+        router.dismissAll();
+        return true;
+      }
+    } catch {}
+    if (fallbackPath) router.replace(fallbackPath);
+    return true;
+  };
+
   // Handle tab press to reset to main screen
   const handleMessagesTabPress = () => {
     const currentTab = segments[1];
 
-    // If already on messages tab in a nested route (e.g., /messages/[id]),
-    // replace with messages index to reset the stack
+    // If already on messages tab in a nested route, pop the stack
     if (currentTab === 'messages' && segments.length > 2) {
-      router.replace('/(dashboard)/messages');
       setMessagesNeedsReset(false);
-      return true;
+      return popAllPushedScreens('/(dashboard)/messages');
     }
 
-    // If coming from a different tab and messages needs reset, go to messages index
+    // Coming from another tab with a queued reset
     if (currentTab !== 'messages' && messagesNeedsReset) {
       setMessagesNeedsReset(false);
-      router.replace('/(dashboard)/messages');
-      return true;
+      // Let default tab switch happen, then dismiss pushed screens after focus
+      setTimeout(() => { try { if (router.canDismiss?.()) router.dismissAll(); } catch {} }, 50);
+      return false;
     }
 
     return false;
@@ -66,17 +78,17 @@ export default function DashboardLayout() {
   const handleClientTabPress = () => {
     const currentTab = segments[1];
 
-    // If coming from a different tab and client needs reset, go to client index
-    if (currentTab !== 'client' && clientNeedsReset) {
+    // If already on client tab in a nested route, pop all pushed screens
+    if (currentTab === 'client' && segments.length > 2) {
       setClientNeedsReset(false);
-      router.replace('/client');
-      return true;
+      return popAllPushedScreens('/client');
     }
 
-    // If already on client tab in a nested route, go to index
-    if (currentTab === 'client' && segments.length > 2) {
-      router.replace('/client');
-      return true;
+    // Coming from another tab with a queued reset
+    if (currentTab !== 'client' && clientNeedsReset) {
+      setClientNeedsReset(false);
+      setTimeout(() => { try { if (router.canDismiss?.()) router.dismissAll(); } catch {} }, 50);
+      return false;
     }
 
     return false;
@@ -86,18 +98,17 @@ export default function DashboardLayout() {
   const handleQuotesTabPress = () => {
     const currentTab = segments[1];
 
-    // If already on quotes tab in a nested route, go to index
+    // If already on quotes tab in a nested route, pop the stack
     if (currentTab === 'quotes' && segments.length > 2) {
-      router.replace('/(dashboard)/quotes');
       setQuotesNeedsReset(false);
-      return true;
+      return popAllPushedScreens('/(dashboard)/quotes');
     }
 
-    // If coming from a different tab and quotes needs reset, go to quotes index
+    // Coming from another tab with a queued reset
     if (currentTab !== 'quotes' && quotesNeedsReset) {
       setQuotesNeedsReset(false);
-      router.replace('/(dashboard)/quotes');
-      return true;
+      setTimeout(() => { try { if (router.canDismiss?.()) router.dismissAll(); } catch {} }, 50);
+      return false;
     }
 
     return false;

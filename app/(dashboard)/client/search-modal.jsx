@@ -316,23 +316,21 @@ export default function SearchModal() {
     // Save search
     await saveRecentSearch(service);
 
-    // Navigate to quote request flow with pre-filled values
+    // Browse trades filtered by category
     router.push({
-      pathname: "/client/clienthome",
+      pathname: "/client/find-business",
       params: {
-        prefillCategory: category,
-        prefillService: service,
+        category,
+        service,
       },
     });
   };
 
   const handleSelectCategory = (category) => {
-    // Navigate directly to quote form with category pre-filled (skip bottom sheet)
+    // Browse trades filtered by category
     router.push({
-      pathname: "/client/clienthome",
-      params: {
-        prefillCategory: category.name,
-      },
+      pathname: "/client/find-business",
+      params: { category: category.name },
     });
   };
 

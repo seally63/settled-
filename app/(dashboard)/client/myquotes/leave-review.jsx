@@ -21,6 +21,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import ImageViewing from "react-native-image-viewing";
+import * as FileSystem from "expo-file-system/legacy";
+import { decode } from "base64-arraybuffer";
 
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
@@ -157,6 +159,8 @@ export default function LeaveReview() {
   };
 
   // Upload photos to storage and return URLs
+  // Uses the React Native-safe pattern: read file as base64 via expo-file-system,
+  // decode to ArrayBuffer, then upload to Supabase Storage.
   const uploadPhotos = async () => {
     const uploadedUrls = [];
     setUploadTotal(photos.length);
@@ -171,14 +175,13 @@ export default function LeaveReview() {
         const filename = `review_${quoteId}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
         const path = `reviews/${filename}`;
 
-        // Fetch the image as blob
-        const response = await fetch(photo.uri);
-        const blob = await response.blob();
+        // Read file as base64 then convert to ArrayBuffer (RN-safe)
+        const base64 = await FileSystem.readAsStringAsync(photo.uri, {
+          encoding: "base64",
+        });
+        const arrayBuffer = decode(base64);
 
-        // Convert blob to ArrayBuffer for upload
-        const arrayBuffer = await new Response(blob).arrayBuffer();
-
-        const { data, error } = await supabase.storage
+        const { error } = await supabase.storage
           .from("review-photos")
           .upload(path, arrayBuffer, {
             contentType: "image/jpeg",
@@ -186,11 +189,10 @@ export default function LeaveReview() {
           });
 
         if (error) {
-          console.error("Photo upload error:", error);
+          console.error("Photo upload error:", error.message);
           continue;
         }
 
-        // Get public URL
         const { data: urlData } = supabase.storage
           .from("review-photos")
           .getPublicUrl(path);
@@ -199,7 +201,7 @@ export default function LeaveReview() {
           uploadedUrls.push(urlData.publicUrl);
         }
       } catch (err) {
-        console.error("Error uploading photo:", err);
+        console.error("Error uploading photo:", err?.message || err);
       }
     }
 
