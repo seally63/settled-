@@ -104,27 +104,32 @@ const Login = () => {
             <Text style={{ color: '#f2f2f2'}}>Login</Text>
         </ThemedButton>
 
-        {/* Demo Account Quick Login */}
-        <View style={styles.demoSection}>
-          <ThemedText style={styles.demoLabel}>Quick Login</ThemedText>
-          <View style={styles.demoAvatars}>
-            {DEMO_ACCOUNTS.map((account) => (
-              <Pressable
-                key={account.id}
-                onPress={() => handleDemoLogin(account)}
-                style={({ pressed }) => [
-                  styles.demoAvatar,
-                  { backgroundColor: account.color },
-                  pressed && styles.demoAvatarPressed,
-                ]}
-                disabled={loggingIn}
-              >
-                <Ionicons name={account.icon} size={24} color="#fff" />
-                <Text style={styles.demoAvatarLabel}>{account.label}</Text>
-              </Pressable>
-            ))}
+        {/* Demo Account Quick Login — dev builds only.
+            __DEV__ is a Metro-injected global: true in dev bundles, false in
+            production EAS builds. This entire block is dead-code-eliminated
+            from production JS, so the quick-login buttons never ship. */}
+        {__DEV__ && (
+          <View style={styles.demoSection}>
+            <ThemedText style={styles.demoLabel}>Quick Login</ThemedText>
+            <View style={styles.demoAvatars}>
+              {DEMO_ACCOUNTS.map((account) => (
+                <Pressable
+                  key={account.id}
+                  onPress={() => handleDemoLogin(account)}
+                  style={({ pressed }) => [
+                    styles.demoAvatar,
+                    { backgroundColor: account.color },
+                    pressed && styles.demoAvatarPressed,
+                  ]}
+                  disabled={loggingIn}
+                >
+                  <Ionicons name={account.icon} size={24} color="#fff" />
+                  <Text style={styles.demoAvatarLabel}>{account.label}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
-        </View>
+        )}
 
         <Spacer />
         {error && <Text style={styles.error}>{error}</Text>}
