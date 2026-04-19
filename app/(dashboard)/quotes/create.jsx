@@ -11,13 +11,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useQuotes } from "../../../hooks/useQuotes";
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import { supabase } from "../../../lib/supabase";
 
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
+import { Colors } from "../../../constants/Colors";
+import { FontFamily, Radius } from "../../../constants/Typography";
 
-const PRIMARY = "#6849a7";
+const PRIMARY = Colors.primary;
 const DEFAULT_VAT_RATE = 0.20;
 
 // Validation constants
@@ -98,8 +101,9 @@ async function getClientDisplayName(requestId) {
 /* ----------------------- Main Screen ----------------------- */
 export default function Create() {
   const insets = useSafeAreaInsets();
-  const scheme = useColorScheme();
-  const iconColor = scheme === "dark" ? "#fff" : "#000";
+  const { colors: c, dark } = useTheme();
+  const styles = useMemo(() => makeStyles(c, dark), [c, dark]);
+  const iconColor = c.text;
 
   // Unique ID for InputAccessoryView - only for numeric inputs
   const NUMERIC_ACCESSORY_ID = "numeric-keyboard-done";
@@ -601,7 +605,7 @@ export default function Create() {
                       <TextInput
                         style={styles.itemNameInput}
                         placeholder="Item name (e.g., Labour, Materials)"
-                        placeholderTextColor="#9CA3AF"
+                        placeholderTextColor={c.textMuted}
                         value={item.name}
                         onChangeText={(t) => updateItem(index, "name", t)}
                         autoCapitalize="sentences"
@@ -609,7 +613,7 @@ export default function Create() {
                         blurOnSubmit={true}
                       />
                       <Pressable onPress={() => removeItem(index)} hitSlop={10} style={styles.removeBtn}>
-                        <Ionicons name="close" size={20} color="#9CA3AF" />
+                        <Ionicons name="close" size={20} color={c.textMuted} />
                       </Pressable>
                     </View>
 
@@ -617,7 +621,7 @@ export default function Create() {
                     <TextInput
                       style={styles.itemDescInput}
                       placeholder="Description (optional)"
-                      placeholderTextColor="#9CA3AF"
+                      placeholderTextColor={c.textMuted}
                       value={item.description}
                       onChangeText={(t) => updateItem(index, "description", t)}
                       multiline
@@ -632,7 +636,7 @@ export default function Create() {
                         <TextInput
                           style={styles.qtyInput}
                           placeholder="1"
-                          placeholderTextColor="#9CA3AF"
+                          placeholderTextColor={c.textMuted}
                           value={String(item.qty || "")}
                           onChangeText={(t) => updateItem(index, "qty", Number(t) || 0)}
                           keyboardType="number-pad"
@@ -644,7 +648,7 @@ export default function Create() {
                           <TextInput
                             style={styles.priceInput}
                             placeholder="0.00"
-                            placeholderTextColor="#9CA3AF"
+                            placeholderTextColor={c.textMuted}
                             value={String(item.unit_price || "")}
                             onChangeText={(t) => updateItem(index, "unit_price", Number(t) || 0)}
                             keyboardType="decimal-pad"
@@ -811,7 +815,7 @@ export default function Create() {
                 <TextInput
                   style={styles.commentInput}
                   placeholder="Add a message..."
-                  placeholderTextColor="#9CA3AF"
+                  placeholderTextColor={c.textMuted}
                   value={comments}
                   onChangeText={setComments}
                   multiline
@@ -867,17 +871,18 @@ export default function Create() {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c, dark) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.background,
   },
 
   // Header
   header: {
     paddingHorizontal: 20,
     paddingBottom: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
   },
   headerRow: {
     flexDirection: "row",
@@ -890,7 +895,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 17,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   progressContainer: {
     flexDirection: "row",
@@ -920,7 +925,7 @@ const styles = StyleSheet.create({
 
   // Project chip
   projectChip: {
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 14,
@@ -929,7 +934,7 @@ const styles = StyleSheet.create({
   projectChipText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
   },
 
   // Section headers
@@ -939,22 +944,22 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
     marginBottom: 4,
   },
   sectionSubtitle: {
     fontSize: 15,
-    color: "#6B7280",
+    color: c.textMid,
   },
 
   // Item cards - inline editing
   itemCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     position: "relative",
   },
   itemNumberBadge: {
@@ -984,7 +989,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     paddingVertical: 8,
     paddingHorizontal: 0,
   },
@@ -994,7 +999,7 @@ const styles = StyleSheet.create({
   },
   itemDescInput: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     paddingVertical: 6,
     paddingHorizontal: 0,
     minHeight: 32,
@@ -1015,9 +1020,9 @@ const styles = StyleSheet.create({
   qtyInput: {
     minWidth: 56,
     fontSize: 15,
-    color: "#111827",
+    color: c.text,
     textAlign: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.15)",
@@ -1026,13 +1031,13 @@ const styles = StyleSheet.create({
   },
   timesSymbol: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: c.textMuted,
     marginHorizontal: 8,
   },
   priceInputWrap: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.15)",
@@ -1040,19 +1045,19 @@ const styles = StyleSheet.create({
   },
   poundSign: {
     fontSize: 15,
-    color: "#6B7280",
+    color: c.textMid,
   },
   priceInput: {
     width: 70,
     fontSize: 15,
-    color: "#111827",
+    color: c.text,
     paddingVertical: 6,
     paddingHorizontal: 4,
   },
   lineTotal: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
     marginLeft: 12,
   },
   removeBtn: {
@@ -1078,11 +1083,11 @@ const styles = StyleSheet.create({
 
   // Totals
   totalsCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
   },
   totalRow: {
     flexDirection: "row",
@@ -1092,12 +1097,12 @@ const styles = StyleSheet.create({
   },
   totalLabel: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
   },
   totalValue: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#111827",
+    color: c.text,
   },
   vatRow: {
     flexDirection: "row",
@@ -1116,7 +1121,7 @@ const styles = StyleSheet.create({
   },
   vatLabel: {
     fontSize: 14,
-    color: "#374151",
+    color: c.textMid,
   },
   vatRateBtn: {
     flexDirection: "row",
@@ -1131,7 +1136,7 @@ const styles = StyleSheet.create({
   vatAmountText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#111827",
+    color: c.text,
   },
   totalDivider: {
     height: 1,
@@ -1141,22 +1146,22 @@ const styles = StyleSheet.create({
   grandTotalLabel: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   grandTotalValue: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
 
   // Review cards
   reviewCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
   },
   reviewCardHeader: {
     flexDirection: "row",
@@ -1167,26 +1172,26 @@ const styles = StyleSheet.create({
   reviewCardTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#6B7280",
+    color: c.textMid,
   },
   editLink: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#6B7280",
+    color: c.textMid,
   },
   reviewProjectName: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   reviewPostcode: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 2,
   },
   emptyText: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: c.textMuted,
     fontStyle: "italic",
   },
   reviewItemRow: {
@@ -1214,17 +1219,17 @@ const styles = StyleSheet.create({
   reviewItemName: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     marginBottom: 2,
   },
   reviewItemMeta: {
     fontSize: 13,
-    color: "#9CA3AF",
+    color: c.textMuted,
   },
   reviewItemTotal: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
     marginLeft: 12,
   },
   reviewDivider: {
@@ -1233,14 +1238,14 @@ const styles = StyleSheet.create({
     marginVertical: 12,
   },
   commentInput: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.15)",
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
-    color: "#111827",
+    color: c.text,
     marginTop: 12,
     minHeight: 80,
     textAlignVertical: "top",
@@ -1270,7 +1275,7 @@ const styles = StyleSheet.create({
   secondaryBtnText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
   },
   btnDisabled: {
     opacity: 0.6,
@@ -1295,4 +1300,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#007AFF",
   },
-});
+  });
+}
