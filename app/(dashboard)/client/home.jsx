@@ -1,5 +1,7 @@
 // app/(dashboard)/client/home.jsx
-// Client Home Screen — trade discovery feed (browse-and-choose model)
+// Client Home Screen — trade discovery feed (browse-and-choose model).
+// UI-only redesign pass: theme-aware, new top-right icons, floating-tab-bar
+// aware bottom padding. Data/navigation unchanged.
 import {
   StyleSheet,
   View,
@@ -13,8 +15,11 @@ import { useFocusEffect } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import ThemedView from "../../../components/ThemedView";
 import { SkeletonBox, SkeletonText, SkeletonCircle } from "../../../components/Skeleton";
+import IconBtn from "../../../components/design/IconBtn";
+import { Colors } from "../../../constants/Colors";
 
 // Home screen components
 import HomeHeader from "../../../components/client/home/HomeHeader";
@@ -33,30 +38,23 @@ import { getClosestTrades, getWillingToTravel } from "../../../lib/api/feed";
 function ClientHomeSkeleton() {
   return (
     <View style={styles.skeletonContainer}>
-      {/* Header skeleton */}
       <View style={styles.skeletonHeader}>
         <SkeletonText width={180} height={28} />
       </View>
-
-      {/* Search bar skeleton */}
-      <SkeletonBox width="100%" height={48} borderRadius={24} style={{ marginBottom: 24 }} />
-
-      {/* Popular services skeleton */}
+      <SkeletonBox width="100%" height={52} borderRadius={18} style={{ marginBottom: 24 }} />
       <SkeletonText width={140} height={18} style={{ marginBottom: 16 }} />
       <View style={styles.skeletonGrid}>
         {[1, 2, 3, 4, 5, 6].map((i) => (
           <View key={i} style={styles.skeletonGridItem}>
-            <SkeletonCircle size={56} />
+            <SkeletonCircle size={48} />
             <SkeletonText width={60} height={12} style={{ marginTop: 8 }} />
           </View>
         ))}
       </View>
-
-      {/* Trades feed skeleton */}
       <SkeletonText width={180} height={18} style={{ marginTop: 24, marginBottom: 12 }} />
       <View style={{ flexDirection: "row", gap: 12 }}>
         {[1, 2].map((i) => (
-          <SkeletonBox key={i} width={200} height={100} borderRadius={12} />
+          <SkeletonBox key={i} width={210} height={100} borderRadius={14} />
         ))}
       </View>
     </View>
@@ -67,12 +65,11 @@ export default function ClientHomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
+  const { colors: c, dark } = useTheme();
   const params = useLocalSearchParams();
 
-  // Track if we've already handled the openSearch param to prevent re-triggering
   const hasHandledOpenSearch = useRef(false);
 
-  // Handle openSearch param - open search modal when navigating from Projects tab
   useFocusEffect(
     useCallback(() => {
       if (params.openSearch === "true" && !hasHandledOpenSearch.current) {
@@ -85,9 +82,8 @@ export default function ClientHomeScreen() {
     }, [params.openSearch])
   );
 
-  // State
   const [firstName, setFirstName] = useState(null);
-  const [clientLocation, setClientLocation] = useState(null); // { lat, lon, postcode, town }
+  const [clientLocation, setClientLocation] = useState(null);
   const [nearbyTrades, setNearbyTrades] = useState([]);
   const [furtherTrades, setFurtherTrades] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -95,7 +91,6 @@ export default function ClientHomeScreen() {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [showPostcodePrompt, setShowPostcodePrompt] = useState(false);
 
-  // Load data on mount and when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       loadData(!hasLoadedOnce);
@@ -110,11 +105,9 @@ export default function ClientHomeScreen() {
         loadProfileLocation(),
       ]);
 
-      // If we have a location, fetch trade feeds
       if (profile?.base_lat != null && profile?.base_lon != null) {
         await loadTradeFeeds(profile.base_lat, profile.base_lon);
       } else {
-        // No location — prompt them once on initial load
         setNearbyTrades([]);
         setFurtherTrades([]);
         if (!hasLoadedOnce) setShowPostcodePrompt(true);
@@ -177,13 +170,9 @@ export default function ClientHomeScreen() {
     await loadTradeFeeds(lat, lon);
   };
 
-  // Navigation handlers
-  const handleSearchPress = () => {
-    router.push("/client/search-modal");
-  };
+  const handleSearchPress = () => router.push("/client/search-modal");
 
   const handleCategorySelect = (category) => {
-    // Browse trades filtered by category (was: prefill request form)
     router.push({
       pathname: "/client/find-business",
       params: { category: category.name },
@@ -199,16 +188,21 @@ export default function ClientHomeScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <StatusBar style="dark" />
+      <StatusBar style={dark ? "light" : "dark"} />
 
-      {/* Fixed safe area background */}
-      <View style={[styles.safeAreaBackground, { height: insets.top }]} />
+      <View style={[styles.safeAreaBackground, { height: insets.top, backgroundColor: c.background }]} />
+
+      {/* Top-right icon dock — subtle, matches design spec. */}
+      <View style={[styles.topBar, { top: insets.top + 8 }]}>
+        <IconBtn icon="notifications-outline" badge />
+        <IconBtn icon="ellipsis-horizontal" />
+      </View>
 
       <ScrollView
         style={[styles.scrollView, { marginTop: insets.top }]}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: 8, paddingBottom: insets.bottom + 100 },
+          { paddingTop: 48, paddingBottom: insets.bottom + 110 },
         ]}
         showsVerticalScrollIndicator={false}
         bounces={true}
@@ -216,7 +210,7 @@ export default function ClientHomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor="#6849a7"
+            tintColor={Colors.primary}
           />
         }
       >
@@ -224,16 +218,10 @@ export default function ClientHomeScreen() {
           <ClientHomeSkeleton />
         ) : (
           <>
-            {/* Header */}
             <HomeHeader firstName={firstName} />
-
-            {/* Search bar */}
             <SearchBar onPress={handleSearchPress} />
-
-            {/* Popular services grid — browses trades by category */}
             <PopularServicesGrid onCategorySelect={handleCategorySelect} />
 
-            {/* Trades near you */}
             <TradesFeedSection
               title="Trades near you"
               subtitle={
@@ -250,7 +238,6 @@ export default function ClientHomeScreen() {
               }
             />
 
-            {/* Trades further away */}
             {furtherTrades.length > 0 && (
               <TradesFeedSection
                 title="Willing to travel"
@@ -260,7 +247,6 @@ export default function ClientHomeScreen() {
               />
             )}
 
-            {/* Trust badge */}
             <TrustBadge />
           </>
         )}
@@ -278,15 +264,20 @@ export default function ClientHomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
   },
   safeAreaBackground: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
-    backgroundColor: "#FFFFFF",
     zIndex: 10,
+  },
+  topBar: {
+    position: "absolute",
+    right: 16,
+    flexDirection: "row",
+    gap: 8,
+    zIndex: 20,
   },
   scrollView: {
     flex: 1,

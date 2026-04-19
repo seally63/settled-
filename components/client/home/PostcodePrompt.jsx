@@ -1,6 +1,7 @@
 // components/client/home/PostcodePrompt.jsx
 // Modal asking the client for their postcode so we can show nearby trades.
-import { useState } from "react";
+// Theme-aware.
+import React, { useState } from "react";
 import {
   Modal,
   View,
@@ -14,12 +15,15 @@ import { Ionicons } from "@expo/vector-icons";
 
 import ThemedText from "../../ThemedText";
 import { Colors } from "../../../constants/Colors";
+import { useTheme } from "../../../hooks/useTheme";
+import { FontFamily, Radius, TypeVariants } from "../../../constants/Typography";
 import { geocodeUKPostcode } from "../../../lib/api/places";
 import { setClientLocation } from "../../../lib/api/profile";
 
 const UK_POSTCODE_PATTERN = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
 
 export default function PostcodePrompt({ visible, onClose, onSaved }) {
+  const { colors: c } = useTheme();
   const [postcode, setPostcode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -78,20 +82,37 @@ export default function PostcodePrompt({ visible, onClose, onSaved }) {
       onRequestClose={handleClose}
     >
       <Pressable style={styles.backdrop} onPress={handleClose}>
-        <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
+        <Pressable
+          style={[styles.card, { backgroundColor: c.elevate, borderColor: c.border }]}
+          onPress={(e) => e.stopPropagation()}
+        >
           <View style={styles.iconWrap}>
             <Ionicons name="location-outline" size={28} color={Colors.primary} />
           </View>
 
-          <ThemedText style={styles.title}>Where are you based?</ThemedText>
-          <ThemedText style={styles.subtitle}>
+          <ThemedText style={[TypeVariants.h1, { color: c.text, marginBottom: 6 }]}>
+            Where are you based?
+          </ThemedText>
+          <ThemedText
+            style={[
+              TypeVariants.bodySm,
+              { color: c.textMid, textAlign: "center", marginBottom: 20 },
+            ]}
+          >
             Enter your postcode so we can show you trades in your area.
           </ThemedText>
 
           <TextInput
-            style={[styles.input, error ? styles.inputError : null]}
+            style={[
+              styles.input,
+              {
+                borderColor: error ? Colors.status.declined : c.border,
+                color: c.text,
+                backgroundColor: c.elevate2,
+              },
+            ]}
             placeholder="e.g. SW1A 1AA"
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={c.textMuted}
             value={postcode}
             onChangeText={(v) => {
               setPostcode(v);
@@ -104,10 +125,26 @@ export default function PostcodePrompt({ visible, onClose, onSaved }) {
             onSubmitEditing={handleSubmit}
           />
 
-          {!!error && <ThemedText style={styles.errorText}>{error}</ThemedText>}
+          {!!error && (
+            <ThemedText
+              style={{
+                marginTop: 8,
+                fontSize: 13,
+                color: Colors.status.declined,
+                alignSelf: "flex-start",
+                fontFamily: FontFamily.bodyRegular,
+              }}
+            >
+              {error}
+            </ThemedText>
+          )}
 
           <Pressable
-            style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+            style={({ pressed }) => [
+              styles.submitBtn,
+              pressed && { opacity: 0.85 },
+              loading && { opacity: 0.6 },
+            ]}
             onPress={handleSubmit}
             disabled={loading}
           >
@@ -119,7 +156,9 @@ export default function PostcodePrompt({ visible, onClose, onSaved }) {
           </Pressable>
 
           <Pressable onPress={handleClose} disabled={loading} style={styles.cancelBtn}>
-            <ThemedText style={styles.cancelText}>Skip for now</ThemedText>
+            <ThemedText style={[styles.cancelText, { color: c.textMid }]}>
+              Skip for now
+            </ThemedText>
           </Pressable>
         </Pressable>
       </Pressable>
@@ -130,7 +169,7 @@ export default function PostcodePrompt({ visible, onClose, onSaved }) {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0,0,0,0.55)",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 24,
@@ -138,8 +177,8 @@ const styles = StyleSheet.create({
   card: {
     width: "100%",
     maxWidth: 400,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
     padding: 24,
     alignItems: "center",
   },
@@ -147,58 +186,31 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "rgba(104,73,167,0.08)",
+    backgroundColor: Colors.primaryTint,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
   },
-  title: {
-    fontSize: 19,
-    fontWeight: "700",
-    color: "#0F172A",
-    marginBottom: 6,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#64748B",
-    textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 20,
-  },
   input: {
     width: "100%",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 10,
+    borderRadius: Radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    color: "#0F172A",
-    backgroundColor: "#F9FAFB",
-  },
-  inputError: {
-    borderColor: Colors.warning,
-  },
-  errorText: {
-    marginTop: 8,
-    fontSize: 13,
-    color: Colors.warning,
-    alignSelf: "flex-start",
+    fontFamily: FontFamily.bodyRegular,
   },
   submitBtn: {
     width: "100%",
     backgroundColor: Colors.primary,
-    paddingVertical: 13,
-    borderRadius: 10,
+    paddingVertical: 14,
+    borderRadius: Radius.md + 2,
     alignItems: "center",
     marginTop: 16,
   },
-  submitBtnDisabled: {
-    opacity: 0.6,
-  },
   submitText: {
     fontSize: 15,
-    fontWeight: "600",
+    fontFamily: FontFamily.headerSemibold,
     color: "#FFFFFF",
   },
   cancelBtn: {
@@ -207,6 +219,6 @@ const styles = StyleSheet.create({
   },
   cancelText: {
     fontSize: 14,
-    color: "#64748B",
+    fontFamily: FontFamily.bodyRegular,
   },
 });
