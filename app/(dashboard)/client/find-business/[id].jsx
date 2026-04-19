@@ -1,6 +1,6 @@
 // app/(dashboard)/client/find-business/[id].jsx
 // Client view of Trade Profile - shows trade details with Request a Quote button
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -30,6 +30,8 @@ import Spacer from "../../../../components/Spacer";
 import { ProfilePageSkeleton, SkeletonBox, SkeletonText, CategoryGridSkeleton } from "../../../../components/Skeleton";
 import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../../components/KeyboardDoneButton";
 import { Colors } from "../../../../constants/Colors";
+import { FontFamily, Radius } from "../../../../constants/Typography";
+import { useTheme } from "../../../../hooks/useTheme";
 import { getTradeById, getMyRole } from "../../../../lib/api/profile";
 import { requestDirectQuote, checkServiceAreaDistance } from "../../../../lib/api/directRequest";
 import { getBusinessVerificationPublic, getTradePublicMetrics90d } from "../../../../lib/api/trust";
@@ -55,7 +57,15 @@ import {
 } from "../../../../assets/icons";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const PRIMARY = Colors?.light?.tint || "#7C3AED";
+const PRIMARY = Colors.primary;
+
+// Shared styles factory — each sub-component calls useStyles() so the
+// file reacts to dark mode without prop-drilling.
+function useStyles() {
+  const { colors: c, dark } = useTheme();
+  const styles = useMemo(() => makeStyles(c, dark), [c, dark]);
+  return { styles, colors: c, dark };
+}
 
 const TEST_PROFILE = {
   id: "test-demo",
@@ -127,6 +137,7 @@ const BUDGET_OPTIONS = [
 
 // Verification Badge Component - matches trade-profile.jsx exactly
 function VerificationBadge({ icon, label, status }) {
+  const { styles } = useStyles();
   const isVerified = status === true || status === "verified";
 
   return (
@@ -153,6 +164,7 @@ function VerificationBadge({ icon, label, status }) {
 
 // Review Card Component - matches trade-profile.jsx
 function ReviewCard({ review }) {
+  const { styles } = useStyles();
   const stars = review.rating || 5;
   const timeAgo = review.created_at
     ? formatTimeAgo(new Date(review.created_at))
@@ -213,6 +225,7 @@ function formatTimeAgo(date) {
 
 // Performance Info Modal Component (3rd person language for profile view)
 function PerformanceInfoModal({ visible, onClose, insets }) {
+  const { styles, colors: c } = useStyles();
   return (
     <Modal
       visible={visible}
@@ -277,6 +290,7 @@ export default function TradeProfileClient() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { styles, colors: c, dark } = useStyles();
   const isTest = id === "test-demo";
 
   const [trade, setTrade] = useState(isTest ? TEST_PROFILE : null);
@@ -848,7 +862,7 @@ export default function TradeProfileClient() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <StatusBar style={dark ? "light" : "dark"} />
         <ProfilePageSkeleton paddingTop={16} />
       </ThemedView>
     );
@@ -902,7 +916,7 @@ export default function TradeProfileClient() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style={showRequestModal ? "light" : "dark"} />
+      <StatusBar style={showRequestModal ? "light" : (dark ? "light" : "dark")} />
 
       {/* Header - shows business name */}
       <View style={styles.header}>
@@ -918,7 +932,7 @@ export default function TradeProfileClient() {
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom > 0 ? insets.bottom + 24 : 40 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 130 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Hero Card - matches trade-profile.jsx */}
@@ -1015,7 +1029,7 @@ export default function TradeProfileClient() {
               onPress={() => setPerformanceInfoVisible(true)}
               hitSlop={10}
             >
-              <Ionicons name="information-circle-outline" size={20} color="#6B7280" />
+              <Ionicons name="information-circle-outline" size={20} color={c.textMid} />
             </Pressable>
           </View>
         </View>
@@ -1437,7 +1451,7 @@ export default function TradeProfileClient() {
                     />
                     <View style={styles.reviewSection}>
                       <View style={styles.reviewLabelRow}>
-                        <Ionicons name="images-outline" size={16} color="#6B7280" />
+                        <Ionicons name="images-outline" size={16} color={c.textMid} />
                         <ThemedText style={styles.reviewLabel}>PHOTOS</ThemedText>
                       </View>
                       <View style={styles.reviewPhotos}>
@@ -1549,6 +1563,7 @@ export default function TradeProfileClient() {
 
 // Review Row Component
 function ReviewRow({ icon, label, value, isEmergency, onEdit }) {
+  const { styles, colors: c } = useStyles();
   return (
     <>
       <View style={styles.reviewSection}>
@@ -1570,10 +1585,14 @@ function ReviewRow({ icon, label, value, isEmergency, onEdit }) {
   );
 }
 
-const styles = StyleSheet.create({
+// Styles are generated per-theme via makeStyles(c, dark) and consumed
+// through the useStyles() helper above. Semantic status colours stay
+// as hex so they render the same in light and dark.
+function makeStyles(c, dark) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.background,
   },
   loadingContainer: {
     flex: 1,
@@ -1605,7 +1624,7 @@ const styles = StyleSheet.create({
 
   // Hero Card - matches trade-profile.jsx
   heroCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: Colors.light.border,
@@ -1658,14 +1677,14 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   badgeVerified: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderWidth: 1,
     borderColor: Colors.light.border,
   },
   badgeNotVerified: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate2,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     borderStyle: "dashed",
   },
   badgeCheckmark: {
@@ -1726,7 +1745,7 @@ const styles = StyleSheet.create({
   performanceValue: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   performanceLabel: {
     fontSize: 12,
@@ -1749,7 +1768,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sectionCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.light.border,
@@ -1912,7 +1931,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   infoModalSheet: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     height: "80%",
@@ -1936,13 +1955,13 @@ const styles = StyleSheet.create({
   infoModalTitle: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   infoModalCloseBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1963,23 +1982,23 @@ const styles = StyleSheet.create({
   infoSectionTitle: {
     fontSize: 17,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   infoSectionText: {
     fontSize: 15,
-    color: "#374151",
+    color: c.textMid,
     lineHeight: 22,
     marginBottom: 12,
   },
   infoTipBox: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate2,
     borderRadius: 12,
     padding: 16,
   },
   infoTipTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     marginBottom: 6,
   },
   infoTipText: {
@@ -1991,7 +2010,7 @@ const styles = StyleSheet.create({
   // Modal
   modalContainer: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
   },
   modalHeader: {
     flexDirection: "row",
@@ -2061,7 +2080,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
@@ -2098,7 +2117,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
@@ -2272,7 +2291,7 @@ const styles = StyleSheet.create({
   },
   uploadStatusText: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
   },
   timingList: {
     marginTop: 8,
@@ -2377,7 +2396,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   warningModalContent: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 20,
     padding: 24,
     width: "100%",
@@ -2396,7 +2415,7 @@ const styles = StyleSheet.create({
   warningTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
     marginBottom: 12,
     textAlign: "center",
   },
@@ -2409,7 +2428,7 @@ const styles = StyleSheet.create({
   },
   warningHighlight: {
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   warningButtonRow: {
     flexDirection: "row",
@@ -2428,7 +2447,7 @@ const styles = StyleSheet.create({
   warningCancelText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
   },
   warningSendButton: {
     flex: 1,
@@ -2442,4 +2461,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#FFFFFF",
   },
-});
+  });
+}
