@@ -11,7 +11,6 @@ import {
   Linking,
   Platform,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,6 +26,7 @@ import {
   registerForPushNotifications,
 } from "../../../lib/api/notifications";
 import { useNotifications } from "../../../contexts/NotificationContext";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
@@ -145,7 +145,7 @@ export default function NotificationsScreen() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <View style={styles.loadingContainer}>
           <ActivityIndicator />
         </View>
@@ -155,7 +155,7 @@ export default function NotificationsScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header */}
       <View style={styles.header}>

@@ -14,7 +14,6 @@ import {
   Platform,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -34,6 +33,7 @@ import {
   approveTradeProfile,
   rejectTradeProfile,
 } from "../../lib/api/admin";
+import ThemedStatusBar from "../../components/ThemedStatusBar";
 
 const PRIMARY = Colors?.primary || "#7C3AED";
 
@@ -325,7 +325,7 @@ export default function AdminReviewsScreen() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={PRIMARY} />
         </View>
@@ -335,7 +335,7 @@ export default function AdminReviewsScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header */}
       <View style={styles.header}>

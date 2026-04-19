@@ -7,7 +7,6 @@ import {
   Pressable,
   RefreshControl,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,6 +18,7 @@ import { PipelinePageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 const TINT = Colors?.light?.tint || "#6849a7";
 
@@ -309,7 +309,7 @@ export default function PipelinePage() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <PipelinePageSkeleton paddingTop={0} />
       </ThemedView>
     );
@@ -317,7 +317,7 @@ export default function PipelinePage() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header */}
       <View style={styles.header}>

@@ -4,12 +4,12 @@ import { StyleSheet, View, Pressable, Image } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StatusBar } from "expo-status-bar";
 
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import Spacer from "../../../../components/Spacer";
 import { Colors } from "../../../../constants/Colors";
+import ThemedStatusBar from "../../../../components/ThemedStatusBar";
 
 const PRIMARY = Colors?.light?.tint || "#6849a7";
 const GREEN = "#10B981";
@@ -94,7 +94,7 @@ export default function CompletionSuccess() {
 
   return (
     <ThemedView style={styles.container}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       <View style={styles.content}>
         {/* Success Icon */}

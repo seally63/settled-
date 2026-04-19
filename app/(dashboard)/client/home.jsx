@@ -26,7 +26,7 @@ import { useState, useCallback, useRef } from "react";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
-import { StatusBar } from "expo-status-bar";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 import { useUser } from "../../../hooks/useUser";
 import { useTheme } from "../../../hooks/useTheme";
@@ -120,7 +120,7 @@ export default function ClientHomeScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <StatusBar style={dark ? "light" : "dark"} />
+      <ThemedStatusBar />
 
       {/* Fixed top safe-area backing so top icons don't clip on scroll */}
       <View

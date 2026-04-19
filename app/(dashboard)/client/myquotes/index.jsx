@@ -13,7 +13,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StatusBar } from "expo-status-bar";
 
 import { supabase } from "../../../../lib/supabase";
 import { useUser } from "../../../../hooks/useUser";
@@ -25,6 +24,7 @@ import Spacer from "../../../../components/Spacer";
 import ProgressBar from "../../../../components/ProgressBar";
 import { ProjectsPageSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
+import ThemedStatusBar from "../../../../components/ThemedStatusBar";
 
 const TINT = Colors?.light?.tint || "#6849a7";
 
@@ -1545,7 +1545,7 @@ export default function ClientProjects() {
 
   return (
     <ThemedView style={styles.container}>
-      <StatusBar style="dark" backgroundColor="#FFFFFF" />
+      <ThemedStatusBar backgroundColor="#FFFFFF" />
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>

@@ -12,7 +12,6 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -33,6 +32,7 @@ import {
   submitCredentialManualEntry,
   submitCredentialDocumentUpload,
 } from "../../../lib/api/verification";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 const PRIMARY = Colors?.primary || "#7C3AED";
 
@@ -309,7 +309,7 @@ export default function CredentialsScreen() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <SettingsFormSkeleton paddingTop={16} />
       </ThemedView>
     );
@@ -317,7 +317,7 @@ export default function CredentialsScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header */}
       <View style={styles.header}>

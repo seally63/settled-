@@ -13,7 +13,6 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,6 +26,7 @@ import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
 import { getServiceCategories, getServiceTypes } from "../../../lib/api/services";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 const PRIMARY = Colors?.light?.tint || "#7C3AED";
 
@@ -201,7 +201,7 @@ export default function BusinessInfoScreen() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <View style={styles.loadingContainer}>
           <ActivityIndicator />
         </View>
@@ -213,7 +213,7 @@ export default function BusinessInfoScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header */}
       <View style={styles.header}>

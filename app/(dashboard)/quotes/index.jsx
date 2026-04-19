@@ -13,7 +13,6 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StatusBar } from "expo-status-bar";
 
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
@@ -24,6 +23,7 @@ import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
 import { acceptRequest, declineRequest } from "../../../lib/api/requests";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 const TINT = Colors?.light?.tint || "#6849a7";
 
@@ -1493,7 +1493,7 @@ export default function TradesmanProjects() {
   if (loading) {
     return (
       <ThemedView style={styles.container}>
-        <StatusBar style="dark" backgroundColor="#FFFFFF" />
+        <ThemedStatusBar backgroundColor="#FFFFFF" />
         <ProjectsPageSkeleton paddingTop={insets.top + 16} />
       </ThemedView>
     );
@@ -1501,7 +1501,7 @@ export default function TradesmanProjects() {
 
   return (
     <ThemedView style={styles.container}>
-      <StatusBar style="dark" backgroundColor="#FFFFFF" />
+      <ThemedStatusBar backgroundColor="#FFFFFF" />
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>

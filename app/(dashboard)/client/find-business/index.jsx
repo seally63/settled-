@@ -11,7 +11,6 @@ import {
   Alert,
   Keyboard,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,6 +22,7 @@ import { Colors } from "../../../../constants/Colors";
 
 import { supabase } from "../../../../lib/supabase";
 import { listPublicTrades, getMyRole } from "../../../../lib/api/profile";
+import ThemedStatusBar from "../../../../components/ThemedStatusBar";
 
 /**
  * Behaviour:
@@ -183,7 +183,7 @@ export default function FindBusinessIndex() {
 
   return (
     <ThemedView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Clean header with back button */}
       <View style={[styles.header, { paddingTop: insets.top }]}>

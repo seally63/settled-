@@ -11,7 +11,6 @@ import {
   FlatList,
   Modal,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -28,6 +27,7 @@ import { useUser } from "../../../hooks/useUser";
 import { getMyRole, getMyProfile } from "../../../lib/api/profile";
 import { getTradeReviews } from "../../../lib/api/trust";
 import { supabase } from "../../../lib/supabase";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 const PRIMARY = Colors?.light?.tint || "#7C3AED";
 
@@ -190,7 +190,7 @@ export default function ProfileScreen() {
   if (roleLoading || loadingData) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <ProfilePageSkeleton paddingTop={16} />
       </ThemedView>
     );
@@ -236,7 +236,7 @@ export default function ProfileScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header */}
       <View style={styles.header}>

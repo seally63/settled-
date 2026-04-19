@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -24,6 +23,7 @@ import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 const SCREENS = {
   ENTER_PHONE: "enter_phone",
@@ -126,7 +126,7 @@ export default function ChangePhoneScreen() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <SettingsFormSkeleton paddingTop={16} />
       </ThemedView>
     );
@@ -134,7 +134,7 @@ export default function ChangePhoneScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header */}
       <View style={styles.header}>

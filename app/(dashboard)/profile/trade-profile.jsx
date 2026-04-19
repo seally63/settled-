@@ -17,7 +17,6 @@ import {
   Platform,
   Alert,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -35,6 +34,7 @@ import { useUser } from "../../../hooks/useUser";
 import { getMyProfile, getTradePublicById } from "../../../lib/api/profile";
 import { getTradeReviews } from "../../../lib/api/trust";
 import { supabase } from "../../../lib/supabase";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 const PRIMARY = Colors?.light?.tint || "#7C3AED";
 
@@ -167,7 +167,7 @@ export default function TradeProfileScreen() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <ProfilePageSkeleton paddingTop={16} />
       </ThemedView>
     );
@@ -207,7 +207,7 @@ export default function TradeProfileScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header - with back button for public view */}
       <View style={styles.header}>

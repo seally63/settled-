@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Pressable,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +21,7 @@ import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
 import { getMyProfile } from "../../../lib/api/profile";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 function getInitials(name) {
   if (!name) return "?";
@@ -76,7 +76,7 @@ export default function ClientProfileScreen() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <ProfilePageSkeleton paddingTop={16} />
       </ThemedView>
     );
@@ -91,7 +91,7 @@ export default function ClientProfileScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header */}
       <View style={styles.header}>
