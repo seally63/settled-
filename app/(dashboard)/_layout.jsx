@@ -166,6 +166,17 @@ export default function DashboardLayout() {
           headerShown: false,
           tabBarActiveTintColor: theme.iconColorFocused,
           tabBarInactiveTintColor: theme.iconColor,
+          // react-navigation reads `height` from tabBarStyle for layout —
+          // 0 tells it "don't reserve a slot". The actual pill is rendered
+          // absolutely by FloatingTabBar so it floats over scene content.
+          tabBarStyle: {
+            height: 0,
+            backgroundColor: 'transparent',
+            borderTopWidth: 0,
+            elevation: 0,
+            shadowColor: 'transparent',
+            shadowOpacity: 0,
+          },
           sceneStyle: { backgroundColor: theme.background },
         }}
       >

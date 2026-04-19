@@ -207,7 +207,7 @@ export default function MessagesIndex() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: 40, flexGrow: 1 }}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: 130, flexGrow: 1 }}
         ListEmptyComponent={loading ? <MessagesPageSkeleton paddingTop={0} /> : <Empty />}
         renderItem={({ item }) => (
           <ConversationCard

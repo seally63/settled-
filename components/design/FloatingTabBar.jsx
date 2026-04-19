@@ -48,8 +48,8 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
       style={[
         styles.wrap,
         {
-          paddingBottom: Math.max(insets.bottom, 12),
-          backgroundColor: "transparent",
+          // Sit this many px above the home-indicator / nav inset.
+          bottom: Math.max(insets.bottom, 12) + 8,
         },
       ]}
       pointerEvents="box-none"
@@ -65,16 +65,19 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
         pointerEvents="box-none"
       >
         <BlurView
-          intensity={Platform.OS === "ios" ? 55 : 90}
+          intensity={80}
           tint={tint}
           experimentalBlurMethod="dimezisBlurView"
           style={[
             styles.pill,
             {
               borderColor: c.borderStrong,
+              // Very subtle tint on top of the blur for legibility —
+              // the blur itself does the heavy lifting for the frosted
+              // glass effect.
               backgroundColor: dark
-                ? "rgba(28,28,34,0.72)"
-                : "rgba(255,255,255,0.78)",
+                ? "rgba(20,20,24,0.35)"
+                : "rgba(255,255,255,0.45)",
             },
           ]}
         >
@@ -157,9 +160,14 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
 
 const styles = StyleSheet.create({
   wrap: {
+    // Pulled out of flex flow so the screens container fills the full
+    // viewport and the pill truly floats over it. `bottom` is set
+    // dynamically in the render with the safe-area inset.
+    position: "absolute",
+    left: 0,
+    right: 0,
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 10,
     paddingHorizontal: 16,
   },
   pillOuter: {
@@ -183,10 +191,10 @@ const styles = StyleSheet.create({
   tab: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    paddingVertical: 9,
+    paddingHorizontal: 15,
     borderRadius: 999,
-    minWidth: 58,
+    minWidth: 60,
     gap: 2,
   },
   iconWrap: {

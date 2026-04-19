@@ -496,7 +496,7 @@ export default function SettingsScreen() {
           <ThemedText style={styles.versionText}>App version {appVersion}</ThemedText>
         </View>
 
-        <Spacer height={insets.bottom > 0 ? insets.bottom + 24 : 40} />
+        <Spacer height={insets.bottom + 110} />
       </ScrollView>
     </ThemedView>
   );

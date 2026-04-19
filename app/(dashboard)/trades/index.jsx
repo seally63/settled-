@@ -22,22 +22,31 @@ import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { HomePageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
+import { FontFamily, TypeVariants, Radius } from "../../../constants/Typography";
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import { supabase } from "../../../lib/supabase";
 import { getTradeReviews } from "../../../lib/api/trust";
 
-const TINT = Colors?.light?.tint || "#6849a7";
+const TINT = Colors.primary;
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-// Status colors
+// Status colors — remapped to the redesign's status palette.
 const STATUS_COLORS = {
-  issue: "#DC2626",      // Red
-  direct: "#7C3AED",     // Purple
-  action: "#F59E0B",     // Orange
-  scheduled: "#10B981",  // Green
-  new: "#3B82F6",        // Blue
-  waiting: "#6B7280",    // Gray
+  issue:     Colors.status.declined,  // red
+  direct:    Colors.primary,          // purple
+  action:    Colors.status.pending,   // amber
+  scheduled: Colors.status.accepted,  // green
+  new:       Colors.status.scheduled, // blue
+  waiting:   "#6B7280",               // gray (neutral)
 };
+
+// Local hook that memoizes a theme-aware styles object.
+function useStyles() {
+  const { colors: c, dark } = useTheme();
+  const styles = useMemo(() => makeStyles(c, dark), [c, dark]);
+  return { styles, colors: c, dark };
+}
 
 // Appointment type icons
 const APPOINTMENT_ICONS = {
@@ -150,6 +159,7 @@ function openDirections(postcode) {
 // HEADER (greeting + date)
 // ============================================
 function Header({ firstName, isNewTrade }) {
+  const { styles } = useStyles();
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (isNewTrade) return "Welcome";
@@ -179,6 +189,7 @@ function Header({ firstName, isNewTrade }) {
 // GLANCE STRIP — single ambient line of key counts
 // ============================================
 function GlanceStrip({ todayCount, attentionCount, sentCount }) {
+  const { styles } = useStyles();
   const parts = [];
   parts.push(`${todayCount} ${todayCount === 1 ? "appointment" : "appointments"} today`);
   if (attentionCount > 0) parts.push(`${attentionCount} ${attentionCount === 1 ? "item needs" : "items need"} attention`);
@@ -237,6 +248,18 @@ function ProfileFooter({ profile, onPress }) {
   const nextItem = missing[0];
 
   return (
+    <ProfileFooterBody
+      percentage={percentage}
+      nextItem={nextItem}
+      onPress={onPress}
+    />
+  );
+}
+
+// Rendered body split out so it can use hooks alongside ProfileFooter's logic.
+function ProfileFooterBody({ percentage, nextItem, onPress }) {
+  const { styles, colors: c } = useStyles();
+  return (
     <Pressable style={styles.profileFooter} onPress={onPress}>
       <View style={{ flex: 1 }}>
         <ThemedText style={styles.profileFooterTitle}>
@@ -248,7 +271,7 @@ function ProfileFooter({ profile, onPress }) {
           </ThemedText>
         )}
       </View>
-      <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+      <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
     </Pressable>
   );
 }
@@ -258,6 +281,7 @@ function ProfileFooter({ profile, onPress }) {
 // ============================================
 function PerformanceInfoModal({ visible, onClose }) {
   const insets = useSafeAreaInsets();
+  const { styles, colors: c } = useStyles();
 
   return (
     <Modal
@@ -268,18 +292,16 @@ function PerformanceInfoModal({ visible, onClose }) {
     >
       <View style={styles.infoModalOverlay}>
         <View style={[styles.infoModalSheet, { paddingBottom: insets.bottom + 20 }]}>
-          {/* Handle bar */}
           <View style={styles.infoModalHandle} />
 
           <View style={styles.infoModalHeader}>
             <ThemedText style={styles.infoModalTitle}>Performance Metrics</ThemedText>
             <Pressable onPress={onClose} hitSlop={10} style={styles.infoModalCloseBtn}>
-              <Ionicons name="close" size={20} color="#111827" />
+              <Ionicons name="close" size={20} color={c.text} />
             </Pressable>
           </View>
 
           <ScrollView style={styles.infoModalContent} showsVerticalScrollIndicator={false}>
-          {/* Response Time */}
           <View style={styles.infoSection}>
             <View style={styles.infoSectionHeader}>
               <Ionicons name="flash" size={20} color={TINT} />
@@ -296,7 +318,6 @@ function PerformanceInfoModal({ visible, onClose }) {
             </View>
           </View>
 
-          {/* Follow-through Rate */}
           <View style={styles.infoSection}>
             <View style={styles.infoSectionHeader}>
               <Ionicons name="checkmark" size={20} color={TINT} />
@@ -313,10 +334,9 @@ function PerformanceInfoModal({ visible, onClose }) {
             </View>
           </View>
 
-          {/* Rating */}
           <View style={styles.infoSection}>
             <View style={styles.infoSectionHeader}>
-              <Ionicons name="star" size={20} color="#F59E0B" />
+              <Ionicons name="star" size={20} color={Colors.status.pending} />
               <ThemedText style={styles.infoSectionTitle}>Rating</ThemedText>
             </View>
             <ThemedText style={styles.infoSectionText}>
@@ -342,6 +362,7 @@ function PerformanceInfoModal({ visible, onClose }) {
 // HEALTH ROW — compact strip of three metrics with info button
 // ============================================
 function HealthRow({ stats, onInfoPress }) {
+  const { styles, colors: c } = useStyles();
   const formatResponseTime = (hours) => {
     if (hours === null || hours === undefined) return "—";
     if (hours < 1) return `${Math.round(hours * 60)}m`;
@@ -354,7 +375,7 @@ function HealthRow({ stats, onInfoPress }) {
       <View style={styles.sectionHeaderRow}>
         <ThemedText style={styles.sectionLabel}>YOUR HEALTH</ThemedText>
         <Pressable onPress={onInfoPress} hitSlop={10} style={styles.infoButton}>
-          <Ionicons name="information-circle-outline" size={16} color="#6B7280" />
+          <Ionicons name="information-circle-outline" size={16} color={c.textMuted} />
         </Pressable>
       </View>
 
@@ -377,7 +398,7 @@ function HealthRow({ stats, onInfoPress }) {
               {stats.averageRating > 0 ? stats.averageRating.toFixed(1) : "—"}
             </ThemedText>
             {stats.averageRating > 0 && (
-              <Ionicons name="star" size={12} color="#F59E0B" />
+              <Ionicons name="star" size={12} color={Colors.status.pending} />
             )}
           </View>
           <ThemedText style={styles.healthLabel}>Rating</ThemedText>
@@ -391,6 +412,7 @@ function HealthRow({ stats, onInfoPress }) {
 // TODAY SECTION — clean rows with Today + Tomorrow groups
 // ============================================
 function TodaySection({ todayAppointments, tomorrowAppointments, onSeeAll, onItemPress, onMessage, conversationsByRequest }) {
+  const { styles, colors: c } = useStyles();
   const getAppointmentIcon = (type) => APPOINTMENT_ICONS[type] || APPOINTMENT_ICONS.work;
 
   const AppointmentRow = ({ appointment, showActions = true }) => {
@@ -407,7 +429,7 @@ function TodaySection({ todayAppointments, tomorrowAppointments, onSeeAll, onIte
         </View>
         <View style={styles.apptBody}>
           <View style={styles.apptTopLine}>
-            <Ionicons name={iconConfig.icon} size={13} color="#6B7280" />
+            <Ionicons name={iconConfig.icon} size={13} color={c.textMuted} />
             <ThemedText style={styles.apptType}>{iconConfig.label}</ThemedText>
             {appointment.clientName ? (
               <>
@@ -437,7 +459,7 @@ function TodaySection({ todayAppointments, tomorrowAppointments, onSeeAll, onIte
                   openDirections(appointment.location);
                 }}
               >
-                <Ionicons name="navigate-outline" size={12} color="#374151" />
+                <Ionicons name="navigate-outline" size={12} color={c.text} />
                 <ThemedText style={styles.apptChipText}>Directions</ThemedText>
               </Pressable>
               {conversationId && (
@@ -448,7 +470,7 @@ function TodaySection({ todayAppointments, tomorrowAppointments, onSeeAll, onIte
                     onMessage(conversationId);
                   }}
                 >
-                  <Ionicons name="chatbubble-outline" size={12} color="#374151" />
+                  <Ionicons name="chatbubble-outline" size={12} color={c.text} />
                   <ThemedText style={styles.apptChipText}>Message</ThemedText>
                 </Pressable>
               )}
@@ -465,7 +487,7 @@ function TodaySection({ todayAppointments, tomorrowAppointments, onSeeAll, onIte
         <ThemedText style={styles.sectionLabel}>TODAY</ThemedText>
         <Pressable onPress={onSeeAll} style={styles.linkButton} hitSlop={8}>
           <ThemedText style={styles.linkText}>View calendar</ThemedText>
-          <Ionicons name="chevron-forward" size={14} color="#374151" />
+          <Ionicons name="chevron-forward" size={14} color={c.text} />
         </Pressable>
       </View>
 
@@ -497,6 +519,7 @@ function TodaySection({ todayAppointments, tomorrowAppointments, onSeeAll, onIte
 // PIPELINE LIST — clickable rows for each pipeline metric
 // ============================================
 function PipelineList({ activeJobs, sentQuotes, scheduled, completedThisMonth, onActivePress, onSentPress, onScheduledPress, onCompletedPress }) {
+  const { styles, colors: c } = useStyles();
   const rows = [
     { key: "active", label: "Active jobs", value: activeJobs, onPress: onActivePress },
     { key: "sent", label: "Quotes awaiting", value: sentQuotes, onPress: onSentPress },
@@ -520,7 +543,7 @@ function PipelineList({ activeJobs, sentQuotes, scheduled, completedThisMonth, o
             <ThemedText style={styles.pipelineLabel}>{row.label}</ThemedText>
             <View style={styles.pipelineValueRow}>
               <ThemedText style={styles.pipelineValue}>{row.value}</ThemedText>
-              <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+              <Ionicons name="chevron-forward" size={16} color={c.textMuted} />
             </View>
           </Pressable>
         ))}
@@ -533,6 +556,7 @@ function PipelineList({ activeJobs, sentQuotes, scheduled, completedThisMonth, o
 // MONTH SUMMARY — earnings + active value
 // ============================================
 function MonthSummary({ earned, activeValue }) {
+  const { styles } = useStyles();
   if (!earned && !activeValue) return null;
 
   return (
@@ -556,6 +580,7 @@ function MonthSummary({ earned, activeValue }) {
 // ACTION ITEMS SECTION (Needs Attention)
 // ============================================
 function ActionItemsSection({ items, onItemPress, onSeeAll }) {
+  const { styles, colors: c } = useStyles();
   const getItemConfig = (type) => {
     switch (type) {
       case "issue":
@@ -573,7 +598,6 @@ function ActionItemsSection({ items, onItemPress, onSeeAll }) {
     }
   };
 
-  // Empty state
   if (items.length === 0) {
     return (
       <View style={styles.section}>
@@ -595,7 +619,7 @@ function ActionItemsSection({ items, onItemPress, onSeeAll }) {
         </ThemedText>
         <Pressable onPress={onSeeAll} style={styles.linkButton} hitSlop={8}>
           <ThemedText style={styles.linkText}>See all</ThemedText>
-          <Ionicons name="chevron-forward" size={14} color="#374151" />
+          <Ionicons name="chevron-forward" size={14} color={c.text} />
         </Pressable>
       </View>
 
@@ -614,16 +638,16 @@ function ActionItemsSection({ items, onItemPress, onSeeAll }) {
                   <ThemedText style={styles.attentionLabel}>{config.label}</ThemedText>
                   {item.extendedMatch && (
                     <View style={styles.metaPill}>
-                      <Ionicons name="car-outline" size={10} color="#3B82F6" />
-                      <ThemedText style={[styles.metaPillText, { color: "#3B82F6" }]}>
+                      <Ionicons name="car-outline" size={10} color={Colors.status.scheduled} />
+                      <ThemedText style={[styles.metaPillText, { color: Colors.status.scheduled }]}>
                         Extended travel
                       </ThemedText>
                     </View>
                   )}
                   {item.outsideServiceArea && (
                     <View style={styles.metaPill}>
-                      <Ionicons name="location-outline" size={10} color="#F59E0B" />
-                      <ThemedText style={[styles.metaPillText, { color: "#F59E0B" }]}>
+                      <Ionicons name="location-outline" size={10} color={Colors.status.pending} />
+                      <ThemedText style={[styles.metaPillText, { color: Colors.status.pending }]}>
                         {item.distanceMiles ? `${item.distanceMiles} mi away` : "Outside area"}
                       </ThemedText>
                     </View>
@@ -636,7 +660,7 @@ function ActionItemsSection({ items, onItemPress, onSeeAll }) {
                   {item.clientName}{item.subtitle ? `  ·  ${item.subtitle}` : ""}
                 </ThemedText>
               </View>
-              <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+              <Ionicons name="chevron-forward" size={16} color={c.textMuted} />
             </Pressable>
           );
         })}
@@ -649,6 +673,7 @@ function ActionItemsSection({ items, onItemPress, onSeeAll }) {
 // EMPTY STATE FOR NEW TRADES
 // ============================================
 function NewTradeActionItems() {
+  const { styles } = useStyles();
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeaderRow}>
@@ -670,6 +695,7 @@ function NewTradeActionItems() {
 function CalendarModal({ visible, onClose, appointments, onItemPress }) {
   const insets = useSafeAreaInsets();
   const [currentDate, setCurrentDate] = useState(new Date());
+  const { styles, colors: c } = useStyles();
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -743,7 +769,7 @@ function CalendarModal({ visible, onClose, appointments, onItemPress }) {
         {/* Header */}
         <View style={styles.calendarHeader}>
           <Pressable onPress={onClose} hitSlop={10}>
-            <Ionicons name="close" size={24} color="#111827" />
+            <Ionicons name="close" size={24} color={c.text} />
           </Pressable>
           <ThemedText style={styles.calendarHeaderTitle}>Calendar</ThemedText>
           <View style={{ width: 24 }} />
@@ -752,11 +778,11 @@ function CalendarModal({ visible, onClose, appointments, onItemPress }) {
         {/* Month Navigation */}
         <View style={styles.calendarMonthNav}>
           <Pressable onPress={goToPrevMonth} hitSlop={10} style={styles.calendarNavBtn}>
-            <Ionicons name="chevron-back" size={24} color="#111827" />
+            <Ionicons name="chevron-back" size={24} color={c.text} />
           </Pressable>
           <ThemedText style={styles.calendarMonthTitle}>{getMonthName(currentDate)}</ThemedText>
           <Pressable onPress={goToNextMonth} hitSlop={10} style={styles.calendarNavBtn}>
-            <Ionicons name="chevron-forward" size={24} color="#111827" />
+            <Ionicons name="chevron-forward" size={24} color={c.text} />
           </Pressable>
         </View>
 
@@ -798,7 +824,7 @@ function CalendarModal({ visible, onClose, appointments, onItemPress }) {
                               key={appt.id || idx}
                               style={[
                                 styles.calendarDayDot,
-                                { backgroundColor: appt.type === "survey" ? TINT : "#10B981" }
+                                { backgroundColor: appt.type === "survey" ? TINT : Colors.status.accepted }
                               ]}
                             />
                           ))}
@@ -839,7 +865,7 @@ function CalendarModal({ visible, onClose, appointments, onItemPress }) {
                 >
                   <View style={[
                     styles.calendarAppointmentDot,
-                    { backgroundColor: appt.isPast ? "#9CA3AF" : (appt.type === "survey" ? TINT : "#10B981") }
+                    { backgroundColor: appt.isPast ? c.textMuted : (appt.type === "survey" ? TINT : Colors.status.accepted) }
                   ]} />
                   <View style={styles.calendarAppointmentContent}>
                     <View style={styles.calendarAppointmentDateRow}>
@@ -865,7 +891,7 @@ function CalendarModal({ visible, onClose, appointments, onItemPress }) {
                       {appt.clientName} {appt.location ? `· ${appt.location}` : ""}
                     </ThemedText>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+                  <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
                 </Pressable>
               ))}
           </View>
@@ -884,6 +910,7 @@ export default function TradesmanHome() {
   const router = useRouter();
   const { user } = useUser();
   const insets = useSafeAreaInsets();
+  const { colors: c, dark } = useTheme();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -1541,20 +1568,29 @@ export default function TradesmanHome() {
 
   if (loading) {
     return (
-      <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+      <ThemedView style={[rootStyles.container, { paddingTop: insets.top }]}>
+        <StatusBar style={dark ? "light" : "dark"} />
         <HomePageSkeleton paddingTop={20} />
       </ThemedView>
     );
   }
 
   return (
-    <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+    <ThemedView style={[rootStyles.container, { paddingTop: insets.top }]}>
+      <StatusBar style={dark ? "light" : "dark"} />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        contentContainerStyle={[
+          rootStyles.scrollContent,
+          { paddingBottom: insets.bottom + 110 },
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.primary}
+          />
+        }
         showsVerticalScrollIndicator={false}
       >
         <Header firstName={firstName} isNewTrade={isNewTrade} />
@@ -1628,623 +1664,650 @@ export default function TradesmanHome() {
 // ============================================
 // STYLES
 // ============================================
-const styles = StyleSheet.create({
+// Static outer styles — no theme needed for these.
+const rootStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
   },
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 20,
   },
-
-  // ============ HEADER ============
-  headerSection: {
-    marginBottom: 12,
-  },
-  headerGreeting: {
-    fontSize: 22,
-    fontWeight: "600",
-    color: "#111827",
-    letterSpacing: -0.3,
-  },
-  headerDate: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-
-  // ============ GLANCE STRIP ============
-  glanceStrip: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    backgroundColor: "#F9FAFB",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
-    marginBottom: 24,
-  },
-  glanceText: {
-    fontSize: 13,
-    color: "#374151",
-    fontWeight: "500",
-  },
-
-  // ============ SECTION SHARED ============
-  section: {
-    marginBottom: 28,
-  },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#6B7280",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  subLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#9CA3AF",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  linkButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-  },
-  linkText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#374151",
-  },
-  inlineEmpty: {
-    fontSize: 14,
-    color: "#9CA3AF",
-    paddingVertical: 8,
-  },
-  infoButton: {
-    padding: 4,
-  },
-
-  // ============ TODAY (appointments) ============
-  apptList: {
-    gap: 0,
-  },
-  apptRow: {
-    flexDirection: "row",
-    paddingVertical: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#F3F4F6",
-    gap: 14,
-  },
-  apptTimeColumn: {
-    width: 56,
-    paddingTop: 1,
-  },
-  apptTime: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  apptBody: {
-    flex: 1,
-  },
-  apptTopLine: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    flexWrap: "wrap",
-  },
-  apptType: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "#6B7280",
-  },
-  apptDot: {
-    fontSize: 12,
-    color: "#D1D5DB",
-  },
-  apptClient: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "#6B7280",
-    flexShrink: 1,
-  },
-  apptTitle: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#111827",
-    marginTop: 2,
-  },
-  apptLocation: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginTop: 1,
-  },
-  apptActions: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 10,
-  },
-  apptChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-    backgroundColor: "#F3F4F6",
-  },
-  apptChipText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "#374151",
-  },
-  tomorrowGroup: {
-    marginTop: 8,
-  },
-
-  // ============ NEEDS YOUR ATTENTION ============
-  attentionList: {
-    gap: 8,
-  },
-  attentionCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
-    backgroundColor: "#FFFFFF",
-  },
-  attentionDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  attentionBody: {
-    flex: 1,
-  },
-  attentionLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    flexWrap: "wrap",
-  },
-  attentionLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#6B7280",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-  },
-  attentionTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
-    marginTop: 2,
-  },
-  attentionMeta: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 1,
-  },
-  metaPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 4,
-    backgroundColor: "#F9FAFB",
-  },
-  metaPillText: {
-    fontSize: 10,
-    fontWeight: "600",
-  },
-
-  // ============ PIPELINE ============
-  pipelineList: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
-    overflow: "hidden",
-    backgroundColor: "#FFFFFF",
-  },
-  pipelineRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-  },
-  pipelineRowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#F3F4F6",
-  },
-  pipelineLabel: {
-    fontSize: 14,
-    color: "#374151",
-  },
-  pipelineValueRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  pipelineValue: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-  },
-
-  // ============ THIS MONTH ============
-  monthList: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
-    overflow: "hidden",
-    backgroundColor: "#FFFFFF",
-  },
-  monthRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-  },
-  monthRowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#F3F4F6",
-  },
-  monthLabel: {
-    fontSize: 14,
-    color: "#374151",
-  },
-  monthValue: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
-  },
-
-  // ============ HEALTH ============
-  healthRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
-    backgroundColor: "#FFFFFF",
-  },
-  healthItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-  healthDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: "#F3F4F6",
-  },
-  healthValueRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  healthValue: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  healthLabel: {
-    fontSize: 11,
-    color: "#6B7280",
-    marginTop: 3,
-    fontWeight: "500",
-  },
-
-  // ============ PROFILE FOOTER ============
-  profileFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
-    backgroundColor: "#F9FAFB",
-    marginTop: 8,
-    gap: 12,
-  },
-  profileFooterTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  profileFooterSubtitle: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-
-  // ============ EMPTY STATE (for new trades) ============
-  emptyStateCard: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
-    padding: 24,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: "#6B7280",
-    textAlign: "center",
-  },
-
-  // Performance Info Modal (80% height bottom sheet)
-  infoModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
-  },
-  infoModalSheet: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: "80%",
-    paddingTop: 12,
-  },
-  infoModalHandle: {
-    width: 36,
-    height: 4,
-    backgroundColor: "#D1D5DB",
-    borderRadius: 2,
-    alignSelf: "center",
-    marginBottom: 16,
-  },
-  infoModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 24,
-    paddingBottom: 16,
-  },
-  infoModalTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  infoModalCloseBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  infoModalContent: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 16,
-  },
-  infoSection: {
-    marginBottom: 28,
-  },
-  infoSectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 10,
-  },
-  infoSectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  infoSectionText: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: "#4B5563",
-    marginBottom: 12,
-  },
-  infoTipBox: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: 10,
-    padding: 14,
-    borderLeftWidth: 3,
-    borderLeftColor: TINT,
-  },
-  infoTipTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#111827",
-    marginBottom: 6,
-  },
-  infoTipText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: "#6B7280",
-  },
-  // Calendar Modal
-  calendarModal: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-  calendarHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  calendarHeaderTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  calendarMonthNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  calendarNavBtn: {
-    padding: 8,
-  },
-  calendarMonthTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  calendarWeekDays: {
-    flexDirection: "row",
-    paddingHorizontal: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-    paddingBottom: 8,
-  },
-  calendarWeekDay: {
-    flex: 1,
-    alignItems: "center",
-  },
-  calendarWeekDayText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#6B7280",
-  },
-  calendarContent: {
-    flex: 1,
-  },
-  calendarGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    paddingHorizontal: 10,
-    paddingTop: 8,
-  },
-  calendarDayCell: {
-    width: (SCREEN_WIDTH - 20) / 7,
-    height: 60,
-    alignItems: "center",
-    paddingTop: 4,
-  },
-  calendarDayNumber: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 16,
-  },
-  calendarDayNumberToday: {
-    backgroundColor: TINT,
-  },
-  calendarDayText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#111827",
-  },
-  calendarDayTextToday: {
-    color: "#FFFFFF",
-  },
-  calendarDayIndicators: {
-    flexDirection: "row",
-    gap: 3,
-    marginTop: 4,
-    alignItems: "center",
-  },
-  calendarDayDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  calendarDayMore: {
-    fontSize: 10,
-    color: "#6B7280",
-  },
-  calendarAppointmentsList: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  calendarAppointmentsTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#6B7280",
-    marginBottom: 12,
-  },
-  calendarAppointmentItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  calendarAppointmentDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 12,
-  },
-  calendarAppointmentContent: {
-    flex: 1,
-  },
-  calendarAppointmentDate: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: TINT,
-  },
-  calendarAppointmentTitle: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#111827",
-    marginTop: 2,
-  },
-  calendarAppointmentClient: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-  calendarAppointmentDateRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  calendarAppointmentItemPast: {
-    backgroundColor: "#F9FAFB",
-    borderColor: "#E5E7EB",
-  },
-  calendarAppointmentDatePast: {
-    color: "#9CA3AF",
-  },
-  calendarAppointmentTitlePast: {
-    color: "#6B7280",
-  },
-  pastBadge: {
-    backgroundColor: "#E5E7EB",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  pastBadgeText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#6B7280",
-  },
 });
+
+// makeStyles(c, dark) — regenerates the styles object when the theme changes.
+// All colours come from `c` (the active palette); typography uses the shared
+// font families so everything picks up the new Public Sans / DM Sans stack.
+function makeStyles(c, dark) {
+  return StyleSheet.create({
+    // ============ HEADER ============
+    headerSection: {
+      marginBottom: 12,
+    },
+    headerGreeting: {
+      fontSize: 28,
+      fontFamily: FontFamily.headerBold,
+      color: c.text,
+      letterSpacing: -0.5,
+    },
+    headerDate: {
+      fontSize: 13,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMid,
+      marginTop: 4,
+    },
+
+    // ============ GLANCE STRIP ============
+    glanceStrip: {
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      backgroundColor: c.elevate,
+      borderRadius: Radius.md,
+      borderWidth: 1,
+      borderColor: c.border,
+      marginBottom: 24,
+    },
+    glanceText: {
+      fontSize: 13,
+      color: c.textMid,
+      fontFamily: FontFamily.bodyMedium,
+    },
+
+    // ============ SECTION SHARED ============
+    section: {
+      marginBottom: 28,
+    },
+    sectionHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 12,
+    },
+    sectionLabel: {
+      fontSize: 11,
+      fontFamily: FontFamily.headerBold,
+      color: c.textMuted,
+      textTransform: "uppercase",
+      letterSpacing: 1.1,
+    },
+    subLabel: {
+      fontSize: 11,
+      fontFamily: FontFamily.headerBold,
+      color: c.textMuted,
+      textTransform: "uppercase",
+      letterSpacing: 1.1,
+      marginTop: 16,
+      marginBottom: 8,
+    },
+    linkButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 2,
+    },
+    linkText: {
+      fontSize: 13,
+      fontFamily: FontFamily.headerSemibold,
+      color: c.text,
+    },
+    inlineEmpty: {
+      fontSize: 14,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMuted,
+      paddingVertical: 8,
+    },
+    infoButton: {
+      padding: 4,
+    },
+
+    // ============ TODAY (appointments) ============
+    apptList: {
+      gap: 0,
+    },
+    apptRow: {
+      flexDirection: "row",
+      paddingVertical: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.divider,
+      gap: 14,
+    },
+    apptTimeColumn: {
+      width: 56,
+      paddingTop: 1,
+    },
+    apptTime: {
+      fontSize: 14,
+      fontFamily: FontFamily.headerSemibold,
+      color: c.text,
+    },
+    apptBody: {
+      flex: 1,
+    },
+    apptTopLine: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      flexWrap: "wrap",
+    },
+    apptType: {
+      fontSize: 12,
+      fontFamily: FontFamily.bodyMedium,
+      color: c.textMid,
+    },
+    apptDot: {
+      fontSize: 12,
+      color: c.textFaint,
+    },
+    apptClient: {
+      fontSize: 12,
+      fontFamily: FontFamily.bodyMedium,
+      color: c.textMid,
+      flexShrink: 1,
+    },
+    apptTitle: {
+      fontSize: 15,
+      fontFamily: FontFamily.bodyMedium,
+      color: c.text,
+      marginTop: 2,
+    },
+    apptLocation: {
+      fontSize: 13,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMid,
+      marginTop: 1,
+    },
+    apptActions: {
+      flexDirection: "row",
+      gap: 8,
+      marginTop: 10,
+    },
+    apptChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 999,
+      backgroundColor: c.elevate2,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    apptChipText: {
+      fontSize: 12,
+      fontFamily: FontFamily.headerSemibold,
+      color: c.text,
+    },
+    tomorrowGroup: {
+      marginTop: 8,
+    },
+
+    // ============ NEEDS YOUR ATTENTION ============
+    attentionList: {
+      gap: 8,
+    },
+    attentionCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: Radius.md,
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: c.elevate,
+    },
+    attentionDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    attentionBody: {
+      flex: 1,
+    },
+    attentionLabelRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      flexWrap: "wrap",
+    },
+    attentionLabel: {
+      fontSize: 11,
+      fontFamily: FontFamily.headerBold,
+      color: c.textMid,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+    },
+    attentionTitle: {
+      fontSize: 14,
+      fontFamily: FontFamily.bodyMedium,
+      color: c.text,
+      marginTop: 2,
+    },
+    attentionMeta: {
+      fontSize: 12,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMid,
+      marginTop: 1,
+    },
+    metaPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 3,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+      backgroundColor: c.chipBg,
+    },
+    metaPillText: {
+      fontSize: 10,
+      fontFamily: FontFamily.headerSemibold,
+    },
+
+    // ============ PIPELINE ============
+    pipelineList: {
+      borderRadius: Radius.md,
+      borderWidth: 1,
+      borderColor: c.border,
+      overflow: "hidden",
+      backgroundColor: c.elevate,
+    },
+    pipelineRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingVertical: 14,
+      paddingHorizontal: 14,
+    },
+    pipelineRowDivider: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.divider,
+    },
+    pipelineLabel: {
+      fontSize: 14,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMid,
+    },
+    pipelineValueRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    pipelineValue: {
+      fontSize: 16,
+      fontFamily: FontFamily.headerSemibold,
+      color: c.text,
+    },
+
+    // ============ THIS MONTH ============
+    monthList: {
+      borderRadius: Radius.md,
+      borderWidth: 1,
+      borderColor: c.border,
+      overflow: "hidden",
+      backgroundColor: c.elevate,
+    },
+    monthRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingVertical: 14,
+      paddingHorizontal: 14,
+    },
+    monthRowDivider: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.divider,
+    },
+    monthLabel: {
+      fontSize: 14,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMid,
+    },
+    monthValue: {
+      fontSize: 18,
+      fontFamily: FontFamily.headerBold,
+      color: c.text,
+      letterSpacing: -0.3,
+    },
+
+    // ============ HEALTH ============
+    healthRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 14,
+      paddingHorizontal: 14,
+      borderRadius: Radius.md,
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: c.elevate,
+    },
+    healthItem: {
+      flex: 1,
+      alignItems: "center",
+    },
+    healthDivider: {
+      width: 1,
+      height: 28,
+      backgroundColor: c.border,
+    },
+    healthValueRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 3,
+    },
+    healthValue: {
+      fontSize: 18,
+      fontFamily: FontFamily.headerBold,
+      color: c.text,
+      letterSpacing: -0.3,
+    },
+    healthLabel: {
+      fontSize: 11,
+      fontFamily: FontFamily.bodyMedium,
+      color: c.textMid,
+      marginTop: 3,
+    },
+
+    // ============ PROFILE FOOTER ============
+    profileFooter: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 14,
+      paddingHorizontal: 14,
+      borderRadius: Radius.md,
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: c.elevate,
+      marginTop: 8,
+      gap: 12,
+    },
+    profileFooterTitle: {
+      fontSize: 13,
+      fontFamily: FontFamily.headerSemibold,
+      color: c.text,
+    },
+    profileFooterSubtitle: {
+      fontSize: 12,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMid,
+      marginTop: 2,
+    },
+
+    // ============ EMPTY STATE (for new trades) ============
+    emptyStateCard: {
+      backgroundColor: c.elevate,
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: Radius.lg,
+      padding: 24,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    emptyStateText: {
+      fontSize: 14,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMid,
+      textAlign: "center",
+    },
+
+    // Performance Info Modal
+    infoModalOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0, 0, 0, 0.55)",
+      justifyContent: "flex-end",
+    },
+    infoModalSheet: {
+      backgroundColor: c.bg,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      height: "80%",
+      paddingTop: 12,
+    },
+    infoModalHandle: {
+      width: 36,
+      height: 4,
+      backgroundColor: c.borderStrong,
+      borderRadius: 2,
+      alignSelf: "center",
+      marginBottom: 16,
+    },
+    infoModalHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 24,
+      paddingBottom: 16,
+    },
+    infoModalTitle: {
+      fontSize: 22,
+      fontFamily: FontFamily.headerBold,
+      color: c.text,
+      letterSpacing: -0.4,
+    },
+    infoModalCloseBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: c.elevate2,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    infoModalContent: {
+      flex: 1,
+      paddingHorizontal: 24,
+      paddingTop: 16,
+    },
+    infoSection: {
+      marginBottom: 28,
+    },
+    infoSectionHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 10,
+    },
+    infoSectionTitle: {
+      fontSize: 16,
+      fontFamily: FontFamily.headerSemibold,
+      color: c.text,
+    },
+    infoSectionText: {
+      fontSize: 15,
+      lineHeight: 22,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMid,
+      marginBottom: 12,
+    },
+    infoTipBox: {
+      backgroundColor: c.elevate2,
+      borderRadius: Radius.md,
+      padding: 14,
+      borderLeftWidth: 3,
+      borderLeftColor: TINT,
+    },
+    infoTipTitle: {
+      fontSize: 13,
+      fontFamily: FontFamily.headerSemibold,
+      color: c.text,
+      marginBottom: 6,
+    },
+    infoTipText: {
+      fontSize: 14,
+      lineHeight: 20,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMid,
+    },
+
+    // ============ Calendar Modal ============
+    calendarModal: {
+      flex: 1,
+      backgroundColor: c.bg,
+    },
+    calendarHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 20,
+      paddingTop: 20,
+      paddingBottom: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
+    },
+    calendarHeaderTitle: {
+      fontSize: 18,
+      fontFamily: FontFamily.headerBold,
+      color: c.text,
+    },
+    calendarMonthNav: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+    },
+    calendarNavBtn: {
+      padding: 8,
+    },
+    calendarMonthTitle: {
+      fontSize: 18,
+      fontFamily: FontFamily.headerBold,
+      color: c.text,
+    },
+    calendarWeekDays: {
+      flexDirection: "row",
+      paddingHorizontal: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
+      paddingBottom: 8,
+    },
+    calendarWeekDay: {
+      flex: 1,
+      alignItems: "center",
+    },
+    calendarWeekDayText: {
+      fontSize: 12,
+      fontFamily: FontFamily.headerSemibold,
+      color: c.textMid,
+    },
+    calendarContent: {
+      flex: 1,
+    },
+    calendarGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      paddingHorizontal: 10,
+      paddingTop: 8,
+    },
+    calendarDayCell: {
+      width: (SCREEN_WIDTH - 20) / 7,
+      height: 60,
+      alignItems: "center",
+      paddingTop: 4,
+    },
+    calendarDayNumber: {
+      width: 32,
+      height: 32,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 16,
+    },
+    calendarDayNumberToday: {
+      backgroundColor: TINT,
+    },
+    calendarDayText: {
+      fontSize: 14,
+      fontFamily: FontFamily.bodyMedium,
+      color: c.text,
+    },
+    calendarDayTextToday: {
+      color: "#FFFFFF",
+    },
+    calendarDayIndicators: {
+      flexDirection: "row",
+      gap: 3,
+      marginTop: 4,
+      alignItems: "center",
+    },
+    calendarDayDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+    },
+    calendarDayMore: {
+      fontSize: 10,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMid,
+    },
+    calendarAppointmentsList: {
+      paddingHorizontal: 20,
+      paddingTop: 20,
+    },
+    calendarAppointmentsTitle: {
+      fontSize: 14,
+      fontFamily: FontFamily.headerSemibold,
+      color: c.textMid,
+      marginBottom: 12,
+    },
+    calendarAppointmentItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: c.elevate,
+      borderRadius: Radius.md,
+      padding: 14,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    calendarAppointmentDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      marginRight: 12,
+    },
+    calendarAppointmentContent: {
+      flex: 1,
+    },
+    calendarAppointmentDate: {
+      fontSize: 12,
+      fontFamily: FontFamily.headerSemibold,
+      color: TINT,
+    },
+    calendarAppointmentTitle: {
+      fontSize: 15,
+      fontFamily: FontFamily.bodyMedium,
+      color: c.text,
+      marginTop: 2,
+    },
+    calendarAppointmentClient: {
+      fontSize: 13,
+      fontFamily: FontFamily.bodyRegular,
+      color: c.textMid,
+      marginTop: 2,
+    },
+    calendarAppointmentDateRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    calendarAppointmentItemPast: {
+      backgroundColor: c.elevate2,
+      borderColor: c.border,
+    },
+    calendarAppointmentDatePast: {
+      color: c.textMuted,
+    },
+    calendarAppointmentTitlePast: {
+      color: c.textMid,
+    },
+    pastBadge: {
+      backgroundColor: c.elevate2,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+    },
+    pastBadgeText: {
+      fontSize: 10,
+      fontFamily: FontFamily.headerSemibold,
+      color: c.textMid,
+    },
+  });
+}
