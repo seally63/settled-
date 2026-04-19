@@ -13,7 +13,6 @@ import { useEffect, useState, useCallback } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StatusBar } from "expo-status-bar";
 
 import { supabase } from "../../../lib/supabase";
 import { useUser } from "../../../hooks/useUser";
@@ -23,6 +22,7 @@ import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { MessagesPageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 const TINT = Colors?.light?.tint || "#0ea5e9";
 
@@ -195,7 +195,7 @@ export default function MessagesIndex() {
 
   return (
     <ThemedView style={styles.container}>
-      <StatusBar style="dark" backgroundColor="#FFFFFF" />
+      <ThemedStatusBar backgroundColor="#FFFFFF" />
       {/* Header - Profile-style */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <ThemedText style={styles.headerTitle}>Messages</ThemedText>

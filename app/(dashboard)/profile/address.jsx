@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +21,7 @@ import Spacer from "../../../components/Spacer";
 import { Colors } from "../../../constants/Colors";
 
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 export default function AddressScreen() {
   const insets = useSafeAreaInsets();
@@ -80,7 +80,7 @@ export default function AddressScreen() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <View style={styles.loadingContainer}>
           <ActivityIndicator />
         </View>
@@ -90,7 +90,7 @@ export default function AddressScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header */}
       <View style={styles.header}>

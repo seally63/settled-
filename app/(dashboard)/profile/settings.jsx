@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Pressable,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,6 +24,7 @@ import { useTheme } from "../../../hooks/useTheme";
 import { getMyRole, getMyProfile } from "../../../lib/api/profile";
 import { getMyVerificationStatus } from "../../../lib/api/verification";
 import { isCurrentUserAdmin } from "../../../lib/api/admin";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 function normalizeRole(r) {
   if (r == null) return null;
@@ -117,7 +117,7 @@ export default function SettingsScreen() {
   if (roleLoading || loadingData) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <SettingsFormSkeleton paddingTop={16} />
       </ThemedView>
     );
@@ -181,7 +181,7 @@ export default function SettingsScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header */}
       <View style={styles.header}>

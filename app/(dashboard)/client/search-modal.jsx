@@ -12,7 +12,6 @@ import {
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 
 import ThemedView from "../../../components/ThemedView";
@@ -31,6 +30,7 @@ import {
   defaultCategoryIcon,
   defaultServiceTypeIcon,
 } from "../../../assets/icons";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -380,7 +380,7 @@ export default function SearchModal() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="light" />
+      <ThemedStatusBar />
 
       {/* Search header */}
       <View style={styles.header}>

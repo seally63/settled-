@@ -6,7 +6,6 @@ import {
   Pressable,
   ActivityIndicator,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +16,7 @@ import Spacer from "../../../components/Spacer";
 import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 export default function SignOutScreen() {
   const insets = useSafeAreaInsets();
@@ -42,7 +42,7 @@ export default function SignOutScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Spacer to push content to bottom */}
       <View style={styles.spacer} />

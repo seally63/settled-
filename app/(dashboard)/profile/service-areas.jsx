@@ -12,7 +12,6 @@ import {
   FlatList,
   Platform,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,6 +22,7 @@ import Spacer from "../../../components/Spacer";
 import { Colors } from "../../../constants/Colors";
 
 import { getMyProfile, updateServiceRadius, updateExtendedTravel } from "../../../lib/api/profile";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
 const TINT = Colors.primary;
 
@@ -126,7 +126,7 @@ export default function ServiceAreasScreen() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style="dark" />
+        <ThemedStatusBar />
         <View style={styles.loadingContainer}>
           <ActivityIndicator />
         </View>
@@ -136,7 +136,7 @@ export default function ServiceAreasScreen() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style="dark" />
+      <ThemedStatusBar />
 
       {/* Header */}
       <View style={styles.header}>

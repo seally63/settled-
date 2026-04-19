@@ -15,7 +15,7 @@ import {
   Dimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { StatusBar } from "expo-status-bar";
+import ThemedStatusBar from "../../../../components/ThemedStatusBar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -862,7 +862,7 @@ export default function TradeProfileClient() {
   if (loading) {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style={dark ? "light" : "dark"} />
+        <ThemedStatusBar />
         <ProfilePageSkeleton paddingTop={16} />
       </ThemedView>
     );
@@ -916,7 +916,7 @@ export default function TradeProfileClient() {
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar style={showRequestModal ? "light" : (dark ? "light" : "dark")} />
+      <ThemedStatusBar style={showRequestModal ? "light" : undefined} />
 
       {/* Header - shows business name */}
       <View style={styles.header}>

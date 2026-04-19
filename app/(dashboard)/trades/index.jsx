@@ -11,7 +11,7 @@ import {
   Linking,
   Platform,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,12 +21,19 @@ import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { HomePageSkeleton } from "../../../components/Skeleton";
+import { IconBtn } from "../../../components/design";
 import { Colors } from "../../../constants/Colors";
 import { FontFamily, TypeVariants, Radius } from "../../../constants/Typography";
 import { useUser } from "../../../hooks/useUser";
 import { useTheme } from "../../../hooks/useTheme";
 import { supabase } from "../../../lib/supabase";
 import { getTradeReviews } from "../../../lib/api/trust";
+
+// New design-spec trade-home panels
+import TradeHomeHeader from "../../../components/trades/home/TradeHomeHeader";
+import SchedulePanel from "../../../components/trades/home/SchedulePanel";
+import NewRequestsPanel from "../../../components/trades/home/NewRequestsPanel";
+import EarningsCard from "../../../components/trades/home/EarningsCard";
 
 const TINT = Colors.primary;
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -1569,20 +1576,36 @@ export default function TradesmanHome() {
   if (loading) {
     return (
       <ThemedView style={[rootStyles.container, { paddingTop: insets.top }]}>
-        <StatusBar style={dark ? "light" : "dark"} />
+        <ThemedStatusBar />
         <HomePageSkeleton paddingTop={20} />
       </ThemedView>
     );
   }
 
+  // Only surface requests the trade hasn't yet accepted / quoted / declined.
+  // `state` is the request_targets.state field (invited / accepted / declined);
+  // already-quoted requests are filtered out of inboxRows upstream.
+  const newRequestRows = inboxRows.filter(
+    (r) => !r.isAccepted && String(r.state || "").toLowerCase() !== "declined"
+  );
+  const newRequestCount = newRequestRows.length;
+  const jobCount = todayAppointments.length;
+
   return (
     <ThemedView style={[rootStyles.container, { paddingTop: insets.top }]}>
-      <StatusBar style={dark ? "light" : "dark"} />
+      <ThemedStatusBar />
+
+      {/* Top-right icon dock: bell · more (matches redesign spec) */}
+      <View style={[tradeHomeStyles.topBar, { top: insets.top + 12 }]}>
+        <IconBtn icon="notifications-outline" badge={newRequestCount > 0} />
+        <IconBtn icon="ellipsis-horizontal" />
+      </View>
+
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={[
           rootStyles.scrollContent,
-          { paddingBottom: insets.bottom + 110 },
+          { paddingTop: 54, paddingBottom: insets.bottom + 130 },
         ]}
         refreshControl={
           <RefreshControl
@@ -1593,55 +1616,39 @@ export default function TradesmanHome() {
         }
         showsVerticalScrollIndicator={false}
       >
-        <Header firstName={firstName} isNewTrade={isNewTrade} />
-
-        <GlanceStrip
-          todayCount={todayAppointments.length}
-          attentionCount={isNewTrade ? 0 : actionItems.length}
-          sentCount={sentRows.filter((q) => q.status === "sent").length}
+        <TradeHomeHeader
+          jobCount={jobCount}
+          availableLabel="Available"
         />
 
-        <TodaySection
+        <SchedulePanel
           todayAppointments={todayAppointments}
           tomorrowAppointments={tomorrowAppointments}
           onSeeAll={handleSeeAllSchedule}
           onItemPress={handleAppointmentPress}
-          onMessage={handleMessagePress}
-          conversationsByRequest={conversationsByRequest}
         />
 
-        {isNewTrade ? (
-          <NewTradeActionItems />
-        ) : (
-          <ActionItemsSection
-            items={actionItems}
-            onItemPress={handleActionItemPress}
-            onSeeAll={handleSeeAllActions}
-          />
-        )}
-
-        <PipelineList
-          activeJobs={monthlyStats.activeJobs}
-          sentQuotes={sentRows.filter((q) => q.status === "sent").length}
-          scheduled={performanceStats.scheduledCount || 0}
-          completedThisMonth={monthlyStats.completedThisMonth}
-          onActivePress={handleJobsPress}
-          onSentPress={() => router.push({ pathname: "/quotes", params: { filter: "sent" } })}
-          onScheduledPress={handleScheduledPress}
-          onCompletedPress={() => router.push({ pathname: "/quotes", params: { filter: "completed" } })}
+        <NewRequestsPanel
+          requests={newRequestRows}
+          newCount={newRequestCount}
+          onSeeAll={() => router.push("/quotes")}
+          onItemPress={(req) =>
+            router.push({
+              pathname: "/(dashboard)/trades/request/[id]",
+              params: { id: String(req.request_id) },
+            })
+          }
         />
 
-        <MonthSummary
-          earned={monthlyStats.earnedThisMonth}
-          activeValue={monthlyStats.activeValue}
+        <EarningsCard
+          earnedThisMonth={monthlyStats.earnedThisMonth}
+          onPress={() => router.push({ pathname: "/quotes", params: { filter: "completed" } })}
         />
 
-        <HealthRow
-          stats={performanceStats}
-          onInfoPress={() => setPerformanceInfoVisible(true)}
-        />
-
-        <ProfileFooter profile={profile} onPress={handleProfileCompletion} />
+        {/* Incomplete-profile banner surfaces only when < 100% */}
+        <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+          <ProfileFooter profile={profile} onPress={handleProfileCompletion} />
+        </View>
 
         <Spacer height={40} />
       </ScrollView>
@@ -1660,6 +1667,17 @@ export default function TradesmanHome() {
     </ThemedView>
   );
 }
+
+// Local static layout helpers for the rebuilt screen (nothing theme-aware).
+const tradeHomeStyles = StyleSheet.create({
+  topBar: {
+    position: "absolute",
+    right: 16,
+    flexDirection: "row",
+    gap: 8,
+    zIndex: 20,
+  },
+});
 
 // ============================================
 // STYLES
