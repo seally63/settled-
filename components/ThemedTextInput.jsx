@@ -1,37 +1,32 @@
-import { TextInput, useColorScheme, View, Pressable } from 'react-native'
-import { useState } from 'react'
+import React, { useState } from 'react'
+import { TextInput, View, Pressable } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { Colors } from '../constants/Colors'
+import { useTheme } from '../hooks/useTheme'
+import { FontFamily, Radius } from '../constants/Typography'
 
-
-const ThemedTextInput = ({ style, showPasswordToggle = false, secureTextEntry, ...props}) => {
-    const colorScheme = useColorScheme()
-    const theme = Colors[colorScheme] ?? Colors.light
+const ThemedTextInput = ({ style, showPasswordToggle = false, secureTextEntry, ...props }) => {
+    const { colors } = useTheme()
     const [isPasswordVisible, setIsPasswordVisible] = useState(false)
 
-    // If this is a password field with toggle enabled
     const isSecure = showPasswordToggle ? (secureTextEntry && !isPasswordVisible) : secureTextEntry
+
+    const baseStyle = {
+        backgroundColor: colors.elevate,
+        color: colors.text,
+        padding: 16,
+        borderRadius: Radius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        fontSize: 16,
+        fontFamily: FontFamily.bodyRegular,
+    }
 
     if (showPasswordToggle && secureTextEntry) {
         return (
-            <View style={{
-                position: 'relative',
-                width: '100%',
-            }}>
+            <View style={{ position: 'relative', width: '100%' }}>
                 <TextInput
-                    style={[
-                        {
-                            backgroundColor: theme.uiBackground,
-                            color: theme.text,
-                            padding: 16,
-                            paddingRight: 48, // Make room for eye icon
-                            borderRadius: 8,
-                            borderWidth: 1,
-                            borderColor: theme.border || '#E5E7EB',
-                            fontSize: 16,
-                        },
-                        style
-                    ]}
+                    placeholderTextColor={colors.textMuted}
+                    style={[baseStyle, { paddingRight: 48 }, style]}
                     secureTextEntry={isSecure}
                     {...props}
                 />
@@ -50,7 +45,7 @@ const ThemedTextInput = ({ style, showPasswordToggle = false, secureTextEntry, .
                     <Ionicons
                         name={isPasswordVisible ? 'eye-off' : 'eye'}
                         size={20}
-                        color={theme.subtitle || '#64748B'}
+                        color={colors.textMuted}
                     />
                 </Pressable>
             </View>
@@ -59,24 +54,12 @@ const ThemedTextInput = ({ style, showPasswordToggle = false, secureTextEntry, .
 
     return (
         <TextInput
-            style={[
-                {
-                    backgroundColor : theme.uiBackground,
-                    color: theme.text,
-                    padding: 16,
-                    borderRadius: 8,
-                    borderWidth: 1,
-                    borderColor: theme.border || '#E5E7EB',
-                    fontSize: 16,
-            },
-            style
-        ]}
-        secureTextEntry={isSecure}
-        {...props}
-
+            placeholderTextColor={colors.textMuted}
+            style={[baseStyle, style]}
+            secureTextEntry={isSecure}
+            {...props}
         />
-  )
+    )
 }
 
 export default ThemedTextInput
-
