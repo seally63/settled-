@@ -21,7 +21,9 @@ import ThemedText from "../../../../components/ThemedText";
 import Spacer from "../../../../components/Spacer";
 import { RequestDetailSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
+import { FontFamily, Radius } from "../../../../constants/Typography";
 import { useUser } from "../../../../hooks/useUser";
+import { useTheme } from "../../../../hooks/useTheme";
 import { supabase } from "../../../../lib/supabase";
 
 // RPC wrappers
@@ -29,6 +31,14 @@ import { acceptRequest, declineRequest } from "../../../../lib/api/requests";
 import { listRequestImagePaths, getSignedUrls } from "../../../../lib/api/attachments";
 const CELL = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
+
+// Per-theme styles factory shared by all sub-components in this file.
+function useStyles() {
+  const { colors: c, dark } = useTheme();
+  const styles = useMemo(() => makeStyles(c, dark), [c, dark]);
+  const quoteStyles = useMemo(() => makeQuoteStyles(c, dark), [c, dark]);
+  return { styles, quoteStyles, colors: c, dark };
+}
 
 function parseDetails(details) {
   const res = {
@@ -91,6 +101,7 @@ const CHIP_TONES = {
 };
 
 function Chip({ children, tone = "muted", icon }) {
+  const { styles } = useStyles();
   const t = CHIP_TONES[tone] || CHIP_TONES.muted;
   const chipIcon = icon || t.icon;
   return (
@@ -121,6 +132,7 @@ function formatNumber(n) {
 
 // Quote status badge for individual quotes in the list
 function QuoteStatusBadge({ status }) {
+  const { quoteStyles } = useStyles();
   const s = (status || "").toLowerCase();
   let tone = "muted";
   let label = status;
@@ -175,6 +187,7 @@ function QuoteStatusBadge({ status }) {
 
 // Quotes section component for Client Request page
 function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, derivedTitleForCreate, clientName }) {
+  const { quoteStyles, colors: c } = useStyles();
   const [showOtherQuotes, setShowOtherQuotes] = useState(false);
 
   // Get client first name for quote labels
@@ -265,14 +278,14 @@ function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, d
       >
         {/* Header with title and status badge */}
         <View style={quoteStyles.quoteCardHeader}>
-          <ThemedText style={[quoteStyles.quoteCardTitle, isMuted && { color: "#9CA3AF" }]}>
+          <ThemedText style={[quoteStyles.quoteCardTitle, isMuted && { color: c.textMuted }]}>
             {quoteTitle}
           </ThemedText>
           <QuoteStatusBadge status={isDraft && isInOtherSection ? "unused" : quote.status} />
         </View>
 
         {/* Price */}
-        <ThemedText style={[quoteStyles.quoteCardPrice, isMuted && { color: "#9CA3AF" }]}>
+        <ThemedText style={[quoteStyles.quoteCardPrice, isMuted && { color: c.textMuted }]}>
           £{formatNumber(quote.grand_total || 0)}
         </ThemedText>
 
@@ -368,7 +381,7 @@ function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, d
         <View style={quoteStyles.emptyCard}>
           <View style={quoteStyles.emptyStateContainer}>
             <View style={quoteStyles.emptyStateIcon}>
-              <Ionicons name="document-text-outline" size={32} color="#9CA3AF" />
+              <Ionicons name="document-text-outline" size={32} color={c.textMuted} />
             </View>
             <ThemedText style={quoteStyles.emptyStateTitle}>No quotes yet</ThemedText>
             <ThemedText style={quoteStyles.emptyStateSubtitle}>
@@ -393,7 +406,7 @@ function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, d
               <Ionicons
                 name={showOtherQuotes ? "chevron-up" : "chevron-down"}
                 size={18}
-                color="#6B7280"
+                color={c.textMid}
               />
             </Pressable>
           )}
@@ -411,7 +424,8 @@ function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, d
 }
 
 // Styles for QuotesSection
-const quoteStyles = StyleSheet.create({
+function makeQuoteStyles(c, dark) {
+  return StyleSheet.create({
   sectionHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -422,7 +436,7 @@ const quoteStyles = StyleSheet.create({
   sectionHeaderTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   sectionHeaderBtn: {
     flexDirection: "row",
@@ -444,7 +458,7 @@ const quoteStyles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     padding: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -460,7 +474,7 @@ const quoteStyles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
@@ -468,12 +482,12 @@ const quoteStyles = StyleSheet.create({
   emptyStateTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
     marginBottom: 4,
   },
   emptyStateSubtitle: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: c.textMuted,
     textAlign: "center",
   },
   createQuoteButton: {
@@ -499,7 +513,7 @@ const quoteStyles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     padding: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -508,7 +522,7 @@ const quoteStyles = StyleSheet.create({
     elevation: 2,
   },
   quoteCardMuted: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate2,
     opacity: 0.8,
   },
   quoteCardHeader: {
@@ -520,17 +534,17 @@ const quoteStyles = StyleSheet.create({
   quoteCardTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   quoteCardPrice: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
     marginBottom: 4,
   },
   quoteCardDateInfo: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     marginBottom: 8,
   },
 
@@ -548,13 +562,13 @@ const quoteStyles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     backgroundColor: "#fff",
   },
   editButtonText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
   },
   sendButton: {
     flex: 1,
@@ -608,23 +622,25 @@ const quoteStyles = StyleSheet.create({
     marginHorizontal: 16,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate2,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
   },
   otherQuotesToggleText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#6B7280",
+    color: c.textMid,
   },
-});
+  });
+}
 
 export default function RequestDetails() {
   const { id } = useLocalSearchParams(); // request_id
   const router = useRouter();
   const { user } = useUser();
   const insets = useSafeAreaInsets();
+  const { styles, colors: c, dark } = useStyles();
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
@@ -1026,7 +1042,7 @@ export default function RequestDetails() {
             hitSlop={10}
             style={styles.closeButton}
           >
-            <Ionicons name="close" size={28} color="#6B7280" />
+            <Ionicons name="close" size={28} color={c.textMid} />
           </Pressable>
         </View>
       </View>
@@ -1129,7 +1145,7 @@ export default function RequestDetails() {
                           <Ionicons
                             name="calendar"
                             size={20}
-                            color="#6B7280"
+                            color={c.textMid}
                           />
                           <View style={{ flex: 1 }}>
                             <ThemedText style={styles.appointmentListTitle}>
@@ -1231,7 +1247,7 @@ export default function RequestDetails() {
           <View style={[styles.card, { marginTop: 8 }]}>
             {/* Category - from joined table or parsed */}
             <View style={styles.requestDetailRow}>
-              <Ionicons name="grid-outline" size={18} color="#6B7280" />
+              <Ionicons name="grid-outline" size={18} color={c.textMid} />
               <View style={styles.requestDetailContent}>
                 <ThemedText style={styles.requestDetailLabel}>Category</ThemedText>
                 <ThemedText style={styles.requestDetailValue}>
@@ -1242,7 +1258,7 @@ export default function RequestDetails() {
 
             {/* Service Type - from joined table or parsed */}
             <View style={styles.requestDetailRow}>
-              <Ionicons name="construct-outline" size={18} color="#6B7280" />
+              <Ionicons name="construct-outline" size={18} color={c.textMid} />
               <View style={styles.requestDetailContent}>
                 <ThemedText style={styles.requestDetailLabel}>Service</ThemedText>
                 <ThemedText style={styles.requestDetailValue}>
@@ -1253,7 +1269,7 @@ export default function RequestDetails() {
 
             {/* Property Type - from joined table or parsed */}
             <View style={styles.requestDetailRow}>
-              <Ionicons name="home-outline" size={18} color="#6B7280" />
+              <Ionicons name="home-outline" size={18} color={c.textMid} />
               <View style={styles.requestDetailContent}>
                 <ThemedText style={styles.requestDetailLabel}>Property</ThemedText>
                 <ThemedText style={styles.requestDetailValue}>
@@ -1276,7 +1292,7 @@ export default function RequestDetails() {
             {/* Location - postcode */}
             {!!req?.postcode && (
               <View style={styles.requestDetailRow}>
-                <Ionicons name="location-outline" size={18} color="#6B7280" />
+                <Ionicons name="location-outline" size={18} color={c.textMid} />
                 <View style={styles.requestDetailContent}>
                   <ThemedText style={styles.requestDetailLabel}>Location</ThemedText>
                   <ThemedText style={styles.requestDetailValue}>{req.postcode}</ThemedText>
@@ -1287,7 +1303,7 @@ export default function RequestDetails() {
             {/* Budget - from database or parsed from details */}
             {(!!req?.budget_band || !!parsed.budget) && (
               <View style={styles.requestDetailRow}>
-                <Ionicons name="cash-outline" size={18} color="#6B7280" />
+                <Ionicons name="cash-outline" size={18} color={c.textMid} />
                 <View style={styles.requestDetailContent}>
                   <ThemedText style={styles.requestDetailLabel}>Budget</ThemedText>
                   <ThemedText style={styles.requestDetailValue}>{req?.budget_band || parsed.budget}</ThemedText>
@@ -1298,7 +1314,7 @@ export default function RequestDetails() {
             {/* Legacy: Address if available */}
             {!!parsed.address && (
               <View style={styles.requestDetailRow}>
-                <Ionicons name="navigate-outline" size={18} color="#6B7280" />
+                <Ionicons name="navigate-outline" size={18} color={c.textMid} />
                 <View style={styles.requestDetailContent}>
                   <ThemedText style={styles.requestDetailLabel}>Address</ThemedText>
                   <ThemedText style={styles.requestDetailValue}>{parsed.address}</ThemedText>
@@ -1309,7 +1325,7 @@ export default function RequestDetails() {
             {/* Legacy: Start date if available */}
             {!!parsed.start && (
               <View style={styles.requestDetailRow}>
-                <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                <Ionicons name="calendar-outline" size={18} color={c.textMid} />
                 <View style={styles.requestDetailContent}>
                   <ThemedText style={styles.requestDetailLabel}>Start</ThemedText>
                   <ThemedText style={styles.requestDetailValue}>{parsed.start}</ThemedText>
@@ -1320,7 +1336,7 @@ export default function RequestDetails() {
             {/* Legacy: Refit type if available */}
             {!!parsed.refit && (
               <View style={styles.requestDetailRow}>
-                <Ionicons name="hammer-outline" size={18} color="#6B7280" />
+                <Ionicons name="hammer-outline" size={18} color={c.textMid} />
                 <View style={styles.requestDetailContent}>
                   <ThemedText style={styles.requestDetailLabel}>Refit type</ThemedText>
                   <ThemedText style={styles.requestDetailValue}>{parsed.refit}</ThemedText>
@@ -1331,7 +1347,7 @@ export default function RequestDetails() {
             {/* Description - always show, even if empty */}
             <View style={styles.divider} />
             <View style={styles.requestDetailRow}>
-              <Ionicons name="document-text-outline" size={18} color="#6B7280" />
+              <Ionicons name="document-text-outline" size={18} color={c.textMid} />
               <View style={styles.requestDetailContent}>
                 <ThemedText style={styles.requestDetailLabel}>Description</ThemedText>
                 <ThemedText style={[
@@ -1459,15 +1475,16 @@ export default function RequestDetails() {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c, dark) {
+  return StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "stretch",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.background,
   },
   // Header - Profile-style matching Quote Overview
   header: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     paddingHorizontal: 20,
     paddingBottom: 12,
   },
@@ -1479,7 +1496,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 28,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   headerInfo: {
     marginTop: 8,
@@ -1487,11 +1504,11 @@ const styles = StyleSheet.create({
   headerInfoText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
   },
   headerInfoSubtext: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 2,
   },
   closeButton: {
@@ -1585,7 +1602,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     padding: 16,
     // Subtle shadow for Notion/Airbnb style
     shadowColor: "#000",
@@ -1605,13 +1622,13 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#374151",
+    color: c.textMid,
     flex: 1,
   },
 
   kvRow: { flexDirection: "row", gap: 10, marginVertical: 6 },
-  kvKey: { width: 100, fontWeight: "600", color: "#6B7280", fontSize: 14 },
-  kvVal: { flex: 1, color: "#111827", fontSize: 14 },
+  kvKey: { width: 100, fontWeight: "600", color: c.textMid, fontSize: 14 },
+  kvVal: { flex: 1, color: c.text, fontSize: 14 },
 
   // Request detail row with icons (matching Quote Overview style)
   requestDetailRow: {
@@ -1626,12 +1643,12 @@ const styles = StyleSheet.create({
   requestDetailLabel: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#6B7280",
+    color: c.textMid,
     marginBottom: 2,
   },
   requestDetailValue: {
     fontSize: 14,
-    color: "#111827",
+    color: c.text,
     lineHeight: 20,
   },
 
@@ -1642,16 +1659,16 @@ const styles = StyleSheet.create({
   descriptionLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#6B7280",
+    color: c.textMid,
     marginBottom: 6,
   },
   descriptionText: {
     fontSize: 14,
     lineHeight: 22,
-    color: "#374151",
+    color: c.textMid,
   },
   descriptionEmpty: {
-    color: "#9CA3AF",
+    color: c.textMuted,
     fontStyle: "italic",
   },
 
@@ -1665,7 +1682,7 @@ const styles = StyleSheet.create({
   photoCountText: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#6B7280",
+    color: c.textMid,
   },
   photoScrollContent: {
     gap: 12,
@@ -1676,7 +1693,7 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 12,
     overflow: "hidden",
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
   },
   photoImg: {
     width: "100%",
@@ -1689,7 +1706,7 @@ const styles = StyleSheet.create({
   },
   noPhotosText: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: c.textMuted,
   },
 
   divider: {
@@ -1711,7 +1728,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     backgroundColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
@@ -1719,7 +1736,7 @@ const styles = StyleSheet.create({
   declineButtonText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
   },
   acceptButton: {
     flex: 1,
@@ -1766,11 +1783,11 @@ const styles = StyleSheet.create({
   statusBannerTitle: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   statusBannerSubtitle: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 2,
   },
 
@@ -1785,7 +1802,7 @@ const styles = StyleSheet.create({
   sectionHeaderTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   sectionHeaderBtn: {
     flexDirection: "row",
@@ -1803,7 +1820,7 @@ const styles = StyleSheet.create({
   // Empty state text
   emptyStateText: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: c.textMuted,
     textAlign: "center",
     paddingVertical: 16,
   },
@@ -1819,24 +1836,24 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     alignItems: "center",
     justifyContent: "center",
   },
   quoteSummaryTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   quoteSummaryStatus: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 2,
   },
   quoteSummaryTotal: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
     marginRight: 4,
   },
   quoteDivider: {
@@ -1874,10 +1891,10 @@ const styles = StyleSheet.create({
   draftQuoteTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   draftQuoteItems: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.08)",
@@ -1893,17 +1910,17 @@ const styles = StyleSheet.create({
   draftQuoteItemName: {
     flex: 1,
     fontSize: 14,
-    color: "#374151",
+    color: c.textMid,
     marginRight: 12,
   },
   draftQuoteItemPrice: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#111827",
+    color: c.text,
   },
   draftQuoteMoreItems: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     fontStyle: "italic",
     marginTop: 4,
   },
@@ -1918,12 +1935,12 @@ const styles = StyleSheet.create({
   draftQuoteTotalLabel: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
   },
   draftQuoteTotalValue: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
 
   // Draft quote actions
@@ -1956,23 +1973,23 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     alignItems: "center",
     justifyContent: "center",
   },
   appointmentListTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     marginBottom: 4,
   },
   appointmentListDateTime: {
     fontSize: 14,
-    color: "#374151",
+    color: c.textMid,
   },
   appointmentListLocation: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 2,
   },
   appointmentListBadge: {
@@ -2024,4 +2041,5 @@ const styles = StyleSheet.create({
     height: "70%",
     resizeMode: "contain",
   },
-});
+  });
+}

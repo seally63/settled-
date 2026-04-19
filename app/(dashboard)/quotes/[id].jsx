@@ -23,12 +23,14 @@ import CustomDateTimePicker from "../../../components/CustomDateTimePicker";
 
 import { useQuotes } from "../../../hooks/useQuotes";
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import { supabase } from "../../../lib/supabase";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { QuoteOverviewSkeleton } from "../../../components/Skeleton";
 import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
+import { FontFamily, Radius } from "../../../constants/Typography";
 import {
   listRequestImagePaths,
   getSignedUrls,
@@ -127,6 +129,8 @@ export default function QuoteDetails() {
   const router = useRouter();
   const { user } = useUser();
   const insets = useSafeAreaInsets();
+  const { colors: c, dark } = useTheme();
+  const styles = useMemo(() => makeStyles(c, dark), [c, dark]);
 
   // Params from navigation (used as very rough fallback only)
   const routeNameParam = Array.isArray(params.name)
@@ -1590,7 +1594,7 @@ export default function QuoteDetails() {
                 <ThemedText
                   style={[
                     styles.detailValue,
-                    !hasDate && { color: "#9CA3AF" },
+                    !hasDate && { color: c.textMuted },
                   ]}
                 >
                   {niceDate}
@@ -1617,7 +1621,7 @@ export default function QuoteDetails() {
                 <ThemedText
                   style={[
                     styles.detailValue,
-                    !hasTime && { color: "#9CA3AF" },
+                    !hasTime && { color: c.textMuted },
                   ]}
                 >
                   {niceTime}
@@ -1686,7 +1690,7 @@ export default function QuoteDetails() {
               hitSlop={10}
               style={styles.backButton}
             >
-              <Ionicons name="close" size={28} color="#6B7280" />
+              <Ionicons name="close" size={28} color={c.textMid} />
             </Pressable>
           </View>
         </View>
@@ -1847,7 +1851,7 @@ export default function QuoteDetails() {
             <Ionicons
               name={quoteBreakdownExpanded ? "chevron-up" : "chevron-down"}
               size={20}
-              color="#6B7280"
+              color={c.textMid}
             />
           </Pressable>
 
@@ -1856,7 +1860,7 @@ export default function QuoteDetails() {
             {/* Meta information */}
             {issuedAt && (
               <View style={styles.requestDetailRow}>
-                <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                <Ionicons name="calendar-outline" size={18} color={c.textMid} />
                 <View style={styles.requestDetailContent}>
                   <ThemedText style={styles.requestDetailLabel}>Issued</ThemedText>
                   <ThemedText style={styles.requestDetailValue}>
@@ -1873,7 +1877,7 @@ export default function QuoteDetails() {
 
             {quote.valid_until && (
               <View style={styles.requestDetailRow}>
-                <Ionicons name="time-outline" size={18} color="#6B7280" />
+                <Ionicons name="time-outline" size={18} color={c.textMid} />
                 <View style={styles.requestDetailContent}>
                   <ThemedText style={styles.requestDetailLabel}>Valid until</ThemedText>
                   <ThemedText style={styles.requestDetailValue}>
@@ -1984,7 +1988,7 @@ export default function QuoteDetails() {
                 <Ionicons
                   name={showClientRequest ? "chevron-up" : "chevron-down"}
                   size={20}
-                  color="#6B7280"
+                  color={c.textMid}
                 />
               </Pressable>
 
@@ -1993,7 +1997,7 @@ export default function QuoteDetails() {
                   {/* Category */}
                   {parsedDetails.category && (
                     <View style={styles.requestDetailRow}>
-                      <Ionicons name="grid-outline" size={18} color="#6B7280" />
+                      <Ionicons name="grid-outline" size={18} color={c.textMid} />
                       <View style={styles.requestDetailContent}>
                         <ThemedText style={styles.requestDetailLabel}>Category</ThemedText>
                         <ThemedText style={styles.requestDetailValue}>{parsedDetails.category}</ThemedText>
@@ -2004,7 +2008,7 @@ export default function QuoteDetails() {
                   {/* Service */}
                   {parsedDetails.main && (
                     <View style={styles.requestDetailRow}>
-                      <Ionicons name="construct-outline" size={18} color="#6B7280" />
+                      <Ionicons name="construct-outline" size={18} color={c.textMid} />
                       <View style={styles.requestDetailContent}>
                         <ThemedText style={styles.requestDetailLabel}>Service</ThemedText>
                         <ThemedText style={styles.requestDetailValue}>{parsedDetails.main}</ThemedText>
@@ -2015,7 +2019,7 @@ export default function QuoteDetails() {
                   {/* Location */}
                   {request?.postcode && (
                     <View style={styles.requestDetailRow}>
-                      <Ionicons name="location-outline" size={18} color="#6B7280" />
+                      <Ionicons name="location-outline" size={18} color={c.textMid} />
                       <View style={styles.requestDetailContent}>
                         <ThemedText style={styles.requestDetailLabel}>Area</ThemedText>
                         <ThemedText style={styles.requestDetailValue}>{request.postcode}</ThemedText>
@@ -2026,7 +2030,7 @@ export default function QuoteDetails() {
                   {/* Property */}
                   {(request.property_types?.name || parsedDetails.property) && (
                     <View style={styles.requestDetailRow}>
-                      <Ionicons name="home-outline" size={18} color="#6B7280" />
+                      <Ionicons name="home-outline" size={18} color={c.textMid} />
                       <View style={styles.requestDetailContent}>
                         <ThemedText style={styles.requestDetailLabel}>Property</ThemedText>
                         <ThemedText style={styles.requestDetailValue}>
@@ -2052,7 +2056,7 @@ export default function QuoteDetails() {
                   {/* Budget */}
                   {(request.budget_band || parsedDetails.budget) && (
                     <View style={styles.requestDetailRow}>
-                      <Ionicons name="cash-outline" size={18} color="#6B7280" />
+                      <Ionicons name="cash-outline" size={18} color={c.textMid} />
                       <View style={styles.requestDetailContent}>
                         <ThemedText style={styles.requestDetailLabel}>Budget</ThemedText>
                         <ThemedText style={styles.requestDetailValue}>
@@ -2067,7 +2071,7 @@ export default function QuoteDetails() {
                     <>
                       <View style={styles.divider} />
                       <View style={styles.requestDetailRow}>
-                        <Ionicons name="document-text-outline" size={18} color="#6B7280" />
+                        <Ionicons name="document-text-outline" size={18} color={c.textMid} />
                         <View style={styles.requestDetailContent}>
                           <ThemedText style={styles.requestDetailLabel}>Details</ThemedText>
                           <ThemedText style={styles.requestDetailValue}>{parsedDetails.description}</ThemedText>
@@ -2081,7 +2085,7 @@ export default function QuoteDetails() {
                     <>
                       <View style={styles.divider} />
                       <View style={[styles.requestDetailRow, { marginBottom: 8 }]}>
-                        <Ionicons name="images-outline" size={18} color="#6B7280" />
+                        <Ionicons name="images-outline" size={18} color={c.textMid} />
                         <View style={styles.requestDetailContent}>
                           <ThemedText style={styles.requestDetailLabel}>
                             Photos ({attachmentsCount})
@@ -2125,7 +2129,7 @@ export default function QuoteDetails() {
                 <Ionicons
                   name={appointmentsExpanded ? "chevron-up" : "chevron-down"}
                   size={20}
-                  color="#6B7280"
+                  color={c.textMid}
                 />
               </Pressable>
 
@@ -2182,7 +2186,7 @@ export default function QuoteDetails() {
                         <Ionicons
                           name="calendar"
                           size={20}
-                          color="#6B7280"
+                          color={c.textMid}
                         />
                         <View style={{ flex: 1 }}>
                           <View style={styles.tradeAppointmentTitleRow}>
@@ -2329,7 +2333,7 @@ export default function QuoteDetails() {
                     <Ionicons
                       name={showPastAppointments ? "chevron-up" : "chevron-down"}
                       size={20}
-                      color="#6B7280"
+                      color={c.textMid}
                     />
                   </Pressable>
 
@@ -2339,15 +2343,15 @@ export default function QuoteDetails() {
                         const scheduledDate = new Date(appt.scheduled_at);
                         return (
                           <View key={appt.id ?? `past-${idx}`} style={styles.appointmentSingleCardPast}>
-                            <Ionicons name="calendar" size={20} color="#9CA3AF" />
+                            <Ionicons name="calendar" size={20} color={c.textMuted} />
                             <View style={{ flex: 1 }}>
                               <View style={styles.tradeAppointmentTitleRow}>
-                                <ThemedText style={[styles.tradeAppointmentTitle, { color: "#6B7280" }]}>
+                                <ThemedText style={[styles.tradeAppointmentTitle, { color: c.textMid }]}>
                                   {appt.title || "Appointment"}
                                 </ThemedText>
-                                <Ionicons name="checkmark" size={18} color="#9CA3AF" />
+                                <Ionicons name="checkmark" size={18} color={c.textMuted} />
                               </View>
-                              <ThemedText style={[styles.tradeAppointmentDateTime, { color: "#9CA3AF" }]}>
+                              <ThemedText style={[styles.tradeAppointmentDateTime, { color: c.textMuted }]}>
                                 {scheduledDate.toLocaleDateString(undefined, {
                                   weekday: "short",
                                   day: "numeric",
@@ -2541,7 +2545,7 @@ export default function QuoteDetails() {
                       onChangeText={setPaymentAmount}
                       keyboardType="decimal-pad"
                       placeholder="0.00"
-                      placeholderTextColor="#9CA3AF"
+                      placeholderTextColor={c.textMuted}
                       editable={!completeBusy}
                     />
                   </View>
@@ -2558,7 +2562,7 @@ export default function QuoteDetails() {
                     <ThemedText style={styles.sheetDropdownText}>
                       {selectedPaymentMethodLabel}
                     </ThemedText>
-                    <Ionicons name="chevron-down" size={20} color="#6B7280" />
+                    <Ionicons name="chevron-down" size={20} color={c.textMid} />
                   </Pressable>
 
                   <Spacer size={16} />
@@ -2570,7 +2574,7 @@ export default function QuoteDetails() {
                     value={completionNotes}
                     onChangeText={setCompletionNotes}
                     placeholder="Any details about the work..."
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={c.textMuted}
                     multiline
                     numberOfLines={3}
                     textAlignVertical="top"
@@ -2622,7 +2626,7 @@ export default function QuoteDetails() {
                 <View style={styles.pickerHeader}>
                   <ThemedText style={styles.pickerTitle}>Select payment method</ThemedText>
                   <Pressable onPress={() => setShowPaymentMethodPicker(false)} hitSlop={8}>
-                    <Ionicons name="close" size={24} color="#6B7280" />
+                    <Ionicons name="close" size={24} color={c.textMid} />
                   </Pressable>
                 </View>
                 {PAYMENT_METHODS.map((method, idx) => (
@@ -2694,7 +2698,7 @@ export default function QuoteDetails() {
                     value={issueResolution}
                     onChangeText={setIssueResolution}
                     placeholder="e.g., Finished grouting in the corner as requested..."
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={c.textMuted}
                     multiline
                     numberOfLines={4}
                     textAlignVertical="top"
@@ -2812,7 +2816,7 @@ export default function QuoteDetails() {
                   >
                     <ThemedText style={[
                       styles.reschedulePickerText,
-                      !rescheduleDate && { color: "#9CA3AF" }
+                      !rescheduleDate && { color: c.textMuted }
                     ]}>
                       {rescheduleDate
                         ? rescheduleDate.toLocaleDateString(undefined, {
@@ -2823,7 +2827,7 @@ export default function QuoteDetails() {
                           })
                         : "Select date"}
                     </ThemedText>
-                    <Ionicons name="calendar-outline" size={20} color="#6B7280" />
+                    <Ionicons name="calendar-outline" size={20} color={c.textMid} />
                   </Pressable>
 
                   <Spacer size={16} />
@@ -2836,7 +2840,7 @@ export default function QuoteDetails() {
                   >
                     <ThemedText style={[
                       styles.reschedulePickerText,
-                      !rescheduleTime && { color: "#9CA3AF" }
+                      !rescheduleTime && { color: c.textMuted }
                     ]}>
                       {rescheduleTime
                         ? rescheduleTime.toLocaleTimeString(undefined, {
@@ -2845,7 +2849,7 @@ export default function QuoteDetails() {
                           })
                         : "Select time"}
                     </ThemedText>
-                    <Ionicons name="time-outline" size={20} color="#6B7280" />
+                    <Ionicons name="time-outline" size={20} color={c.textMid} />
                   </Pressable>
 
                   <Spacer size={16} />
@@ -2857,7 +2861,7 @@ export default function QuoteDetails() {
                     value={rescheduleReason}
                     onChangeText={setRescheduleReason}
                     placeholder="e.g., Schedule conflict"
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={c.textMuted}
                     editable={!rescheduleBusy}
                   />
 
@@ -2944,7 +2948,7 @@ export default function QuoteDetails() {
             hitSlop={10}
             style={styles.backButton}
           >
-            <Ionicons name="close" size={28} color="#6B7280" />
+            <Ionicons name="close" size={28} color={c.textMid} />
           </Pressable>
         </View>
       </View>
@@ -3100,7 +3104,7 @@ export default function QuoteDetails() {
                       <Ionicons
                         name="calendar"
                         size={20}
-                        color="#6B7280"
+                        color={c.textMid}
                       />
                       <View style={{ flex: 1 }}>
                         <View style={styles.tradeAppointmentTitleRow}>
@@ -3197,7 +3201,7 @@ export default function QuoteDetails() {
                   <Ionicons
                     name={showPastAppointments ? "chevron-up" : "chevron-down"}
                     size={16}
-                    color="#6B7280"
+                    color={c.textMid}
                   />
                 </View>
               </Pressable>
@@ -3208,15 +3212,15 @@ export default function QuoteDetails() {
                     const scheduledDate = new Date(appt.scheduled_at);
                     return (
                       <View key={appt.id ?? `client-past-${idx}`} style={styles.appointmentSingleCardPast}>
-                        <Ionicons name="calendar" size={20} color="#9CA3AF" />
+                        <Ionicons name="calendar" size={20} color={c.textMuted} />
                         <View style={{ flex: 1 }}>
                           <View style={styles.tradeAppointmentTitleRow}>
-                            <ThemedText style={[styles.tradeAppointmentTitle, { color: "#6B7280" }]}>
+                            <ThemedText style={[styles.tradeAppointmentTitle, { color: c.textMid }]}>
                               {appt.title || "Appointment"}
                             </ThemedText>
-                            <Ionicons name="checkmark" size={18} color="#9CA3AF" />
+                            <Ionicons name="checkmark" size={18} color={c.textMuted} />
                           </View>
-                          <ThemedText style={[styles.tradeAppointmentDateTime, { color: "#9CA3AF" }]}>
+                          <ThemedText style={[styles.tradeAppointmentDateTime, { color: c.textMuted }]}>
                             {scheduledDate.toLocaleDateString(undefined, {
                               weekday: "short",
                               day: "numeric",
@@ -3258,7 +3262,7 @@ export default function QuoteDetails() {
               {/* Details Grid with icons */}
               {request.created_at && (
                 <View style={styles.requestDetailRow}>
-                  <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+                  <Ionicons name="calendar-outline" size={18} color={c.textMid} />
                   <View style={styles.requestDetailContent}>
                     <ThemedText style={styles.requestDetailLabel}>Submitted</ThemedText>
                     <ThemedText style={styles.requestDetailValue}>
@@ -3275,7 +3279,7 @@ export default function QuoteDetails() {
 
               {!!request.postcode && (
                 <View style={styles.requestDetailRow}>
-                  <Ionicons name="location-outline" size={18} color="#6B7280" />
+                  <Ionicons name="location-outline" size={18} color={c.textMid} />
                   <View style={styles.requestDetailContent}>
                     <ThemedText style={styles.requestDetailLabel}>Area</ThemedText>
                     <ThemedText style={styles.requestDetailValue}>{request.postcode}</ThemedText>
@@ -3285,7 +3289,7 @@ export default function QuoteDetails() {
 
               {!!parsedDetails.description && (
                 <View style={styles.requestDetailRow}>
-                  <Ionicons name="document-text-outline" size={18} color="#6B7280" />
+                  <Ionicons name="document-text-outline" size={18} color={c.textMid} />
                   <View style={styles.requestDetailContent}>
                     <ThemedText style={styles.requestDetailLabel}>Details</ThemedText>
                     <ThemedText style={styles.requestDetailValue}>{parsedDetails.description}</ThemedText>
@@ -3295,7 +3299,7 @@ export default function QuoteDetails() {
 
               {!!(request.property_types?.name || parsedDetails.property) && (
                 <View style={styles.requestDetailRow}>
-                  <Ionicons name="home-outline" size={18} color="#6B7280" />
+                  <Ionicons name="home-outline" size={18} color={c.textMid} />
                   <View style={styles.requestDetailContent}>
                     <ThemedText style={styles.requestDetailLabel}>Property</ThemedText>
                     <ThemedText style={styles.requestDetailValue}>
@@ -3307,7 +3311,7 @@ export default function QuoteDetails() {
 
               {!!(request.budget_band || parsedDetails.budget) && (
                 <View style={styles.requestDetailRow}>
-                  <Ionicons name="cash-outline" size={18} color="#6B7280" />
+                  <Ionicons name="cash-outline" size={18} color={c.textMid} />
                   <View style={styles.requestDetailContent}>
                     <ThemedText style={styles.requestDetailLabel}>Budget</ThemedText>
                     <ThemedText style={styles.requestDetailValue}>
@@ -3334,7 +3338,7 @@ export default function QuoteDetails() {
                   <View style={styles.divider} />
 
                   <View style={[styles.requestDetailRow, { marginBottom: 8 }]}>
-                    <Ionicons name="images-outline" size={18} color="#6B7280" />
+                    <Ionicons name="images-outline" size={18} color={c.textMid} />
                     <View style={styles.requestDetailContent}>
                       <ThemedText style={styles.requestDetailLabel}>
                         Photos ({attachmentsCount})
@@ -3377,7 +3381,7 @@ export default function QuoteDetails() {
           {/* Meta information */}
           {issuedAt && (
             <View style={styles.requestDetailRow}>
-              <Ionicons name="calendar-outline" size={18} color="#6B7280" />
+              <Ionicons name="calendar-outline" size={18} color={c.textMid} />
               <View style={styles.requestDetailContent}>
                 <ThemedText style={styles.requestDetailLabel}>Issued</ThemedText>
                 <ThemedText style={styles.requestDetailValue}>
@@ -3394,7 +3398,7 @@ export default function QuoteDetails() {
 
           {quote.valid_until && (
             <View style={styles.requestDetailRow}>
-              <Ionicons name="time-outline" size={18} color="#6B7280" />
+              <Ionicons name="time-outline" size={18} color={c.textMid} />
               <View style={styles.requestDetailContent}>
                 <ThemedText style={styles.requestDetailLabel}>Valid until</ThemedText>
                 <ThemedText style={styles.requestDetailValue}>
@@ -3529,7 +3533,7 @@ export default function QuoteDetails() {
                   </View>
                   {!!appointment.scheduled_at && (
                     <View style={styles.appointmentCardMetaRow}>
-                      <Ionicons name="calendar-outline" size={14} color="#6B7280" />
+                      <Ionicons name="calendar-outline" size={14} color={c.textMid} />
                       <ThemedText style={styles.appointmentCardMeta}>
                         {new Date(appointment.scheduled_at).toLocaleDateString(undefined, {
                           weekday: "short",
@@ -3598,7 +3602,7 @@ export default function QuoteDetails() {
             </View>
             <View style={styles.card}>
               <View style={styles.requestDetailRow}>
-                <Ionicons name="chatbubble-outline" size={18} color="#6B7280" />
+                <Ionicons name="chatbubble-outline" size={18} color={c.textMid} />
                 <View style={styles.requestDetailContent}>
                   <ThemedText style={styles.requestDetailValue}>{quote.comments}</ThemedText>
                 </View>
@@ -3729,19 +3733,20 @@ export default function QuoteDetails() {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c, dark) {
+  return StyleSheet.create({
   // main quote details container
   container: {
     flex: 1,
     alignItems: "stretch",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.background,
   },
 
   // separate container for scheduling page
   scheduleContainer: {
     flex: 1,
     alignItems: "stretch",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     paddingTop: Platform.OS === "ios" ? 60 : 20,
   },
 
@@ -3749,7 +3754,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     zIndex: 10,
   },
   headerRow: {
@@ -3765,13 +3770,13 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 
-  scrollContents: { paddingBottom: 40, paddingHorizontal: 20, paddingTop: 8 },
+  scrollContents: { paddingBottom: 130, paddingHorizontal: 20, paddingTop: 8 },
 
   heroCard: {
     marginBottom: 8,
     padding: 16,
     borderRadius: 20,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     shadowColor: "#0F172A",
     shadowOpacity: 0.08,
     shadowOffset: { width: 0, height: 8 },
@@ -3795,18 +3800,18 @@ const styles = StyleSheet.create({
   heroClientName: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   heroJobTitle: {
     marginTop: 4,
     fontSize: 15,
     fontWeight: "500",
-    color: "#374151",
+    color: c.textMid,
   },
   heroLocation: {
     marginTop: 2,
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
   },
 
   statusChipAccepted: {
@@ -3833,7 +3838,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textTransform: "uppercase",
     letterSpacing: 0.4,
-    color: "#6B7280",
+    color: c.textMid,
     marginBottom: 2,
   },
   heroAmount: {
@@ -3846,7 +3851,7 @@ const styles = StyleSheet.create({
   },
   heroMetaLabel: {
     fontSize: 12,
-    color: "#6B7280",
+    color: c.textMid,
   },
   heroMetaValue: {
     fontSize: 14,
@@ -3958,7 +3963,7 @@ const styles = StyleSheet.create({
   sectionHeaderText: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   addAppointmentBtn: {
     flexDirection: "row",
@@ -3967,7 +3972,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 999,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
   },
   addAppointmentBtnText: {
     fontSize: 14,
@@ -3995,11 +4000,11 @@ const styles = StyleSheet.create({
   },
   emptyAppointmentsText: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: c.textMuted,
   },
   emptyAppointmentsSubtext: {
     fontSize: 13,
-    color: "#9CA3AF",
+    color: c.textMuted,
   },
   appointmentsSection: {
     marginBottom: 8,
@@ -4031,23 +4036,23 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     alignItems: "center",
     justifyContent: "center",
   },
   appointmentListTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     marginBottom: 4,
   },
   appointmentListDateTime: {
     fontSize: 14,
-    color: "#374151",
+    color: c.textMid,
   },
   appointmentListLocation: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 2,
   },
   appointmentListBadge: {
@@ -4078,18 +4083,18 @@ const styles = StyleSheet.create({
   // Card style (matching client version)
   card: {
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
   },
 
   // Request summary (NEW STYLES)
   requestTitle: {
     fontWeight: "700",
     fontSize: 18,
-    color: "#111827",
+    color: c.text,
     marginBottom: 8,
   },
   requestDetailRow: {
@@ -4103,13 +4108,13 @@ const styles = StyleSheet.create({
   },
   requestDetailLabel: {
     fontSize: 12,
-    color: "#6B7280",
+    color: c.textMid,
     fontWeight: "600",
     marginBottom: 2,
   },
   requestDetailValue: {
     fontSize: 15,
-    color: "#111827",
+    color: c.text,
     lineHeight: 22,
   },
 
@@ -4117,7 +4122,7 @@ const styles = StyleSheet.create({
   breakdownSectionLabel: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
@@ -4147,23 +4152,23 @@ const styles = StyleSheet.create({
   lineItemName: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     marginBottom: 4,
   },
   lineItemDescription: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     marginBottom: 4,
     lineHeight: 20,
   },
   lineItemMeta: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
   },
   lineItemTotal: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
     marginLeft: 12,
   },
 
@@ -4252,12 +4257,12 @@ const styles = StyleSheet.create({
   },
   totalLabel: {
     fontSize: 15,
-    color: "#6B7280",
+    color: c.textMid,
   },
   totalValue: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   totalRowFinal: {
     marginTop: 8,
@@ -4269,16 +4274,16 @@ const styles = StyleSheet.create({
   totalLabelFinal: {
     fontSize: 17,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   totalValueFinal: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   totalNote: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     textAlign: "right",
     fontStyle: "italic",
   },
@@ -4299,7 +4304,7 @@ const styles = StyleSheet.create({
   appointmentCardTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     flex: 1,
   },
   appointmentCardMetaRow: {
@@ -4309,7 +4314,7 @@ const styles = StyleSheet.create({
   },
   appointmentCardMeta: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
   },
 
   // Appointment badge
@@ -4342,14 +4347,14 @@ const styles = StyleSheet.create({
   },
   appointmentDetailLabel: {
     fontSize: 12,
-    color: "#6B7280",
+    color: c.textMid,
     textTransform: "uppercase",
     letterSpacing: 0.4,
     marginBottom: 4,
   },
   appointmentDetailValue: {
     fontSize: 15,
-    color: "#111827",
+    color: c.text,
     fontWeight: "500",
     lineHeight: 22,
   },
@@ -4413,7 +4418,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 12,
     borderRadius: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     marginBottom: 16,
     shadowColor: "#0F172A",
     shadowOpacity: 0.06,
@@ -4455,7 +4460,7 @@ const styles = StyleSheet.create({
   // Shared scheduling cards
   scheduleCard: {
     borderRadius: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderWidth: 1,
@@ -4496,7 +4501,7 @@ const styles = StyleSheet.create({
   },
   detailValue: {
     fontSize: 13,
-    color: "#111827",
+    color: c.text,
   },
   detailDivider: {
     height: StyleSheet.hairlineWidth,
@@ -4506,12 +4511,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
   },
   detailPillText: {
     fontSize: 12,
     fontWeight: "500",
-    color: "#374151",
+    color: c.textMid,
   },
 
   // Big bottom CTA
@@ -4539,7 +4544,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15,23,42,0.35)",
   },
   pickerSheet: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     paddingBottom: Platform.OS === "ios" ? 24 : 16,
     paddingTop: 8,
     borderTopLeftRadius: 16,
@@ -4560,7 +4565,7 @@ const styles = StyleSheet.create({
   pickerHeaderTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   pickerBody: {
     alignItems: "center",
@@ -4615,31 +4620,31 @@ const styles = StyleSheet.create({
   },
   heroInfoLabel: {
     fontSize: 12,
-    color: "#6B7280",
+    color: c.textMid,
     marginBottom: 4,
   },
   heroInfoValue: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   heroInfoSub: {
     marginTop: 2,
     fontSize: 12,
-    color: "#6B7280",
+    color: c.textMid,
   },
 
   // Appointment subheader
   appointmentSubheader: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#6B7280",
+    color: c.textMid,
     marginBottom: 12,
   },
   appointmentSubheaderStandalone: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 16,
     marginBottom: 8,
     marginHorizontal: 4,
@@ -4650,10 +4655,10 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 12,
     padding: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     marginBottom: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -4669,7 +4674,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FAFAFA",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     marginBottom: 8,
   },
   pastAppointmentsHeader: {
@@ -4706,7 +4711,7 @@ const styles = StyleSheet.create({
   tradeAppointmentTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     flex: 1,
   },
   tradeAppointmentBadge: {
@@ -4723,33 +4728,33 @@ const styles = StyleSheet.create({
   },
   tradeAppointmentDateTime: {
     fontSize: 14,
-    color: "#374151",
+    color: c.textMid,
   },
   tradeAppointmentLocation: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 2,
   },
   tradeAppointmentCompleted: {
     fontSize: 13,
-    color: "#9CA3AF",
+    color: c.textMuted,
     marginTop: 2,
   },
 
   // Reschedule styles
   rescheduleLink: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 8,
   },
   rescheduleDisabledText: {
     fontSize: 13,
-    color: "#9CA3AF",
+    color: c.textMuted,
     marginTop: 8,
   },
   rescheduleWasTime: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: c.textMuted,
     textDecorationLine: "line-through",
     marginTop: 2,
   },
@@ -4761,7 +4766,7 @@ const styles = StyleSheet.create({
   },
   rescheduleReason: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     fontStyle: "italic",
     marginTop: 4,
   },
@@ -4774,14 +4779,14 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     paddingHorizontal: 16,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     borderRadius: 8,
     alignItems: "center",
   },
   rescheduleDeclineBtnText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#6B7280",
+    color: c.textMid,
   },
   rescheduleAcceptBtn: {
     flex: 1,
@@ -4798,13 +4803,13 @@ const styles = StyleSheet.create({
   },
   rescheduleWaitingText: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     fontStyle: "italic",
     marginTop: 8,
   },
   rescheduleCurrentTime: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 4,
   },
   reschedulePickerRow: {
@@ -4813,28 +4818,28 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 14,
     paddingHorizontal: 16,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate2,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
   },
   reschedulePickerText: {
     fontSize: 15,
-    color: "#111827",
+    color: c.text,
   },
   rescheduleReasonInput: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate2,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 15,
-    color: "#111827",
+    color: c.text,
   },
   rescheduleHelperText: {
     fontSize: 13,
-    color: "#9CA3AF",
+    color: c.textMuted,
     textAlign: "center",
     marginTop: 16,
   },
@@ -4862,7 +4867,7 @@ const styles = StyleSheet.create({
   collapsibleToggleText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#6B7280",
+    color: c.textMid,
   },
 
   // Quote breakdown styles
@@ -4874,13 +4879,13 @@ const styles = StyleSheet.create({
   },
   quoteBreakdownLabel: {
     fontSize: 15,
-    color: "#374151",
+    color: c.textMid,
     flex: 1,
   },
   quoteBreakdownValue: {
     fontSize: 15,
     fontWeight: "500",
-    color: "#111827",
+    color: c.text,
   },
   quoteBreakdownDivider: {
     height: 1,
@@ -4890,12 +4895,12 @@ const styles = StyleSheet.create({
   quoteBreakdownTotalLabel: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   quoteBreakdownTotalValue: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
 
   // Client request collapsible styles
@@ -4907,25 +4912,25 @@ const styles = StyleSheet.create({
   },
   clientRequestLabel: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     width: 100,
   },
   clientRequestValue: {
     fontSize: 14,
-    color: "#111827",
+    color: c.text,
     flex: 1,
     textAlign: "right",
   },
   clientRequestSectionLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
     marginBottom: 8,
     marginTop: 4,
   },
   clientRequestDescription: {
     fontSize: 14,
-    color: "#374151",
+    color: c.textMid,
     lineHeight: 20,
   },
 
@@ -4946,31 +4951,31 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   messageClientBtn: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
   },
   messageClientBtnText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
   },
 
   // =============================================
   // AWAITING COMPLETION / COMPLETED STATES
   // =============================================
   awaitingCompletionCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     padding: 20,
     marginTop: 16,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
   },
   awaitingProgressRow: {
     flexDirection: "row",
@@ -4997,18 +5002,18 @@ const styles = StyleSheet.create({
   awaitingTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
     textAlign: "center",
     marginBottom: 4,
   },
   awaitingMeta: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     textAlign: "center",
   },
 
   completedCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     padding: 24,
     alignItems: "center",
@@ -5029,33 +5034,33 @@ const styles = StyleSheet.create({
   completedTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   completedMeta: {
     fontSize: 15,
-    color: "#6B7280",
+    color: c.textMid,
     textAlign: "center",
     lineHeight: 22,
   },
   reviewPromptCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     padding: 20,
     marginTop: 16,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     alignItems: "center",
   },
   reviewPromptTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     textAlign: "center",
     marginBottom: 4,
   },
   reviewPromptSubtitle: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     textAlign: "center",
     lineHeight: 20,
   },
@@ -5078,7 +5083,7 @@ const styles = StyleSheet.create({
   },
   maybeLaterBtnText: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
   },
 
   // =============================================
@@ -5095,7 +5100,7 @@ const styles = StyleSheet.create({
     // This ensures the sheet stays at the bottom
   },
   sheetContent: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: 750,
@@ -5116,19 +5121,19 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
     marginTop: 12,
   },
   sheetSubtitle: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 8,
     lineHeight: 20,
   },
   sheetSectionLabel: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
     paddingBottom: 8,
@@ -5136,7 +5141,7 @@ const styles = StyleSheet.create({
   sheetFieldLabel: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#6B7280",
+    color: c.textMid,
     marginBottom: 6,
   },
   sheetAmountInputContainer: {
@@ -5145,20 +5150,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#D1D5DB",
     borderRadius: 10,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     paddingHorizontal: 12,
   },
   sheetCurrencySymbol: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
     marginRight: 4,
   },
   sheetAmountInput: {
     flex: 1,
     fontSize: 16,
     paddingVertical: 12,
-    color: "#111827",
+    color: c.text,
   },
   sheetDropdown: {
     flexDirection: "row",
@@ -5167,13 +5172,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#D1D5DB",
     borderRadius: 10,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
   sheetDropdownText: {
     fontSize: 15,
-    color: "#111827",
+    color: c.text,
   },
   sheetNotesInput: {
     borderWidth: 1,
@@ -5182,9 +5187,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     minHeight: 80,
-    color: "#111827",
+    color: c.text,
   },
   sheetConfirmBtn: {
     backgroundColor: PRIMARY,
@@ -5204,7 +5209,7 @@ const styles = StyleSheet.create({
   },
   sheetCancelBtnText: {
     fontSize: 15,
-    color: "#6B7280",
+    color: c.textMid,
   },
 
   // Payment method picker modal
@@ -5216,7 +5221,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   pickerContainer: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     width: "100%",
     maxWidth: 340,
@@ -5234,7 +5239,7 @@ const styles = StyleSheet.create({
   pickerTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   pickerOption: {
     flexDirection: "row",
@@ -5249,7 +5254,7 @@ const styles = StyleSheet.create({
   },
   pickerOptionText: {
     fontSize: 16,
-    color: "#374151",
+    color: c.textMid,
   },
   pickerOptionTextSelected: {
     color: PRIMARY,
@@ -5285,7 +5290,7 @@ const styles = StyleSheet.create({
     color: "#F59E0B",
   },
   clientCompletionCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     padding: 24,
     marginHorizontal: 16,
@@ -5300,12 +5305,12 @@ const styles = StyleSheet.create({
   clientCompletionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     textAlign: "center",
   },
   clientCompletionSubtitle: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     textAlign: "center",
     marginTop: 8,
   },
@@ -5331,11 +5336,11 @@ const styles = StyleSheet.create({
   },
   reportIssueBtnText: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     textDecorationLine: "underline",
   },
   clientCompletedCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     padding: 24,
     marginHorizontal: 16,
@@ -5349,7 +5354,7 @@ const styles = StyleSheet.create({
   },
   clientCompletedSubtitle: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     textAlign: "center",
     marginTop: 4,
   },
@@ -5372,7 +5377,7 @@ const styles = StyleSheet.create({
     color: "#EF4444",
   },
   issueReportedCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     padding: 24,
     alignItems: "center",
@@ -5386,7 +5391,7 @@ const styles = StyleSheet.create({
   },
   issueReportedMeta: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     textAlign: "center",
     marginTop: 4,
   },
@@ -5407,12 +5412,12 @@ const styles = StyleSheet.create({
   issueDetailsReason: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     marginBottom: 8,
   },
   issueDetailsText: {
     fontSize: 14,
-    color: "#374151",
+    color: c.textMid,
     fontStyle: "italic",
     lineHeight: 20,
   },
@@ -5422,7 +5427,7 @@ const styles = StyleSheet.create({
   issueActionsTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     marginBottom: 4,
   },
   resolveWithClientBtn: {
@@ -5438,7 +5443,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   issueResolvedBtn: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 12,
     paddingVertical: 16,
     marginTop: 8,
@@ -5458,13 +5463,13 @@ const styles = StyleSheet.create({
   // =============================================
   awaitingSubtext: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
     textAlign: "center",
   },
   messageClientBtn: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 24,
@@ -5474,7 +5479,7 @@ const styles = StyleSheet.create({
   messageClientBtnText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
 
   // =============================================
@@ -5486,13 +5491,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   reviewPromptCardStandalone: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     padding: 20,
     alignItems: "center",
     marginTop: 16,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
   },
   reviewStarsRow: {
     flexDirection: "row",
@@ -5509,4 +5514,5 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 8,
   },
-});
+  });
+}

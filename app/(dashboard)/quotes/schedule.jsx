@@ -12,19 +12,22 @@ import {
   Keyboard,
   Text,
 } from "react-native";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import { supabase } from "../../../lib/supabase";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import CustomDateTimePicker from "../../../components/CustomDateTimePicker";
+import { Colors } from "../../../constants/Colors";
+import { FontFamily, Radius } from "../../../constants/Typography";
 
-const PRIMARY = "#6849a7";
+const PRIMARY = Colors.primary;
 const INPUT_ACCESSORY_ID = "schedule-keyboard-accessory";
 
 // Predefined appointment types
@@ -52,6 +55,8 @@ export default function ScheduleAppointment() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
+  const { colors: c, dark } = useTheme();
+  const styles = useMemo(() => makeStyles(c, dark), [c, dark]);
 
   // Params from navigation
   const requestId = Array.isArray(params.requestId)
@@ -400,7 +405,7 @@ export default function ScheduleAppointment() {
         <View style={styles.heroCard}>
           {loadingData ? (
             <View style={styles.heroAvatarFallback}>
-              <ActivityIndicator size="small" color="#6B7280" />
+              <ActivityIndicator size="small" color={c.textMid} />
             </View>
           ) : (
             <View style={styles.heroAvatarFallback}>
@@ -486,7 +491,7 @@ export default function ScheduleAppointment() {
             <View style={styles.detailLeft}>
               <ThemedText style={styles.detailLabel}>Date</ThemedText>
               <ThemedText
-                style={[styles.detailValue, !hasDate && { color: "#9CA3AF" }]}
+                style={[styles.detailValue, !hasDate && { color: c.textMuted }]}
               >
                 {niceDate}
               </ThemedText>
@@ -509,7 +514,7 @@ export default function ScheduleAppointment() {
             <View style={styles.detailLeft}>
               <ThemedText style={styles.detailLabel}>Time</ThemedText>
               <ThemedText
-                style={[styles.detailValue, !hasTime && { color: "#9CA3AF" }]}
+                style={[styles.detailValue, !hasTime && { color: c.textMuted }]}
               >
                 {niceTime}
               </ThemedText>
@@ -528,7 +533,7 @@ export default function ScheduleAppointment() {
           <TextInput
             style={styles.noteInput}
             placeholder="e.g., I'll need access to the back garden..."
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={c.textMuted}
             value={apptNote}
             onChangeText={setApptNote}
             editable={!busy}
@@ -584,10 +589,11 @@ export default function ScheduleAppointment() {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c, dark) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.background,
   },
   header: {
     flexDirection: "row",
@@ -610,7 +616,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 14,
     borderRadius: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     marginBottom: 16,
     shadowColor: "#0F172A",
     shadowOpacity: 0.06,
@@ -635,11 +641,11 @@ const styles = StyleSheet.create({
   heroTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   heroSubtitle: {
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 2,
   },
   heroTitlePlaceholder: {
@@ -652,22 +658,22 @@ const styles = StyleSheet.create({
     width: 100,
     height: 14,
     borderRadius: 4,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     marginTop: 6,
   },
   card: {
     borderRadius: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
   },
   fieldLabel: {
     fontSize: 13,
     fontWeight: "500",
     marginBottom: 6,
-    color: "#374151",
+    color: c.textMid,
   },
   input: {
     borderWidth: 1,
@@ -676,7 +682,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
   },
   detailRow: {
     flexDirection: "row",
@@ -691,12 +697,12 @@ const styles = StyleSheet.create({
   detailLabel: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#374151",
+    color: c.textMid,
     marginBottom: 2,
   },
   detailValue: {
     fontSize: 14,
-    color: "#111827",
+    color: c.text,
   },
   detailDivider: {
     height: StyleSheet.hairlineWidth,
@@ -706,12 +712,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
   },
   detailPillText: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#374151",
+    color: c.textMid,
   },
   primaryBtn: {
     borderRadius: 999,
@@ -729,7 +735,7 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#374151",
+    color: c.textMid,
     marginBottom: 12,
   },
   // Type selector cards
@@ -743,9 +749,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: c.border,
   },
   typeCardSelected: {
     borderColor: PRIMARY,
@@ -761,7 +767,7 @@ const styles = StyleSheet.create({
   },
   typeCardLabel: {
     fontSize: 15,
-    color: "#374151",
+    color: c.textMid,
     fontWeight: "500",
   },
   typeCardLabelSelected: {
@@ -794,7 +800,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     minHeight: 80,
   },
   // Keyboard accessory
@@ -818,4 +824,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#FFFFFF",
   },
-});
+  });
+}
