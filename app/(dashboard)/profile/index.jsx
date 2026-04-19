@@ -354,7 +354,7 @@ export default function ProfileScreen() {
           />
         )}
 
-        <Spacer height={insets.bottom > 0 ? insets.bottom + 24 : 40} />
+        <Spacer height={insets.bottom + 110} />
       </ScrollView>
 
       {/* All Reviews Modal */}

@@ -1743,7 +1743,7 @@ export default function ClientProjects() {
           />
         )}
 
-        <Spacer height={40} />
+        <Spacer height={insets.bottom + 110} />
       </ScrollView>
     </ThemedView>
   );
