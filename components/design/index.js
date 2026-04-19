@@ -7,3 +7,4 @@ export { default as SectionHead } from "./SectionHead";
 export { default as StripeRow } from "./StripeRow";
 export { default as StatusBadge } from "./StatusBadge";
 export { default as IconBtn } from "./IconBtn";
+export { default as FloatingTabBar } from "./FloatingTabBar";

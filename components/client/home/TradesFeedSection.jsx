@@ -1,24 +1,31 @@
 // components/client/home/TradesFeedSection.jsx
-// Horizontal scrollable section of trade cards for client home discovery feed
+// Horizontal scrollable section of trade cards — flat hairline cards
+// with a status-yellow star dot. Theme-aware.
+import React from "react";
 import { View, FlatList, Pressable, Image, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import ThemedText from "../../ThemedText";
+import { useTheme } from "../../../hooks/useTheme";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants, Radius, FontFamily } from "../../../constants/Typography";
 
-const CARD_WIDTH = 200;
+const CARD_WIDTH = 210;
 const GAP = 12;
 
 function StarRating({ rating, count }) {
+  const { colors: c } = useTheme();
   if (!rating || rating <= 0) {
     return (
-      <ThemedText style={styles.noRating}>No reviews yet</ThemedText>
+      <ThemedText style={[styles.noRating, { color: c.textMuted }]}>
+        No reviews yet
+      </ThemedText>
     );
   }
   return (
     <View style={styles.ratingRow}>
-      <Ionicons name="star" size={12} color="#F59E0B" />
-      <ThemedText style={styles.ratingText}>
+      <Ionicons name="star" size={11} color={Colors.status.pending} />
+      <ThemedText style={[styles.ratingText, { color: c.text }]}>
         {rating.toFixed(1)}
         {count ? ` (${count})` : ""}
       </ThemedText>
@@ -27,6 +34,7 @@ function StarRating({ rating, count }) {
 }
 
 function TradeCard({ trade, onPress }) {
+  const { colors: c } = useTheme();
   const name = trade.business_name || trade.full_name || "Business";
   const title = trade.trade_title;
   const rating = trade.stats?.average_rating || 0;
@@ -36,7 +44,17 @@ function TradeCard({ trade, onPress }) {
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+      style={({ pressed }) => [
+        styles.card,
+        {
+          backgroundColor: c.elevate,
+          borderColor: c.border,
+        },
+        pressed && {
+          backgroundColor: c.elevate2,
+          borderColor: Colors.primary,
+        },
+      ]}
       onPress={() => onPress?.(trade)}
       accessibilityLabel={`View ${name} profile`}
       accessibilityRole="button"
@@ -44,17 +62,23 @@ function TradeCard({ trade, onPress }) {
       {trade.photo_url ? (
         <Image source={{ uri: trade.photo_url }} style={styles.avatar} />
       ) : (
-        <View style={[styles.avatar, styles.avatarFallback]}>
-          <Ionicons name="person" size={22} color="#9CA3AF" />
+        <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: c.elevate2 }]}>
+          <Ionicons name="person" size={20} color={c.textMuted} />
         </View>
       )}
 
-      <View style={{ flex: 1 }}>
-        <ThemedText style={styles.name} numberOfLines={1}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <ThemedText
+          style={[TypeVariants.h3, { color: c.text, fontSize: 13.5 }]}
+          numberOfLines={1}
+        >
           {name}
         </ThemedText>
         {!!title && (
-          <ThemedText style={styles.title} numberOfLines={1}>
+          <ThemedText
+            style={[TypeVariants.caption, { color: c.textMid, marginTop: 1 }]}
+            numberOfLines={1}
+          >
             {title}
           </ThemedText>
         )}
@@ -63,8 +87,8 @@ function TradeCard({ trade, onPress }) {
 
         {(town || distance != null) && (
           <View style={styles.locationRow}>
-            <Ionicons name="location-outline" size={11} color="#9CA3AF" />
-            <ThemedText style={styles.locationText} numberOfLines={1}>
+            <Ionicons name="location-outline" size={11} color={c.textMuted} />
+            <ThemedText style={[styles.locationText, { color: c.textMuted }]} numberOfLines={1}>
               {town ? town : ""}
               {town && distance != null ? " · " : ""}
               {distance != null ? `${distance} mi` : ""}
@@ -83,13 +107,27 @@ export default function TradesFeedSection({
   onTradePress,
   emptyMessage = "No trades available in your area yet.",
 }) {
+  const { colors: c } = useTheme();
+  const SectionTitle = (
+    <ThemedText style={[TypeVariants.h2, { color: c.text, marginBottom: 2 }]}>
+      {title}
+    </ThemedText>
+  );
+  const SectionSub = !!subtitle && (
+    <ThemedText style={[TypeVariants.captionMuted, { color: c.textMuted, marginBottom: 12 }]}>
+      {subtitle}
+    </ThemedText>
+  );
+
   if (!trades || trades.length === 0) {
     return (
       <View style={styles.container}>
-        <ThemedText style={styles.sectionTitle}>{title}</ThemedText>
-        {!!subtitle && <ThemedText style={styles.sectionSubtitle}>{subtitle}</ThemedText>}
-        <View style={styles.emptyState}>
-          <ThemedText style={styles.emptyText}>{emptyMessage}</ThemedText>
+        {SectionTitle}
+        {SectionSub}
+        <View style={[styles.emptyState, { backgroundColor: c.elevate, borderColor: c.border }]}>
+          <ThemedText style={[TypeVariants.bodySm, { color: c.textMid, textAlign: "center" }]}>
+            {emptyMessage}
+          </ThemedText>
         </View>
       </View>
     );
@@ -97,8 +135,8 @@ export default function TradesFeedSection({
 
   return (
     <View style={styles.container}>
-      <ThemedText style={styles.sectionTitle}>{title}</ThemedText>
-      {!!subtitle && <ThemedText style={styles.sectionSubtitle}>{subtitle}</ThemedText>}
+      {SectionTitle}
+      {SectionSub}
       <FlatList
         data={trades}
         horizontal
@@ -114,18 +152,7 @@ export default function TradesFeedSection({
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1F2937",
-    marginBottom: 2,
-  },
-  sectionSubtitle: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginBottom: 12,
+    marginBottom: 28,
   },
   listContent: {
     paddingRight: 16,
@@ -133,83 +160,51 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     padding: 12,
-    borderRadius: 12,
-    backgroundColor: "#FFFFFF",
+    borderRadius: Radius.md + 2,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 10,
-    // iOS shadow
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    // Android shadow
-    elevation: 2,
-  },
-  cardPressed: {
-    backgroundColor: "#F9FAFB",
-    borderColor: Colors.primary,
   },
   avatar: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#F3F4F6",
   },
   avatarFallback: {
     alignItems: "center",
     justifyContent: "center",
   },
-  name: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#1F2937",
-  },
-  title: {
-    fontSize: 11,
-    color: "#6B7280",
-    marginTop: 1,
-  },
   ratingRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    marginTop: 4,
+    gap: 4,
+    marginTop: 5,
   },
   ratingText: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: "#374151",
+    fontSize: 11.5,
+    fontFamily: FontFamily.bodyMedium,
   },
   noRating: {
-    fontSize: 11,
-    color: "#9CA3AF",
+    fontSize: 11.5,
+    fontFamily: FontFamily.bodyRegular,
     marginTop: 4,
   },
   locationRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    gap: 3,
     marginTop: 4,
   },
   locationText: {
-    fontSize: 10,
-    color: "#9CA3AF",
+    fontSize: 11,
+    fontFamily: FontFamily.bodyRegular,
     flexShrink: 1,
   },
   emptyState: {
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
+    paddingVertical: 18,
+    paddingHorizontal: 14,
+    borderRadius: Radius.md + 2,
     borderWidth: 1,
-    borderColor: "#F3F4F6",
-  },
-  emptyText: {
-    fontSize: 13,
-    color: "#6B7280",
-    textAlign: "center",
   },
 });

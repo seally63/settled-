@@ -1,24 +1,33 @@
 // components/client/home/SearchBar.jsx
-// Presentational search bar that navigates to search modal on press
+// Flat elevated search bar — hairline border, DM Sans placeholder.
+import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import ThemedText from "../../ThemedText";
+import { useTheme } from "../../../hooks/useTheme";
+import { Colors } from "../../../constants/Colors";
+import { FontFamily, Radius } from "../../../constants/Typography";
 
 export default function SearchBar({ onPress }) {
+  const { colors: c } = useTheme();
   return (
     <Pressable
       style={({ pressed }) => [
         styles.container,
-        pressed && styles.pressed,
+        {
+          backgroundColor: c.elevate,
+          borderColor: c.border,
+        },
+        pressed && { borderColor: Colors.primary },
       ]}
       onPress={onPress}
       accessibilityLabel="Search for a service"
       accessibilityRole="button"
     >
       <View style={styles.inner}>
-        <Ionicons name="search" size={20} color="#9CA3AF" />
-        <ThemedText style={styles.placeholder}>
-          Search for a service or business...
+        <Ionicons name="search" size={20} color={c.textMuted} />
+        <ThemedText style={[styles.placeholder, { color: c.textMuted }]}>
+          Search for a service or business…
         </ThemedText>
       </View>
     </Pressable>
@@ -28,14 +37,9 @@ export default function SearchBar({ onPress }) {
 const styles = StyleSheet.create({
   container: {
     height: 52,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: "transparent",
+    borderRadius: Radius.lg,
+    borderWidth: 1,
     marginBottom: 24,
-  },
-  pressed: {
-    borderColor: "#6849a7",
   },
   inner: {
     flex: 1,
@@ -45,7 +49,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   placeholder: {
-    fontSize: 16,
-    color: "#9CA3AF",
+    fontSize: 15,
+    fontFamily: FontFamily.bodyRegular,
   },
 });

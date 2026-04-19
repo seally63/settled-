@@ -1,17 +1,17 @@
 // app/(dashboard)/_layout.jsx
 import { Tabs, useRouter, useSegments } from 'expo-router';
-import { useColorScheme, ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 
-import { Colors } from '../../constants/Colors';
 import UserOnly from '../../components/auth/UserOnly';
 import { useUser } from '../../hooks/useUser';
+import { useTheme } from '../../hooks/useTheme';
 import { supabase } from '../../lib/supabase';
+import FloatingTabBar from '../../components/design/FloatingTabBar';
 
 export default function DashboardLayout() {
-  const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme] ?? Colors.light;
+  const { colors: theme } = useTheme();
   const router = useRouter();
   const segments = useSegments();
 
@@ -161,15 +161,12 @@ export default function DashboardLayout() {
   return (
     <UserOnly>
       <Tabs
+        tabBar={(props) => <FloatingTabBar {...props} />}
         screenOptions={{
           headerShown: false,
-          tabBarStyle: {
-            backgroundColor: theme.navBackground,
-            paddingTop: 10,
-            height: 90,
-          },
           tabBarActiveTintColor: theme.iconColorFocused,
           tabBarInactiveTintColor: theme.iconColor,
+          sceneStyle: { backgroundColor: theme.background },
         }}
       >
         {/* ===== TRADES ONLY: Home (Dashboard), Projects (Quotes + Sales combined) ===== */}

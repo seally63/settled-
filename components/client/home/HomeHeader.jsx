@@ -1,9 +1,11 @@
 // components/client/home/HomeHeader.jsx
-// Header section with greeting and subheading
+// Big-display greeting per redesign — Public Sans display title + DM Sans sub.
+import React from "react";
 import { View, StyleSheet } from "react-native";
 import ThemedText from "../../ThemedText";
+import { useTheme } from "../../../hooks/useTheme";
+import { TypeVariants } from "../../../constants/Typography";
 
-// Get time-based greeting
 function getGreeting() {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning";
@@ -12,16 +14,27 @@ function getGreeting() {
 }
 
 export default function HomeHeader({ firstName }) {
+  const { colors: c } = useTheme();
   const greeting = getGreeting();
   const displayName = firstName ? `, ${firstName}` : "";
 
   return (
     <View style={styles.container}>
-      <ThemedText style={styles.greeting}>
-        {greeting}{displayName}
+      <ThemedText
+        style={[
+          TypeVariants.displayXL,
+          { color: c.text, fontSize: 30, lineHeight: 32 },
+        ]}
+      >
+        Home
       </ThemedText>
-      <ThemedText style={styles.subheading}>
-        What do you need help with?
+      <ThemedText
+        style={[
+          TypeVariants.body,
+          { color: c.textMid, marginTop: 6 },
+        ]}
+      >
+        {greeting}{displayName}
       </ThemedText>
     </View>
   );
@@ -29,18 +42,7 @@ export default function HomeHeader({ firstName }) {
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: 16,
+    paddingTop: 4,
     marginBottom: 20,
-  },
-  greeting: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#1F2937",
-    marginBottom: 4,
-  },
-  subheading: {
-    fontSize: 16,
-    fontWeight: "400",
-    color: "#6B7280",
   },
 });

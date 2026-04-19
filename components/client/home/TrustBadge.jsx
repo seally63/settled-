@@ -1,6 +1,6 @@
 // components/client/home/TrustBadge.jsx
-// Trust badge section showing verification info with Learn more modal
-import { useState, useCallback } from "react";
+// Verified-trades CTA + Learn-more bottom sheet. Theme-aware.
+import React, { useState, useCallback } from "react";
 import {
   View,
   Pressable,
@@ -13,11 +13,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ThemedText from "../../ThemedText";
 import { Colors } from "../../../constants/Colors";
+import { useTheme } from "../../../hooks/useTheme";
+import { TypeVariants, Radius, FontFamily } from "../../../constants/Typography";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MODAL_MAX_HEIGHT = SCREEN_HEIGHT * 0.9;
 
-// Verification badge data matching the trade profile badges
 const VERIFICATION_ITEMS = [
   {
     id: "id",
@@ -45,40 +46,53 @@ const VERIFICATION_ITEMS = [
   },
 ];
 
-// Badge component matching the trade profile design
 function VerificationBadgeLarge({ icon, label }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.badgeContainer}>
-      <View style={styles.badgeIconBox}>
+      <View
+        style={[
+          styles.badgeIconBox,
+          { backgroundColor: c.elevate, borderColor: c.border },
+        ]}
+      >
         <Ionicons name={icon} size={18} color={Colors.primary} />
         <View style={styles.badgeCheckmark}>
           <Ionicons name="checkmark" size={10} color="#FFFFFF" />
         </View>
       </View>
-      <ThemedText style={styles.badgeLabelText}>{label}</ThemedText>
+      <ThemedText style={[styles.badgeLabelText, { color: Colors.primary }]}>
+        {label}
+      </ThemedText>
     </View>
   );
 }
 
 function VerificationItem({ item, isLast }) {
+  const { colors: c } = useTheme();
   return (
     <>
       <View style={styles.verificationItem}>
         <VerificationBadgeLarge icon={item.icon} label={item.label} />
         <View style={styles.verificationContent}>
-          <ThemedText style={styles.verificationTitle}>{item.title}</ThemedText>
-          <ThemedText style={styles.verificationDescription}>
+          <ThemedText style={[TypeVariants.h3, { color: c.text, marginBottom: 6 }]}>
+            {item.title}
+          </ThemedText>
+          <ThemedText style={[TypeVariants.bodySm, { color: c.textMid }]}>
             {item.description}
           </ThemedText>
         </View>
       </View>
-      {!isLast && <View style={styles.divider} />}
+      {!isLast && (
+        <View style={[styles.divider, { backgroundColor: c.border }]} />
+      )}
     </>
   );
 }
 
 function LearnMoreModal({ visible, onClose }) {
   const insets = useSafeAreaInsets();
+  const { colors: c, dark } = useTheme();
 
   return (
     <Modal
@@ -89,17 +103,19 @@ function LearnMoreModal({ visible, onClose }) {
     >
       <View style={styles.modalOverlay}>
         <Pressable style={styles.modalBackdrop} onPress={onClose} />
-        <View style={[styles.modalContent, { height: MODAL_MAX_HEIGHT }]}>
-          {/* Handle bar */}
-          <View style={styles.handleBar} />
-
-          {/* Close button */}
+        <View
+          style={[
+            styles.modalContent,
+            { backgroundColor: c.bg, height: MODAL_MAX_HEIGHT },
+          ]}
+        >
+          <View style={[styles.handleBar, { backgroundColor: c.borderStrong }]} />
           <Pressable
             onPress={onClose}
-            style={styles.closeButton}
+            style={[styles.closeButton, { backgroundColor: c.elevate2 }]}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="close" size={24} color="#6B7280" />
+            <Ionicons name="close" size={22} color={c.textMid} />
           </Pressable>
 
           <ScrollView
@@ -110,23 +126,20 @@ function LearnMoreModal({ visible, onClose }) {
             ]}
             showsVerticalScrollIndicator={false}
           >
-            {/* Header with shield icon */}
             <View style={styles.headerSection}>
               <View style={styles.shieldIconContainer}>
                 <Ionicons name="shield-checkmark" size={48} color={Colors.primary} />
               </View>
-              <ThemedText style={styles.modalTitle}>
+              <ThemedText style={[TypeVariants.display, { color: c.text, textAlign: "center", marginBottom: 10 }]}>
                 Verification Badges
               </ThemedText>
-              <ThemedText style={styles.modalSubtitle}>
+              <ThemedText style={[TypeVariants.body, { color: c.textMid, textAlign: "center" }]}>
                 Trades on Settled can voluntarily verify their credentials to earn trust badges. Look for these badges when choosing a tradesperson.
               </ThemedText>
             </View>
 
-            {/* Divider */}
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: c.border }]} />
 
-            {/* Verification items */}
             {VERIFICATION_ITEMS.map((item, index) => (
               <VerificationItem
                 key={item.id}
@@ -135,23 +148,21 @@ function LearnMoreModal({ visible, onClose }) {
               />
             ))}
 
-            {/* Info note */}
-            <View style={styles.infoNote}>
-              <Ionicons name="information-circle-outline" size={20} color="#6B7280" />
-              <ThemedText style={styles.infoNoteText}>
+            <View style={[styles.infoNote, { backgroundColor: c.elevate2 }]}>
+              <Ionicons name="information-circle-outline" size={20} color={c.textMuted} />
+              <ThemedText style={[TypeVariants.bodySm, { color: c.textMid, flex: 1 }]}>
                 Not all trades have all badges. We recommend prioritising trades with verified credentials for your peace of mind.
               </ThemedText>
             </View>
 
-            {/* Got It button */}
             <Pressable
               style={({ pressed }) => [
                 styles.gotItButton,
-                pressed && styles.gotItButtonPressed,
+                pressed && { opacity: 0.85 },
               ]}
               onPress={onClose}
             >
-              <ThemedText style={styles.gotItButtonText}>Got It</ThemedText>
+              <ThemedText style={styles.gotItButtonText}>Got it</ThemedText>
             </Pressable>
           </ScrollView>
         </View>
@@ -162,24 +173,28 @@ function LearnMoreModal({ visible, onClose }) {
 
 export default function TrustBadge() {
   const [modalVisible, setModalVisible] = useState(false);
+  const { colors: c } = useTheme();
 
-  const handleLearnMore = useCallback(() => {
-    setModalVisible(true);
-  }, []);
-
-  const handleCloseModal = useCallback(() => {
-    setModalVisible(false);
-  }, []);
+  const handleLearnMore = useCallback(() => setModalVisible(true), []);
+  const handleCloseModal = useCallback(() => setModalVisible(false), []);
 
   return (
     <>
-      <View style={styles.container}>
+      <View
+        style={[
+          styles.container,
+          {
+            backgroundColor: c.elevate,
+            borderColor: c.border,
+          },
+        ]}
+      >
         <View style={styles.content}>
           <View style={styles.textContainer}>
-            <ThemedText style={styles.title}>
+            <ThemedText style={[TypeVariants.h3, { color: c.text, marginBottom: 2 }]}>
               Verified trades you can trust
             </ThemedText>
-            <ThemedText style={styles.subtitle}>
+            <ThemedText style={[TypeVariants.captionMuted, { color: c.textMid }]}>
               Not all businesses are equal on Settled
             </ThemedText>
           </View>
@@ -187,7 +202,15 @@ export default function TrustBadge() {
             onPress={handleLearnMore}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <ThemedText style={styles.learnMore}>Learn more</ThemedText>
+            <ThemedText
+              style={{
+                fontSize: 14,
+                fontFamily: FontFamily.headerSemibold,
+                color: Colors.primary,
+              }}
+            >
+              Learn more
+            </ThemedText>
           </Pressable>
         </View>
       </View>
@@ -198,50 +221,26 @@ export default function TrustBadge() {
 }
 
 const styles = StyleSheet.create({
-  // Main badge container
   container: {
-    backgroundColor: "#F5F3FF",
-    borderRadius: 12,
+    borderRadius: Radius.lg,
     borderWidth: 1,
-    borderColor: `${Colors.primary}20`,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   content: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
-  textContainer: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1F2937",
-    marginBottom: 2,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#6B7280",
-  },
-  learnMore: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.primary,
-  },
+  textContainer: { flex: 1 },
 
-  // Modal styles
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
+  // Modal
+  modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0,0,0,0.55)",
   },
   modalContent: {
-    backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: "hidden",
@@ -249,7 +248,6 @@ const styles = StyleSheet.create({
   handleBar: {
     width: 36,
     height: 4,
-    backgroundColor: "#D1D5DB",
     borderRadius: 2,
     alignSelf: "center",
     marginTop: 12,
@@ -257,25 +255,21 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     position: "absolute",
-    top: 16,
-    right: 16,
+    top: 14,
+    right: 14,
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
     zIndex: 10,
   },
-  modalScroll: {
-    flex: 1,
-  },
+  modalScroll: { flex: 1 },
   modalScrollContent: {
     paddingHorizontal: 24,
     paddingTop: 16,
   },
 
-  // Header section
   headerSection: {
     alignItems: "center",
     paddingVertical: 24,
@@ -283,29 +277,12 @@ const styles = StyleSheet.create({
   shieldIconContainer: {
     marginBottom: 16,
   },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#1F2937",
-    textAlign: "center",
-    marginBottom: 12,
-  },
-  modalSubtitle: {
-    fontSize: 15,
-    color: "#6B7280",
-    textAlign: "center",
-    lineHeight: 22,
-    paddingHorizontal: 8,
-  },
 
-  // Divider
   divider: {
     height: 1,
-    backgroundColor: "#E5E7EB",
     marginVertical: 20,
   },
 
-  // Badge component (matching trade profile design)
   badgeContainer: {
     alignItems: "center",
     width: 52,
@@ -314,9 +291,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: Colors.light.border,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
@@ -334,64 +309,37 @@ const styles = StyleSheet.create({
   },
   badgeLabelText: {
     fontSize: 12,
-    fontWeight: "600",
-    color: Colors.primary,
+    fontFamily: FontFamily.headerSemibold,
     marginTop: 4,
   },
 
-  // Verification item
   verificationItem: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 16,
   },
-  verificationContent: {
-    flex: 1,
-  },
-  verificationTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1F2937",
-    marginBottom: 6,
-  },
-  verificationDescription: {
-    fontSize: 14,
-    color: "#6B7280",
-    lineHeight: 21,
-  },
+  verificationContent: { flex: 1 },
 
-  // Info note
   infoNote: {
     flexDirection: "row",
     alignItems: "flex-start",
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
+    borderRadius: Radius.md,
     padding: 16,
     marginTop: 20,
     gap: 12,
   },
-  infoNoteText: {
-    fontSize: 13,
-    color: "#6B7280",
-    lineHeight: 19,
-    flex: 1,
-  },
 
-  // Got It button
   gotItButton: {
     backgroundColor: Colors.primary,
-    borderRadius: 12,
+    borderRadius: Radius.md + 2,
     paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 24,
   },
-  gotItButtonPressed: {
-    opacity: 0.9,
-  },
   gotItButtonText: {
     fontSize: 16,
-    fontWeight: "600",
+    fontFamily: FontFamily.headerSemibold,
     color: "#FFFFFF",
   },
 });
