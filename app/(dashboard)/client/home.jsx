@@ -1,7 +1,21 @@
 // app/(dashboard)/client/home.jsx
-// Client Home Screen — trade discovery feed (browse-and-choose model).
-// UI-only redesign pass: theme-aware, new top-right icons, floating-tab-bar
-// aware bottom padding. Data/navigation unchanged.
+// Client Home — STRUCTURAL rebuild per the Settled redesign.
+//
+// Previous (discovery-first) layout: search bar → popular services →
+// trades-near-you → willing-to-travel → trust badge.
+//
+// New (action-first) layout per design spec:
+//   Top-right IconBtns: bell + search + more
+//   Big "Home" title + greeting
+//   Panel: Active job     (one status-striped row + Message / Track)
+//   Panel: Quotes         (status-striped rows per open request)
+//   Section: Saved trades (horizontal TradeMini cards)
+//   Panel: Messages       (top 3 conversations)
+//
+// Discovery is still reachable — the top-right search icon opens the
+// existing search modal, and "Saved trades" tappable heads to the
+// find-business listing. No Supabase or navigation changes.
+
 import {
   StyleSheet,
   View,
@@ -17,48 +31,27 @@ import { StatusBar } from "expo-status-bar";
 import { useUser } from "../../../hooks/useUser";
 import { useTheme } from "../../../hooks/useTheme";
 import ThemedView from "../../../components/ThemedView";
-import { SkeletonBox, SkeletonText, SkeletonCircle } from "../../../components/Skeleton";
-import IconBtn from "../../../components/design/IconBtn";
+import ThemedText from "../../../components/ThemedText";
+import { IconBtn } from "../../../components/design";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants, Spacing } from "../../../constants/Typography";
 
-// Home screen components
-import HomeHeader from "../../../components/client/home/HomeHeader";
-import SearchBar from "../../../components/client/home/SearchBar";
-import PopularServicesGrid from "../../../components/client/home/PopularServicesGrid";
-import TradesFeedSection from "../../../components/client/home/TradesFeedSection";
+// New panels (per design spec)
+import ActiveJobPanel from "../../../components/client/home/ActiveJobPanel";
+import QuotesPanel from "../../../components/client/home/QuotesPanel";
+import SavedTradesSection from "../../../components/client/home/SavedTradesSection";
+import MessagesPanel from "../../../components/client/home/MessagesPanel";
 import PostcodePrompt from "../../../components/client/home/PostcodePrompt";
-import TrustBadge from "../../../components/client/home/TrustBadge";
 
-// API functions
+// API
 import { getUserFirstName } from "../../../lib/api/homeScreen";
 import { getMyProfile } from "../../../lib/api/profile";
-import { getClosestTrades, getWillingToTravel } from "../../../lib/api/feed";
 
-// Skeleton loader for client home screen
-function ClientHomeSkeleton() {
-  return (
-    <View style={styles.skeletonContainer}>
-      <View style={styles.skeletonHeader}>
-        <SkeletonText width={180} height={28} />
-      </View>
-      <SkeletonBox width="100%" height={52} borderRadius={18} style={{ marginBottom: 24 }} />
-      <SkeletonText width={140} height={18} style={{ marginBottom: 16 }} />
-      <View style={styles.skeletonGrid}>
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <View key={i} style={styles.skeletonGridItem}>
-            <SkeletonCircle size={48} />
-            <SkeletonText width={60} height={12} style={{ marginTop: 8 }} />
-          </View>
-        ))}
-      </View>
-      <SkeletonText width={180} height={18} style={{ marginTop: 24, marginBottom: 12 }} />
-      <View style={{ flexDirection: "row", gap: 12 }}>
-        {[1, 2].map((i) => (
-          <SkeletonBox key={i} width={210} height={100} borderRadius={14} />
-        ))}
-      </View>
-    </View>
-  );
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
 }
 
 export default function ClientHomeScreen() {
@@ -68,8 +61,8 @@ export default function ClientHomeScreen() {
   const { colors: c, dark } = useTheme();
   const params = useLocalSearchParams();
 
+  // Legacy deep-link: /client?openSearch=true should still open the modal.
   const hasHandledOpenSearch = useRef(false);
-
   useFocusEffect(
     useCallback(() => {
       if (params.openSearch === "true" && !hasHandledOpenSearch.current) {
@@ -83,118 +76,67 @@ export default function ClientHomeScreen() {
   );
 
   const [firstName, setFirstName] = useState(null);
-  const [clientLocation, setClientLocation] = useState(null);
-  const [nearbyTrades, setNearbyTrades] = useState([]);
-  const [furtherTrades, setFurtherTrades] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [showPostcodePrompt, setShowPostcodePrompt] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadData(!hasLoadedOnce);
-    }, [user?.id, hasLoadedOnce])
-  );
-
-  const loadData = async (showLoadingState = true) => {
-    if (showLoadingState) setIsLoading(true);
+  const loadLightweight = useCallback(async () => {
     try {
-      const [name, profile] = await Promise.all([
-        loadUserName(),
-        loadProfileLocation(),
-      ]);
-
-      if (profile?.base_lat != null && profile?.base_lon != null) {
-        await loadTradeFeeds(profile.base_lat, profile.base_lon);
-      } else {
-        setNearbyTrades([]);
-        setFurtherTrades([]);
-        if (!hasLoadedOnce) setShowPostcodePrompt(true);
+      if (user?.id) {
+        const name = await getUserFirstName(user.id);
+        setFirstName(name);
       }
-
+      const profile = await getMyProfile();
+      if (
+        !hasLoadedOnce &&
+        (profile?.base_lat == null || profile?.base_lon == null)
+      ) {
+        setShowPostcodePrompt(true);
+      }
       setHasLoadedOnce(true);
     } catch (e) {
-      console.warn("Error loading home data:", e.message);
-    } finally {
-      setIsLoading(false);
+      console.warn("ClientHome loadLightweight error:", e.message);
     }
-  };
+  }, [user?.id, hasLoadedOnce]);
 
-  const loadUserName = async () => {
-    if (user?.id) {
-      const name = await getUserFirstName(user.id);
-      setFirstName(name);
-      return name;
-    }
-    return null;
-  };
-
-  const loadProfileLocation = async () => {
-    const profile = await getMyProfile();
-    if (profile?.base_lat != null && profile?.base_lon != null) {
-      setClientLocation({
-        lat: Number(profile.base_lat),
-        lon: Number(profile.base_lon),
-        postcode: profile.base_postcode,
-        town: profile.town_city,
-      });
-    }
-    return profile;
-  };
-
-  const loadTradeFeeds = async (lat, lon) => {
-    try {
-      const [nearby, further] = await Promise.all([
-        getClosestTrades({ lat, lon, limit: 10 }),
-        getWillingToTravel({ lat, lon, limit: 10 }),
-      ]);
-      setNearbyTrades(nearby || []);
-      setFurtherTrades(further || []);
-    } catch (e) {
-      console.warn("Error loading trade feeds:", e.message);
-      setNearbyTrades([]);
-      setFurtherTrades([]);
-    }
-  };
+  useFocusEffect(
+    useCallback(() => {
+      loadLightweight();
+    }, [loadLightweight])
+  );
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadData(false);
-    setRefreshing(false);
+    // Each panel reloads independently on focus; force a re-render
+    // of the greeting + cue child panels via a short reload cycle.
+    await loadLightweight();
+    setTimeout(() => setRefreshing(false), 400);
   };
 
-  const handlePostcodeSaved = async ({ lat, lon, postcode, town }) => {
-    setClientLocation({ lat, lon, postcode, town });
+  const handlePostcodeSaved = async () => {
     setShowPostcodePrompt(false);
-    await loadTradeFeeds(lat, lon);
-  };
-
-  const handleSearchPress = () => router.push("/client/search-modal");
-
-  const handleCategorySelect = (category) => {
-    router.push({
-      pathname: "/client/find-business",
-      params: { category: category.name },
-    });
-  };
-
-  const handleTradePress = (trade) => {
-    router.push({
-      pathname: "/client/trade-profile",
-      params: { tradeId: trade.id },
-    });
+    // Panels will pick up the new postcode on next focus automatically.
   };
 
   return (
     <ThemedView style={styles.container}>
       <StatusBar style={dark ? "light" : "dark"} />
 
-      <View style={[styles.safeAreaBackground, { height: insets.top, backgroundColor: c.background }]} />
+      {/* Fixed top safe-area backing so top icons don't clip on scroll */}
+      <View
+        style={[
+          styles.safeAreaBackground,
+          { height: insets.top, backgroundColor: c.background },
+        ]}
+      />
 
-      {/* Top-right icon dock — subtle, matches design spec. */}
-      <View style={[styles.topBar, { top: insets.top + 8 }]}>
+      {/* Top-right icon dock: bell · search · more */}
+      <View style={[styles.topBar, { top: insets.top + 12 }]}>
         <IconBtn icon="notifications-outline" badge />
+        <IconBtn
+          icon="search-outline"
+          onPress={() => router.push("/client/search-modal")}
+        />
         <IconBtn icon="ellipsis-horizontal" />
       </View>
 
@@ -202,10 +144,9 @@ export default function ClientHomeScreen() {
         style={[styles.scrollView, { marginTop: insets.top }]}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: 48, paddingBottom: insets.bottom + 110 },
+          { paddingTop: 54, paddingBottom: insets.bottom + 130 },
         ]}
         showsVerticalScrollIndicator={false}
-        bounces={true}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -214,42 +155,30 @@ export default function ClientHomeScreen() {
           />
         }
       >
-        {isLoading ? (
-          <ClientHomeSkeleton />
-        ) : (
-          <>
-            <HomeHeader firstName={firstName} />
-            <SearchBar onPress={handleSearchPress} />
-            <PopularServicesGrid onCategorySelect={handleCategorySelect} />
+        {/* Big page title */}
+        <View style={styles.titleBlock}>
+          <ThemedText
+            style={[
+              TypeVariants.displayXL,
+              { color: c.text, fontSize: 32, lineHeight: 34 },
+            ]}
+          >
+            Home
+          </ThemedText>
+          <ThemedText
+            style={[
+              TypeVariants.body,
+              { color: c.textMid, marginTop: 4 },
+            ]}
+          >
+            {getGreeting()}{firstName ? `, ${firstName}` : ""}
+          </ThemedText>
+        </View>
 
-            <TradesFeedSection
-              title="Trades near you"
-              subtitle={
-                clientLocation?.town
-                  ? `Verified trades around ${clientLocation.town}`
-                  : "Verified trades in your area"
-              }
-              trades={nearbyTrades}
-              onTradePress={handleTradePress}
-              emptyMessage={
-                clientLocation
-                  ? "No trades in your area yet. Try checking back soon."
-                  : "Add your postcode to see trades near you."
-              }
-            />
-
-            {furtherTrades.length > 0 && (
-              <TradesFeedSection
-                title="Willing to travel"
-                subtitle="Trades based further away who cover your area"
-                trades={furtherTrades}
-                onTradePress={handleTradePress}
-              />
-            )}
-
-            <TrustBadge />
-          </>
-        )}
+        <ActiveJobPanel />
+        <QuotesPanel />
+        <SavedTradesSection />
+        <MessagesPanel />
       </ScrollView>
 
       <PostcodePrompt
@@ -262,9 +191,7 @@ export default function ClientHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   safeAreaBackground: {
     position: "absolute",
     top: 0,
@@ -279,27 +206,12 @@ const styles = StyleSheet.create({
     gap: 8,
     zIndex: 20,
   },
-  scrollView: {
-    flex: 1,
-  },
+  scrollView: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 0, // panels have their own 16px gutter
   },
-  // Skeleton styles
-  skeletonContainer: {
-    flex: 1,
-  },
-  skeletonHeader: {
-    marginBottom: 20,
-  },
-  skeletonGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 16,
-    marginBottom: 8,
-  },
-  skeletonGridItem: {
-    width: "30%",
-    alignItems: "center",
+  titleBlock: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: 6,
   },
 });
