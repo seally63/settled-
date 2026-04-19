@@ -1,18 +1,17 @@
 import React from 'react';
-import { View, Text, useColorScheme } from 'react-native';
+import { View, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors } from '../constants/Colors';
+import { useTheme } from '../hooks/useTheme';
 
 const ThemedView = ({ style, safe = false, children, ...rest }) => {
-  const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme] ?? Colors.light;
-  const insets = useSafeAreaInsets(); // Always call hooks unconditionally
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
   // Wrap any bare string/number child so they're valid under <View/>
   const wrapChild = (node) => {
     if (node == null || node === false) return null;
     if (typeof node === 'string' || typeof node === 'number') {
-      return <Text style={{ color: theme.text }}>{String(node)}</Text>;
+      return <Text style={{ color: colors.text }}>{String(node)}</Text>;
     }
     return node;
   };
@@ -20,7 +19,7 @@ const ThemedView = ({ style, safe = false, children, ...rest }) => {
 
   if (!safe) {
     return (
-      <View style={[{ backgroundColor: theme.background }, style]} {...rest}>
+      <View style={[{ backgroundColor: colors.background }, style]} {...rest}>
         {wrappedChildren}
       </View>
     );
@@ -30,7 +29,7 @@ const ThemedView = ({ style, safe = false, children, ...rest }) => {
     <View
       style={[
         {
-          backgroundColor: theme.background,
+          backgroundColor: colors.background,
           paddingTop: insets.top,
           paddingBottom: insets.bottom,
         },

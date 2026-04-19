@@ -21,6 +21,7 @@ import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import { getMyRole, getMyProfile } from "../../../lib/api/profile";
 import { getMyVerificationStatus } from "../../../lib/api/verification";
 import { isCurrentUserAdmin } from "../../../lib/api/admin";
@@ -37,6 +38,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, authChecked } = useUser();
+  const { mode: themeMode, setMode: setThemeMode } = useTheme();
 
   const [role, setRole] = useState(null);
   const [roleLoading, setRoleLoading] = useState(true);
@@ -402,6 +404,50 @@ export default function SettingsScreen() {
           </>
         )}
 
+        {/* Appearance Section */}
+        <ThemedText style={styles.sectionLabel}>APPEARANCE</ThemedText>
+        <View style={styles.sectionCard}>
+          <View style={styles.rowContainer}>
+            <View style={styles.rowLeft}>
+              <Ionicons name="contrast-outline" size={20} color={Colors.light.subtitle} />
+              <View style={styles.rowTextContainer}>
+                <ThemedText style={styles.rowLabel}>Theme</ThemedText>
+                <ThemedText style={styles.rowValue}>
+                  {themeMode === "system" ? "Match device" : themeMode === "dark" ? "Dark" : "Light"}
+                </ThemedText>
+              </View>
+            </View>
+            <View style={styles.themeSeg}>
+              {[
+                { key: "light",  label: "Light"  },
+                { key: "dark",   label: "Dark"   },
+                { key: "system", label: "Auto"   },
+              ].map((opt) => {
+                const on = themeMode === opt.key;
+                return (
+                  <Pressable
+                    key={opt.key}
+                    onPress={() => setThemeMode(opt.key)}
+                    style={[
+                      styles.themeSegBtn,
+                      on && styles.themeSegBtnActive,
+                    ]}
+                  >
+                    <ThemedText
+                      style={[
+                        styles.themeSegLabel,
+                        on && styles.themeSegLabelActive,
+                      ]}
+                    >
+                      {opt.label}
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+
         {/* Account Section */}
         <ThemedText style={styles.sectionLabel}>ACCOUNT</ThemedText>
         <View style={styles.sectionCard}>
@@ -739,6 +785,30 @@ const styles = StyleSheet.create({
   rowRight: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  // Theme segmented control (Appearance row)
+  themeSeg: {
+    flexDirection: "row",
+    backgroundColor: "#F0F0F3",
+    borderRadius: 9,
+    padding: 3,
+    gap: 2,
+  },
+  themeSegBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 7,
+  },
+  themeSegBtnActive: {
+    backgroundColor: "#0B0B0D",
+  },
+  themeSegLabel: {
+    fontSize: 11.5,
+    fontWeight: "600",
+    color: Colors.light.subtitle,
+  },
+  themeSegLabelActive: {
+    color: "#FFFFFF",
   },
   // Version
   versionContainer: {

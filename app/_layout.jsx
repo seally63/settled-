@@ -1,42 +1,81 @@
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack } from 'expo-router'
-import { StyleSheet, Text, useColorScheme, View } from 'react-native'
-import { Colors } from "../constants/Colors"
+import { View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
+
+import {
+  useFonts as usePublicSans,
+  PublicSans_400Regular,
+  PublicSans_500Medium,
+  PublicSans_600SemiBold,
+  PublicSans_700Bold,
+  PublicSans_800ExtraBold,
+} from '@expo-google-fonts/public-sans'
+import {
+  useFonts as useDmSans,
+  DMSans_400Regular,
+  DMSans_500Medium,
+  DMSans_600SemiBold,
+  DMSans_700Bold,
+} from '@expo-google-fonts/dm-sans'
+
 import { UserProvider } from '../contexts/UserContext'
 import { QuotesProvider } from '../contexts/QuotesContext'
 import { NotificationProvider } from '../contexts/NotificationContext'
+import { ThemeProvider, useThemeContext } from '../contexts/ThemeContext'
 
+function ThemedStack() {
+  const { colors, scheme } = useThemeContext()
+  return (
+    <>
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      <Stack screenOptions={{
+          headerStyle: { backgroundColor: colors.navBackground },
+          headerTintColor: colors.title,
+          contentStyle: { backgroundColor: colors.background },
+      }}>
+        <Stack.Screen name='(auth)' options={{ headerShown: false }} />
+        <Stack.Screen name='(dashboard)' options={{ headerShown: false }} />
+        <Stack.Screen name='(admin)' options={{ headerShown: false }} />
+        <Stack.Screen name="index" options={{ title: 'Home' }} />
+      </Stack>
+    </>
+  )
+}
 
 const RootLayout = () => {
-  const colorScheme = useColorScheme()
-  const theme = Colors[colorScheme] ?? Colors.light
+  const [publicSansLoaded] = usePublicSans({
+    PublicSans_400Regular,
+    PublicSans_500Medium,
+    PublicSans_600SemiBold,
+    PublicSans_700Bold,
+    PublicSans_800ExtraBold,
+  })
+  const [dmSansLoaded] = useDmSans({
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_600SemiBold,
+    DMSans_700Bold,
+  })
 
-  
+  // Hold the splash/blank view until fonts are ready — prevents a visible
+  // typography flash once the first screen renders.
+  const fontsReady = publicSansLoaded && dmSansLoaded
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <UserProvider>
-        <QuotesProvider>
-          <NotificationProvider>
-            <StatusBar value="auto" />
-            <Stack screenOptions={{
-                headerStyle: { backgroundColor: theme.navBackground },
-                headerTintColor: theme.title,
-            }}>
-              <Stack.Screen name='(auth)' options={{ headerShown: false}} />
-              <Stack.Screen name='(dashboard)' options={{ headerShown: false}} />
-              <Stack.Screen name='(admin)' options={{ headerShown: false}} />
-              <Stack.Screen name="index" options={{ title: 'Home'}}/>
-
-            </Stack>
-          </NotificationProvider>
-        </QuotesProvider>
-      </UserProvider>
+      <ThemeProvider>
+        <UserProvider>
+          <QuotesProvider>
+            <NotificationProvider>
+              {fontsReady ? <ThemedStack /> : <View style={{ flex: 1, backgroundColor: '#0B0B0D' }} />}
+            </NotificationProvider>
+          </QuotesProvider>
+        </UserProvider>
+      </ThemeProvider>
     </GestureHandlerRootView>
   )
 }
 
 export default RootLayout
-
-const styles = StyleSheet.create({})
