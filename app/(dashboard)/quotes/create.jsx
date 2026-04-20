@@ -104,23 +104,38 @@ function resolveSpecificTitle({ serviceTypeName, serviceCategoryName, suggestedT
   return "Project";
 }
 
-async function fetchClientNameForRequest(requestId) {
+async function fetchClientNameForRequest(requestId, requesterId) {
   if (!requestId) return null;
+  // 1) privacy-aware RPC (best when conversation/contact is unlocked)
   try {
     const { data } = await supabase.rpc("rpc_get_client_contact_for_request", {
       p_request_id: requestId,
     });
     if (data?.name_display) return data.name_display;
     if (data?.name) return data.name;
+  } catch {}
+  // 2) conversation other-party name
+  try {
     const { data: conv } = await supabase.rpc("rpc_list_conversations", { p_limit: 100 });
     if (conv) {
       const match = conv.find((c) => c.request_id === requestId);
       if (match?.other_party_name) return match.other_party_name;
     }
-    return null;
-  } catch {
-    return null;
+  } catch {}
+  // 3) direct profile read using the request's requester_id — this is
+  // the source of truth. Trade Projects index does the same thing. A
+  // brand-new request with no conversation yet hits this branch.
+  if (requesterId) {
+    try {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", requesterId)
+        .maybeSingle();
+      if (prof?.full_name) return prof.full_name;
+    } catch {}
   }
+  return null;
 }
 
 /* ───────── main screen ───────── */
@@ -176,30 +191,64 @@ export default function Create() {
     if (!requestId) return;
     let alive = true;
     (async () => {
-      const [name, reqRes] = await Promise.all([
-        fetchClientNameForRequest(requestId),
-        supabase
-          .from("quote_requests")
-          .select(`
-            id,
-            postcode,
-            suggested_title,
-            service_types:service_type_id ( id, name ),
-            service_categories:service_category_id ( id, name )
-          `)
-          .eq("id", requestId)
-          .maybeSingle(),
-      ]);
+      // Same robust fetch pattern as the trade Projects index: simple
+      // embedded joins on service_types / service_categories, plus
+      // separate-id lookups as a safety net, plus a profiles fallback
+      // for the client name. The aliased-on-column syntax I had here
+      // before ("service_types:service_type_id(...)") is invalid
+      // PostgREST and silently returned null, which was why the
+      // eyebrow showed the "CLIENT · PROJECT" fallback.
+      const { data: req } = await supabase
+        .from("quote_requests")
+        .select(`
+          id,
+          postcode,
+          suggested_title,
+          requester_id,
+          service_type_id,
+          category_id,
+          service_types (id, name),
+          service_categories (id, name)
+        `)
+        .eq("id", requestId)
+        .maybeSingle();
+
       if (!alive) return;
-      if (name) setClientFullName(name);
-      const req = reqRes?.data;
-      if (req) {
-        if (req.service_types?.name) setServiceTypeName(req.service_types.name);
-        if (req.service_categories?.name)
-          setServiceCategoryName(req.service_categories.name);
-        if (req.postcode) setProjectPostcode(String(req.postcode).toUpperCase());
-        if (req.suggested_title) setSuggestedTitle(String(req.suggested_title).trim());
+
+      let svcName = req?.service_types?.name || null;
+      let catName = req?.service_categories?.name || null;
+
+      // Safety-net lookups for legacy rows where the embedded join
+      // came back empty but the FK column is still populated.
+      if (!svcName && req?.service_type_id) {
+        try {
+          const { data: st } = await supabase
+            .from("service_types")
+            .select("name")
+            .eq("id", req.service_type_id)
+            .maybeSingle();
+          if (st?.name) svcName = st.name;
+        } catch {}
       }
+      if (!catName && req?.category_id) {
+        try {
+          const { data: sc } = await supabase
+            .from("service_categories")
+            .select("name")
+            .eq("id", req.category_id)
+            .maybeSingle();
+          if (sc?.name) catName = sc.name;
+        } catch {}
+      }
+
+      const name = await fetchClientNameForRequest(requestId, req?.requester_id);
+      if (!alive) return;
+
+      if (name) setClientFullName(name);
+      if (svcName) setServiceTypeName(svcName);
+      if (catName) setServiceCategoryName(catName);
+      if (req?.postcode) setProjectPostcode(String(req.postcode).toUpperCase());
+      if (req?.suggested_title) setSuggestedTitle(String(req.suggested_title).trim());
     })();
     return () => {
       alive = false;

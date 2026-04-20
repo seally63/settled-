@@ -54,8 +54,16 @@ export default function QuotesStackLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
+        // Default for main tab + list navigation.
         animation: 'slide_from_right',
       }}
-    />
+    >
+      {/* Everything inherits slide_from_right EXCEPT the full-screen
+          action pages launched from the FAB (quote builder + schedule).
+          Those feel more like a new sheet/action than a push, so they
+          fade in from centre (no sliding).                           */}
+      <Stack.Screen name="create" options={{ animation: 'fade' }} />
+      <Stack.Screen name="schedule" options={{ animation: 'fade' }} />
+    </Stack>
   );
 }

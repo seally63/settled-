@@ -36,27 +36,25 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 // Static layout for the redesigned trade-reviews-request screen.
 // Colours are applied inline against the active theme palette.
 const trvStyles = StyleSheet.create({
-  // Inline chrome — matches the Projects tab header padding + icon size
-  inlineChrome: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    gap: 10,
-  },
-  chromeIconBtn: {
+  // Sticky chevron — floats top-left, always visible as you scroll.
+  // Sizing matches the builder's iconBtn for visual uniformity across
+  // the three screens (request detail · builder · schedule).
+  stickyChevron: {
+    position: "absolute",
+    left: 20,
     width: 36,
     height: 36,
     borderRadius: 18,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 30,
   },
   eyebrowRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 20,
-    marginTop: 10,
   },
   eyebrowDot: { width: 6, height: 6, borderRadius: 3 },
   eyebrow: {
@@ -1813,6 +1811,27 @@ export default function RequestDetails() {
 
   return (
     <ThemedView style={styles.container}>
+      {/* Sticky chevron back — sits on top at all times (only this
+          screen has a sticky back; the builder + schedule pages have
+          their chevron inline with the scroll content). Matches the
+          iconBtn style used on the builder for visual uniformity. */}
+      <Pressable
+        onPress={() =>
+          router.canGoBack?.() ? router.back() : router.replace("/quotes")
+        }
+        hitSlop={10}
+        style={[
+          trvStyles.stickyChevron,
+          {
+            top: insets.top + 10,
+            backgroundColor: c.elevate,
+            borderColor: c.border,
+          },
+        ]}
+      >
+        <Ionicons name="chevron-back" size={18} color={c.text} />
+      </Pressable>
+
       {loading ? (
         <RequestDetailSkeleton paddingTop={insets.top + 60} />
       ) : err ? (
@@ -1827,35 +1846,18 @@ export default function RequestDetails() {
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{
-            paddingTop: insets.top + 10,
-            paddingBottom: insets.bottom + 160,
+            // Leaves room for the sticky chevron (insets.top + 10 + 36)
+            // plus a small gap before the eyebrow.
+            paddingTop: insets.top + 56,
+            // Extra bottom room so the FAB (~60px circle + 80-130px
+            // bottom offset) doesn't cover the last content row.
+            paddingBottom: insets.bottom + 220,
           }}
           contentInsetAdjustmentBehavior="always"
           keyboardShouldPersistTaps="handled"
         >
-          {/* Inline chrome row — same layout as the Projects tab
-              header. Chevron back at left; search/filter placeholder at
-              right could be added if we want parity.                  */}
-          <View style={trvStyles.inlineChrome}>
-            <Pressable
-              onPress={() =>
-                router.canGoBack?.() ? router.back() : router.replace("/quotes")
-              }
-              hitSlop={10}
-              style={({ pressed }) => [
-                trvStyles.chromeIconBtn,
-                { backgroundColor: c.elevate, borderColor: c.border },
-                pressed && { opacity: 0.6 },
-              ]}
-              accessibilityLabel="Back"
-            >
-              <Ionicons name="chevron-back" size={18} color={c.text} />
-            </Pressable>
-            <View style={{ flex: 1 }} />
-          </View>
-
-          {/* Eyebrow — tight below the chevron */}
-          <View style={[trvStyles.eyebrowRow, { marginTop: 10 }]}>
+          {/* Eyebrow — tight below the sticky chevron */}
+          <View style={trvStyles.eyebrowRow}>
             <View style={[trvStyles.eyebrowDot, { backgroundColor: eyebrowDot }]} />
             <ThemedText style={[trvStyles.eyebrow, { color: c.textMuted }]}>
               {eyebrowText}
