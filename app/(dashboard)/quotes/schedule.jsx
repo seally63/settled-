@@ -376,31 +376,36 @@ export default function ScheduleAppointment() {
   const displayLocation = location || "Location not specified";
 
   return (
-    <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => {
-            if (busy) return;
-            if (router.canGoBack?.()) {
-              router.back();
-            } else {
-              router.replace("/quotes");
-            }
-          }}
-          hitSlop={8}
-          disabled={busy}
-        >
-          <Ionicons name="close" size={24} color="#374151" />
-        </Pressable>
-        <ThemedText style={styles.headerTitle}>Schedule appointment</ThemedText>
-        <View style={{ width: 24 }} />
-      </View>
-
+    <ThemedView style={styles.container}>
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top + 10 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Inline chrome — transparent chevron back, scrolls with the
+            content (matches the quote builder). No header row, no block
+            background behind it.                                     */}
+        <View style={styles.inlineChrome}>
+          <Pressable
+            onPress={() => {
+              if (busy) return;
+              if (router.canGoBack?.()) {
+                router.back();
+              } else {
+                router.replace("/quotes");
+              }
+            }}
+            hitSlop={10}
+            disabled={busy}
+            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
+            accessibilityLabel="Back"
+          >
+            <Ionicons name="chevron-back" size={18} color={c.text} />
+          </Pressable>
+          <View style={{ flex: 1 }} />
+        </View>
         {/* Hero card */}
         <View style={styles.heroCard}>
           {loadingData ? (
@@ -595,20 +600,26 @@ function makeStyles(c, dark) {
     flex: 1,
     backgroundColor: c.background,
   },
-  header: {
+  // Transparent inline chrome row (matches quote builder pattern).
+  inlineChrome: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 20,
+    paddingBottom: 14,
+    gap: 10,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
+  iconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: c.elevate,
+    borderWidth: 1,
+    borderColor: c.border,
+    alignItems: "center",
+    justifyContent: "center",
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 16,
     paddingBottom: 40,
   },
   heroCard: {

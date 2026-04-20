@@ -1810,9 +1810,18 @@ function buildTradeRow(project, formatNum) {
   const fresh =
     project.stage === "REQUEST" && (project.requestAge === 0 || project.isFresh);
 
+  // Distinguish "Accepted, no quote yet" (type === "accepted") from
+  // "Quote actually sent" — both used to share stage "QUOTE" and showed
+  // "Quote sent / Sent" labels even when no quote existed.
+  const isAcceptedWithoutQuote =
+    project.stage === "QUOTE" &&
+    (project.type === "accepted" || !project.quoteAmount);
+
   const stageMeta = {
     REQUEST:   { color: "#F4B740", label: "Needs quote" },
-    QUOTE:     { color: "#7C5CFF", label: "Quote sent" },
+    QUOTE:     isAcceptedWithoutQuote
+      ? { color: "#5BB3FF", label: "Accepted — draft a quote" }
+      : { color: "#7C5CFF", label: "Quote sent" },
     WORK:      { color: "#5BB3FF", label: "In progress" },
     COMPLETED: { color: "#3DCF89", label: "Completed" },
     EXPIRED:   { color: "#8A8A94", label: "Expired" },
@@ -1835,7 +1844,7 @@ function buildTradeRow(project, formatNum) {
           : null);
       break;
     case "QUOTE":
-      rightTop = amt || "Sent";
+      rightTop = amt || (isAcceptedWithoutQuote ? "Accepted" : "Sent");
       rightBot = project.statusDetail || project.statusText || null;
       break;
     case "WORK":

@@ -164,7 +164,6 @@ export default function Create() {
   const [showDurationEditor, setShowDurationEditor] = useState(false);
   const [showDepositEditor, setShowDepositEditor] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [showActions, setShowActions] = useState(false);
 
   const activeItems = useMemo(
     () => items.filter((it) => String(it.name || "").trim()),
@@ -371,31 +370,10 @@ export default function Create() {
     <ThemedView style={styles.container}>
       <ThemedStatusBar />
 
-      {/* Top chrome */}
-      <View style={[styles.topChrome, { paddingTop: insets.top + 10 }]}>
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={10}
-          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
-          accessibilityLabel="Back"
-        >
-          <Ionicons name="chevron-back" size={18} color={c.text} />
-        </Pressable>
-        <View style={{ flex: 1 }} />
-        <View style={styles.draftChip}>
-          <ThemedText style={styles.draftChipText}>
-            {isEditing ? "Draft" : "New"}
-          </ThemedText>
-        </View>
-        <Pressable
-          onPress={() => setShowActions(true)}
-          hitSlop={10}
-          style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
-          accessibilityLabel="Quote actions"
-        >
-          <Ionicons name="ellipsis-horizontal" size={18} color={c.text} />
-        </Pressable>
-      </View>
+      {/* Top chrome — transparent, not sticky. Sits inside the scroll
+          content as the first row so it scrolls with the page. No black
+          background, independent chevron and preview buttons on the same
+          row.                                                        */}
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -403,10 +381,35 @@ export default function Create() {
       >
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: insets.top + 10 },
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Inline chrome — chevron back + eye (preview). Transparent,
+              scrolls with the page (not sticky), no background row. */}
+          <View style={styles.inlineChrome}>
+            <Pressable
+              onPress={() => router.back()}
+              hitSlop={10}
+              style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
+              accessibilityLabel="Back"
+            >
+              <Ionicons name="chevron-back" size={18} color={c.text} />
+            </Pressable>
+            <View style={{ flex: 1 }} />
+            <Pressable
+              onPress={() => setShowPreview(true)}
+              hitSlop={10}
+              style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
+              accessibilityLabel="Preview quote"
+            >
+              <Ionicons name="eye-outline" size={20} color={c.text} />
+            </Pressable>
+          </View>
+
           {/* Hero */}
           <View style={styles.hero}>
             <ThemedText style={styles.eyebrow} numberOfLines={2}>
@@ -509,28 +512,44 @@ export default function Create() {
             />
           </View>
 
-          <View style={{ height: 140 }} />
+          {/* Inline actions — Save as draft above Send quote, both part
+              of the scroll content (no sticky dock). The eye icon at the
+              top of the screen still opens the preview.              */}
+          <View style={styles.inlineActions}>
+            <Pressable
+              onPress={handleSaveDraft}
+              style={({ pressed }) => [
+                styles.actionGhostBtn,
+                { backgroundColor: c.elevate, borderColor: c.borderStrong },
+                pressed && { opacity: 0.8 },
+              ]}
+              accessibilityRole="button"
+            >
+              <Ionicons name="save-outline" size={16} color={c.text} style={{ marginRight: 8 }} />
+              <ThemedText style={[styles.actionGhostText, { color: c.text }]}>
+                {isEditing ? "Update draft" : "Save as draft"}
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={handleSend}
+              disabled={sending || activeItems.length === 0}
+              style={({ pressed }) => [
+                styles.actionPrimaryBtn,
+                (sending || activeItems.length === 0) && { opacity: 0.5 },
+                pressed && { opacity: 0.85 },
+              ]}
+              accessibilityRole="button"
+            >
+              <Ionicons name="send" size={15} color="#fff" style={{ marginRight: 8 }} />
+              <ThemedText style={styles.actionPrimaryText}>
+                Send quote · £{formatGBPDecimal(totals.grand)}
+              </ThemedText>
+            </Pressable>
+          </View>
+
+          <View style={{ height: insets.bottom + 32 }} />
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* Bottom dock — single centered Send */}
-      <View style={[styles.dock, { paddingBottom: insets.bottom + 18 }]}>
-        <Pressable
-          onPress={handleSend}
-          disabled={sending || activeItems.length === 0}
-          style={({ pressed }) => [
-            styles.dockPrimary,
-            (sending || activeItems.length === 0) && { opacity: 0.5 },
-            pressed && { opacity: 0.85 },
-          ]}
-          accessibilityRole="button"
-        >
-          <Ionicons name="send" size={15} color="#fff" style={{ marginRight: 8 }} />
-          <ThemedText style={styles.dockPrimaryText}>
-            Send quote · £{formatGBPDecimal(totals.grand)}
-          </ThemedText>
-        </Pressable>
-      </View>
 
       {/* iOS numeric keyboard Done accessory */}
       {Platform.OS === "ios" && (
@@ -623,22 +642,6 @@ export default function Create() {
         comments={comments}
       />
 
-      <ActionsSheet
-        c={c}
-        styles={styles}
-        insets={insets}
-        visible={showActions}
-        isEditing={isEditing}
-        onClose={() => setShowActions(false)}
-        onPreview={() => {
-          setShowActions(false);
-          setShowPreview(true);
-        }}
-        onSaveDraft={async () => {
-          setShowActions(false);
-          await handleSaveDraft();
-        }}
-      />
     </ThemedView>
   );
 }
@@ -1037,13 +1040,14 @@ function makeStyles(c, dark) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.background },
 
-    /* top chrome */
-    topChrome: {
+    /* inline chrome — transparent row, scrolls with content */
+    inlineChrome: {
       flexDirection: "row",
       alignItems: "center",
       paddingHorizontal: 20,
-      paddingBottom: 10,
+      paddingBottom: 14,
       gap: 10,
+      backgroundColor: "transparent",
     },
     iconBtn: {
       width: 36,
@@ -1054,20 +1058,6 @@ function makeStyles(c, dark) {
       borderColor: c.border,
       alignItems: "center",
       justifyContent: "center",
-    },
-    draftChip: {
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: Radius.pill,
-      borderWidth: 1,
-      borderColor: c.borderStrong,
-    },
-    draftChipText: {
-      fontFamily: FontFamily.headerBold,
-      fontSize: 11,
-      letterSpacing: 0.8,
-      color: c.textMid,
-      textTransform: "uppercase",
     },
 
     scrollContent: { paddingBottom: 40 },
@@ -1330,22 +1320,24 @@ function makeStyles(c, dark) {
       textAlignVertical: "top",
     },
 
-    /* bottom dock — single centered Send */
-    dock: {
-      position: "absolute",
-      left: 0,
-      right: 0,
-      bottom: 0,
-      paddingHorizontal: 16,
-      paddingTop: 14,
+    /* inline actions (after note section) — Save draft above Send quote */
+    inlineActions: {
+      paddingHorizontal: 20,
+      paddingTop: 26,
+      gap: 10,
+    },
+    actionGhostBtn: {
+      height: 54,
+      borderRadius: 16,
+      borderWidth: 1,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: c.background,
-      borderTopWidth: 1,
-      borderTopColor: c.border,
+      flexDirection: "row",
     },
-    dockPrimary: {
-      alignSelf: "stretch",
+    actionGhostText: {
+      ...TypeVariants.button,
+    },
+    actionPrimaryBtn: {
       height: 54,
       borderRadius: 16,
       backgroundColor: c.tint,
@@ -1353,7 +1345,7 @@ function makeStyles(c, dark) {
       justifyContent: "center",
       flexDirection: "row",
     },
-    dockPrimaryText: {
+    actionPrimaryText: {
       ...TypeVariants.button,
       color: "#fff",
     },
