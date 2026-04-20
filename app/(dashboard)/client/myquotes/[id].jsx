@@ -1484,13 +1484,21 @@ export default function ClientMyQuoteDetail() {
                   .{formatNumber(grand).split(".")[1] || "00"}
                 </ThemedText>
               </View>
-              {/* Terms: estimated duration + earliest start */}
+              {/* Terms: estimated duration + earliest start + deposit.
+                  Reads every duration column we've historically written
+                  (`duration_text` is the Phase 11 canonical; the older
+                  `estimated_duration[_text]` still shows for legacy
+                  rows).                                               */}
               <View style={qrStyles.termsRow}>
-                {(quote?.estimated_duration || quote?.estimated_duration_text) && (
+                {(quote?.duration_text ||
+                  quote?.estimated_duration_text ||
+                  quote?.estimated_duration) && (
                   <View style={qrStyles.termsItem}>
                     <Ionicons name="time-outline" size={13} color={c.textMuted} />
                     <ThemedText style={[qrStyles.termsText, { color: c.textMid }]}>
-                      {quote.estimated_duration_text || quote.estimated_duration}
+                      {quote.duration_text ||
+                        quote.estimated_duration_text ||
+                        quote.estimated_duration}
                     </ThemedText>
                   </View>
                 )}
@@ -1499,6 +1507,14 @@ export default function ClientMyQuoteDetail() {
                     <Ionicons name="calendar-outline" size={13} color={c.textMuted} />
                     <ThemedText style={[qrStyles.termsText, { color: c.textMid }]}>
                       Earliest start {formatShortDate(quote.earliest_start)}
+                    </ThemedText>
+                  </View>
+                )}
+                {quote?.deposit_percent != null && (
+                  <View style={qrStyles.termsItem}>
+                    <Ionicons name="wallet-outline" size={13} color={c.textMuted} />
+                    <ThemedText style={[qrStyles.termsText, { color: c.textMid }]}>
+                      {Number(quote.deposit_percent)}% deposit on acceptance
                     </ThemedText>
                   </View>
                 )}
@@ -1820,6 +1836,18 @@ export default function ClientMyQuoteDetail() {
                         month: 'short',
                         day: 'numeric'
                       })}
+                    </ThemedText>
+                  </View>
+                </View>
+              )}
+
+              {quote?.deposit_percent != null && (
+                <View style={styles.requestDetailRow}>
+                  <Ionicons name="wallet-outline" size={18} color={c.textMid} />
+                  <View style={styles.requestDetailContent}>
+                    <ThemedText style={styles.requestDetailLabel}>Deposit</ThemedText>
+                    <ThemedText style={styles.requestDetailValue}>
+                      {Number(quote.deposit_percent)}% on acceptance
                     </ThemedText>
                   </View>
                 </View>
