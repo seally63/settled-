@@ -579,19 +579,32 @@ export default function TradesmanProjects() {
 
       const quotedReqIds = new Set((quotes || []).map((q) => q.request_id));
 
+      // Filter out null / "null" / undefined — the string literal "null"
+      // slips in for old rows where request_id was persisted un-cast, and
+      // Postgres then rejects the whole `.in()` query with
+      // "invalid input syntax for type uuid: \"null\"" which nukes every
+      // downstream lookup.
+      const isValidUuid = (v) =>
+        typeof v === "string" && v !== "null" && /^[0-9a-f-]{36}$/i.test(v);
       const reqIds = Array.from(
         new Set([
           ...(targets || []).map((t) => t.request_id),
           ...(quotes || []).map((q) => q.request_id),
         ])
-      );
+      ).filter(isValidUuid);
 
-      // Fetch request docs — join service_types + service_categories so
-      // the card can show the real service + category names straight from
-      // FK joins instead of guessing via parseTitle(suggested_title).
+      // Fetch request docs. We join service_types + service_categories
+      // so the card can show real service + category names directly from
+      // the FK — then we also fetch those tables separately and stitch
+      // them in as a safety net (protects against any PostgREST relation
+      // disambiguation issues, and handles legacy rows where the FK was
+      // never set but the category can still be guessed from another
+      // request in the batch).
       let reqById = {};
+      let serviceTypesById = {};
+      let serviceCategoriesById = {};
       if (reqIds.length) {
-        const { data: reqs } = await supabase
+        const { data: reqs, error: reqErr } = await supabase
           .from("quote_requests")
           .select(`
             id,
@@ -603,23 +616,84 @@ export default function TradesmanProjects() {
             suggested_title,
             requester_id,
             service_type_id,
-            service_category_id,
-            service_types:service_type_id ( id, name ),
-            service_categories:service_category_id ( id, name )
+            category_id,
+            service_types (id, name),
+            service_categories (id, name)
           `)
           .in("id", reqIds);
+        if (reqErr) console.warn("[quotes/index] reqs fetch error:", reqErr.message);
         (reqs || []).forEach((r) => (reqById[r.id] = r));
+
+        // Safety-net lookups — in case the embedded join came back null.
+        const serviceTypeIds = [
+          ...new Set((reqs || []).map((r) => r.service_type_id).filter(Boolean)),
+        ];
+        const serviceCategoryIds = [
+          ...new Set((reqs || []).map((r) => r.category_id).filter(Boolean)),
+        ];
+        if (serviceTypeIds.length) {
+          const { data: sts } = await supabase
+            .from("service_types")
+            .select("id, name")
+            .in("id", serviceTypeIds);
+          (sts || []).forEach((s) => (serviceTypesById[s.id] = s.name));
+        }
+        if (serviceCategoryIds.length) {
+          const { data: scs } = await supabase
+            .from("service_categories")
+            .select("id, name")
+            .in("id", serviceCategoryIds);
+          (scs || []).forEach((s) => (serviceCategoriesById[s.id] = s.name));
+        }
       }
 
-      // Fetch client names
+      // Helper — pick the best name available: embedded join first, then
+      // separate-lookup map, then null.
+      const resolveServiceName = (r) =>
+        r?.service_types?.name ||
+        (r?.service_type_id ? serviceTypesById[r.service_type_id] : null) ||
+        null;
+      const resolveCategoryName = (r) =>
+        r?.service_categories?.name ||
+        (r?.category_id ? serviceCategoriesById[r.category_id] : null) ||
+        null;
+
+      // Fetch client names. Preload from profiles (the source of truth)
+      // up-front so even brand-new requests with no conversation yet show
+      // the real client name instead of falling back to "Client".
       let clientNameByRequestId = {};
       let clientContactByRequestId = {};
+
+      const requesterIdByRequestId = {};
+      reqIds.forEach((rid) => {
+        const rid2 = reqById[rid]?.requester_id;
+        if (isValidUuid(rid2)) requesterIdByRequestId[rid] = rid2;
+      });
+      const requesterIds = [...new Set(Object.values(requesterIdByRequestId))];
+      if (requesterIds.length) {
+        const { data: profRows, error: profErr } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", requesterIds);
+        if (profErr) {
+          console.warn("[quotes/index] profiles fetch failed:", profErr.message);
+        } else {
+          const nameById = {};
+          (profRows || []).forEach((p) => {
+            if (p.full_name) nameById[p.id] = p.full_name;
+          });
+          Object.entries(requesterIdByRequestId).forEach(([reqId, userId]) => {
+            if (nameById[userId]) clientNameByRequestId[reqId] = nameById[userId];
+          });
+        }
+      }
+
       const { data: convData } = await supabase.rpc("rpc_list_conversations", {
         p_limit: 100,
       });
       if (convData) {
         convData.forEach((conv) => {
-          if (conv.request_id && conv.other_party_name) {
+          if (conv.request_id && conv.other_party_name && !clientNameByRequestId[conv.request_id]) {
             clientNameByRequestId[conv.request_id] = conv.other_party_name;
           }
         });
@@ -783,11 +857,12 @@ export default function TradesmanProjects() {
             request_type: t.invited_by || "system",
             state: t.state,
             title: r?.suggested_title || "Project",
-            // Real service + category names straight from the FK joins so
-            // the card stops falling back to parseTitle when
-            // suggested_title is empty or differently-formatted.
-            serviceTypeName: r?.service_types?.name || null,
-            serviceCategoryName: r?.service_categories?.name || null,
+            // Real service + category names straight from the FK data
+            // (embedded join first, separate lookup as fallback) so the
+            // card stops using parseTitle when suggested_title is empty
+            // or differently-formatted.
+            serviceTypeName: resolveServiceName(r),
+            serviceCategoryName: resolveCategoryName(r),
             created_at: r?.created_at,
             budget_band: budgetBand,
             postcode: r?.postcode || null,
@@ -905,8 +980,8 @@ export default function TradesmanProjects() {
             issued_at: primaryQuote.issued_at ?? primaryQuote.created_at,
             valid_until: primaryQuote.valid_until,
             title: r?.suggested_title || "Project",
-            serviceTypeName: r?.service_types?.name || null,
-            serviceCategoryName: r?.service_categories?.name || null,
+            serviceTypeName: resolveServiceName(r),
+            serviceCategoryName: resolveCategoryName(r),
             request_type: t?.invited_by || "system",
             budget_band: r?.budget_band || null,
             postcode: r?.postcode || null,
