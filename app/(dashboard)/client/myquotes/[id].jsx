@@ -22,6 +22,7 @@ import CustomDateTimePicker from "../../../../components/CustomDateTimePicker";
 import { supabase } from "../../../../lib/supabase";
 import { useUser } from "../../../../hooks/useUser";
 import { useTheme } from "../../../../hooks/useTheme";
+import useHideTabBar from "../../../../hooks/useHideTabBar";
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import ThemedButton from "../../../../components/ThemedButton";
@@ -92,6 +93,201 @@ function parseDetails(details) {
   return res;
 }
 
+// Helpers used by the redesigned hero
+function getInitialsLocal(name) {
+  if (!name) return "?";
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return String(parts[0] || "?").slice(0, 2).toUpperCase();
+}
+function formatShortDate(iso) {
+  if (!iso) return "";
+  const dt = new Date(iso);
+  return dt.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+function formatRelativeAgo(d) {
+  if (!d) return "";
+  const dt = d instanceof Date ? d : new Date(d);
+  const min = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 60000));
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
+}
+
+// Static styles for the redesigned hero block — colours are applied
+// inline against the active theme palette.
+const qrStyles = StyleSheet.create({
+  eyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+  },
+  eyebrowDot: { width: 6, height: 6, borderRadius: 3 },
+  eyebrow: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  heroTitle: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 28,
+    letterSpacing: -0.7,
+    lineHeight: 32,
+    marginTop: 8,
+  },
+  tradeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 14,
+  },
+  tradeAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tradeInitials: { fontFamily: "PublicSans_700Bold", fontSize: 13 },
+  tradeName: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 14,
+    letterSpacing: -0.1,
+  },
+  tradeMetaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
+  tradeMeta: { fontSize: 11.5, fontFamily: "DMSans_400Regular" },
+  tradeMetaStrong: { fontSize: 11.5, fontFamily: "PublicSans_600SemiBold", marginLeft: 2 },
+  chatBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  chatBtnText: { fontFamily: "PublicSans_600SemiBold", fontSize: 13 },
+  totalBlock: { marginTop: 26, marginBottom: 4 },
+  totalEyebrow: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  totalRow: { flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 8 },
+  totalCurrency: { fontFamily: "PublicSans_600SemiBold", fontSize: 28 },
+  totalNum: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 56,
+    letterSpacing: -1.8,
+    lineHeight: 60,
+  },
+  totalCents: { fontFamily: "PublicSans_600SemiBold", fontSize: 22 },
+  termsRow: { flexDirection: "row", flexWrap: "wrap", gap: 18, marginTop: 14 },
+  termsItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  termsText: { fontSize: 12, fontFamily: "DMSans_400Regular" },
+});
+
+// Numbered ledger row used by the redesigned quote review:
+//   01    Item name                         £ line
+//         tap → expands description / qty meta
+function LedgerRow({ index, name, description, qty, price, line, currency, formatNumber }) {
+  const { colors: c, dark } = useTheme();
+  const [open, setOpen] = useState(false);
+  const numStr = String(index + 1).padStart(2, "0");
+  const hasMore = !!description || qty > 1 || price > 0;
+  return (
+    <Pressable
+      onPress={() => hasMore && setOpen((o) => !o)}
+      style={({ pressed }) => [
+        ledgerStyles.row,
+        { borderBottomColor: c.divider },
+        pressed && hasMore && { backgroundColor: c.elevate2 },
+      ]}
+    >
+      <View style={ledgerStyles.topRow}>
+        <ThemedText style={[ledgerStyles.num, { color: c.textMuted }]}>
+          {numStr}
+        </ThemedText>
+        <ThemedText
+          style={[ledgerStyles.name, { color: c.text }]}
+          numberOfLines={open ? 0 : 2}
+        >
+          {name}
+        </ThemedText>
+        <ThemedText style={[ledgerStyles.lineTotal, { color: c.text }]}>
+          {currency}{line}
+        </ThemedText>
+      </View>
+      {open && (
+        <View style={ledgerStyles.detailBlock}>
+          {!!description && (
+            <ThemedText style={[ledgerStyles.detailText, { color: c.textMid }]}>
+              {description}
+            </ThemedText>
+          )}
+          <ThemedText style={[ledgerStyles.detailMeta, { color: c.textMuted }]}>
+            Qty {qty} · {currency}{formatNumber(price)} each
+          </ThemedText>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+const ledgerStyles = StyleSheet.create({
+  row: {
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 14,
+  },
+  num: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 13,
+    letterSpacing: 0.5,
+    width: 28,
+    paddingTop: 1,
+  },
+  name: {
+    flex: 1,
+    fontFamily: "DMSans_500Medium",
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  lineTotal: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 15,
+    letterSpacing: -0.2,
+    minWidth: 60,
+    textAlign: "right",
+  },
+  detailBlock: {
+    marginTop: 8,
+    paddingLeft: 42,
+    paddingRight: 60,
+    gap: 4,
+  },
+  detailText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13.5,
+    lineHeight: 19,
+  },
+  detailMeta: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 12,
+  },
+});
+
 export default function ClientMyQuoteDetail() {
   const { id, returnTo } = useLocalSearchParams();
   const router = useRouter();
@@ -99,6 +295,8 @@ export default function ClientMyQuoteDetail() {
   const { user } = useUser();
   const { colors: c, dark } = useTheme();
   const styles = useMemo(() => makeStyles(c, dark), [c, dark]);
+  // Detail screen has its own bottom dock — hide the floating tab bar.
+  useHideTabBar();
 
   const [quote, setQuote] = useState(null);
   const [trade, setTrade] = useState(null);
@@ -1190,50 +1388,117 @@ export default function ClientMyQuoteDetail() {
       ) : (
         <>
           <ScrollView
-            contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 130 }}
+            contentContainerStyle={{
+              padding: 20,
+              // Extra room when the Accept/Decline dock is visible so the
+              // last scroll item isn't hidden behind it.
+              paddingBottom: insets.bottom + (canAccept ? 200 : 130),
+            }}
             showsVerticalScrollIndicator={false}
           >
-            {/* Hero summary card */}
-            <View style={styles.heroCard}>
-              <View style={styles.heroTopRow}>
-                <View style={{ flex: 1 }}>
-                  <ThemedText style={styles.heroTradeName}>
-                    {tradeName}
-                  </ThemedText>
-                  <ThemedText style={styles.heroJobTitle}>
-                    {heroJobTitle}
-                  </ThemedText>
-                  {heroPostcode && (
-                    <ThemedText style={styles.heroLocation}>
-                      {heroPostcode}
+            {/* === Hero — quote # eyebrow, big job title, trade row, big £ === */}
+
+            {/* Quote # eyebrow */}
+            <View style={qrStyles.eyebrowRow}>
+              <View style={[qrStyles.eyebrowDot, { backgroundColor: Colors.status.quoted }]} />
+              <ThemedText style={[qrStyles.eyebrow, { color: c.textMuted }]}>
+                QUOTE #{getQuoteShortId(id)}
+                {issuedAt ? ` · received ${formatRelativeAgo(issuedAt)}` : ""}
+              </ThemedText>
+            </View>
+
+            {/* Big job title */}
+            <ThemedText style={[qrStyles.heroTitle, { color: c.text }]}>
+              {heroJobTitle || "Quote"}
+            </ThemedText>
+
+            {/* Trade row: avatar + name + rating + chat */}
+            <View style={qrStyles.tradeRow}>
+              <View style={[qrStyles.tradeAvatar, { backgroundColor: Colors.primaryTint }]}>
+                <ThemedText style={[qrStyles.tradeInitials, { color: Colors.primary }]}>
+                  {getInitialsLocal(tradeName)}
+                </ThemedText>
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <ThemedText
+                  style={[qrStyles.tradeName, { color: c.text }]}
+                  numberOfLines={1}
+                >
+                  {tradeName}
+                </ThemedText>
+                <View style={qrStyles.tradeMetaRow}>
+                  {trade?.average_rating ? (
+                    <>
+                      <Ionicons name="star" size={11} color={Colors.status.pending} />
+                      <ThemedText style={[qrStyles.tradeMetaStrong, { color: c.text }]}>
+                        {Number(trade.average_rating).toFixed(1)}
+                      </ThemedText>
+                      <ThemedText style={[qrStyles.tradeMeta, { color: c.textMuted }]}>
+                        · {trade.review_count || 0} {trade.review_count === 1 ? "review" : "reviews"}
+                      </ThemedText>
+                    </>
+                  ) : (
+                    <ThemedText style={[qrStyles.tradeMeta, { color: c.textMuted }]}>
+                      No reviews yet
                     </ThemedText>
                   )}
                 </View>
-                <StatusChip value={status} />
               </View>
+              <Pressable
+                style={[
+                  qrStyles.chatBtn,
+                  { backgroundColor: c.elevate2, borderColor: c.border },
+                ]}
+                onPress={() => {
+                  if (!quote?.request_id) {
+                    Alert.alert("Message unavailable", "This quote is not linked to a request yet.");
+                    return;
+                  }
+                  router.push({
+                    pathname: "/(dashboard)/messages/[id]",
+                    params: {
+                      id: String(quote.request_id),
+                      name: tradeName || "",
+                      quoteId: String(quote.id || id),
+                      returnTo: `/myquotes/${id}`,
+                    },
+                  });
+                }}
+              >
+                <Ionicons name="chatbubble-outline" size={14} color={c.text} />
+                <ThemedText style={[qrStyles.chatBtnText, { color: c.text }]}>Chat</ThemedText>
+              </Pressable>
+            </View>
 
-              <Spacer size={16} />
-
-              {/* Total and Issued date row */}
-              <View style={styles.heroInfoGrid}>
-                <View style={styles.heroInfoItem}>
-                  <ThemedText style={styles.heroInfoLabel}>Total quote</ThemedText>
-                  <ThemedText style={styles.heroInfoValue}>
-                    {currency} {formatNumber(grand)}
-                  </ThemedText>
-                  <ThemedText style={styles.heroInfoSub}>
-                    {includesVat ? "Includes VAT" : "No VAT added"}
-                  </ThemedText>
-                </View>
-                {issuedAt && (
-                  <View style={[styles.heroInfoItem, { alignItems: "flex-end" }]}>
-                    <ThemedText style={styles.heroInfoLabel}>Issued</ThemedText>
-                    <ThemedText style={styles.heroInfoValue}>
-                      {issuedAt.toLocaleDateString('en-GB', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                      })}
+            {/* Big £ TOTAL */}
+            <View style={qrStyles.totalBlock}>
+              <ThemedText style={[qrStyles.totalEyebrow, { color: c.textMuted }]}>
+                {includesVat ? "QUOTE TOTAL · INCL. VAT" : "QUOTE TOTAL · EXCL. VAT"}
+              </ThemedText>
+              <View style={qrStyles.totalRow}>
+                <ThemedText style={[qrStyles.totalCurrency, { color: c.textMid }]}>£</ThemedText>
+                <ThemedText style={[qrStyles.totalNum, { color: c.text }]}>
+                  {formatNumber(Math.floor(grand)).split(".")[0]}
+                </ThemedText>
+                <ThemedText style={[qrStyles.totalCents, { color: c.textMuted }]}>
+                  .{formatNumber(grand).split(".")[1] || "00"}
+                </ThemedText>
+              </View>
+              {/* Terms: estimated duration + earliest start */}
+              <View style={qrStyles.termsRow}>
+                {(quote?.estimated_duration || quote?.estimated_duration_text) && (
+                  <View style={qrStyles.termsItem}>
+                    <Ionicons name="time-outline" size={13} color={c.textMuted} />
+                    <ThemedText style={[qrStyles.termsText, { color: c.textMid }]}>
+                      {quote.estimated_duration_text || quote.estimated_duration}
+                    </ThemedText>
+                  </View>
+                )}
+                {quote?.earliest_start && (
+                  <View style={qrStyles.termsItem}>
+                    <Ionicons name="calendar-outline" size={13} color={c.textMuted} />
+                    <ThemedText style={[qrStyles.termsText, { color: c.textMid }]}>
+                      Earliest start {formatShortDate(quote.earliest_start)}
                     </ThemedText>
                   </View>
                 )}
@@ -1243,40 +1508,11 @@ export default function ClientMyQuoteDetail() {
             {/* Declined banner only (removed "accepted" banner as requested) */}
             {status === "declined" && <DeclinedPanel />}
 
-            {/* Quote Decision UI - Show accept/decline for pending quotes */}
+            {/* Decision card replaced by the pinned bottom dock below.
+                A subtler "Message trade" link still lives here so the
+                client can chat without scrolling to find a button. */}
             {canAccept && (
-              <View style={styles.decisionCard}>
-                <ThemedText style={styles.decisionTitle}>Your decision</ThemedText>
-                <ThemedText style={styles.decisionSubtitle}>
-                  Happy with this quote?
-                </ThemedText>
-                <Spacer size={16} />
-
-                {/* Accept button */}
-                <Pressable
-                  style={[styles.acceptBtn, busy && styles.btnDisabled]}
-                  onPress={() => confirmAndDecide("accepted")}
-                  disabled={busy}
-                >
-                  <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
-                  <ThemedText style={styles.acceptBtnText}>
-                    {busy ? "Processing..." : "Accept quote"}
-                  </ThemedText>
-                </Pressable>
-
-                {/* Decline button */}
-                <Pressable
-                  style={[styles.declineBtn, busy && styles.btnDisabled]}
-                  onPress={() => confirmAndDecide("declined")}
-                  disabled={busy}
-                >
-                  <Ionicons name="close-circle" size={20} color={c.textMid} />
-                  <ThemedText style={styles.declineBtnText}>Decline quote</ThemedText>
-                </Pressable>
-
-                <Spacer size={8} />
-
-                {/* Message trade button - inside decision card */}
+              <View style={styles.messageTradeInline}>
                 <Pressable
                   style={styles.messageTradeBtn}
                   onPress={() => {
@@ -1589,13 +1825,14 @@ export default function ClientMyQuoteDetail() {
                 </View>
               )}
 
-              {/* Line items */}
+              {/* Numbered ledger — 01, 02, 03... per design spec.
+                  Each row: NN · name · £line, with description / qty
+                  meta as a tap-to-expand (LedgerRow). */}
               {items.length > 0 && (
                 <>
                   <View style={styles.divider} />
                   <ThemedText style={styles.breakdownSectionLabel}>Line items</ThemedText>
-                  <Spacer height={12} />
-
+                  <Spacer height={8} />
                   {items.map((item, i) => {
                     const qty = Number(item?.qty ?? 0);
                     const price = Number(item?.unit_price ?? 0);
@@ -1603,27 +1840,17 @@ export default function ClientMyQuoteDetail() {
                       ? formatNumber(qty * price)
                       : "0.00";
                     return (
-                      <View key={`li-${i}`} style={styles.lineItemRow}>
-                        <View style={styles.lineItemNumberBadge}>
-                          <ThemedText style={styles.lineItemNumberText}>{i + 1}</ThemedText>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <ThemedText style={styles.lineItemName}>
-                            {item?.name || "Item"}
-                          </ThemedText>
-                          {!!item?.description && (
-                            <ThemedText style={styles.lineItemDescription}>
-                              {item.description}
-                            </ThemedText>
-                          )}
-                          <ThemedText style={styles.lineItemMeta}>
-                            Qty: {qty} • {currency} {formatNumber(price)} each
-                          </ThemedText>
-                        </View>
-                        <ThemedText style={styles.lineItemTotal}>
-                          {currency} {line}
-                        </ThemedText>
-                      </View>
+                      <LedgerRow
+                        key={`li-${i}`}
+                        index={i}
+                        name={item?.name || "Item"}
+                        description={item?.description}
+                        qty={qty}
+                        price={price}
+                        line={line}
+                        currency={currency}
+                        formatNumber={formatNumber}
+                      />
                     );
                   })}
                 </>
@@ -1886,6 +2113,48 @@ export default function ClientMyQuoteDetail() {
 
             <Spacer size={20} />
           </ScrollView>
+
+          {/* Pinned Accept / Decline dock — small X (decline) + big
+              "Accept quote" per the design. Always in reach. */}
+          {canAccept && (
+            <View
+              style={[
+                styles.acceptDock,
+                {
+                  borderTopColor: c.border,
+                  backgroundColor: c.background,
+                },
+              ]}
+            >
+              <Pressable
+                onPress={() => confirmAndDecide("declined")}
+                disabled={busy}
+                style={({ pressed }) => [
+                  styles.dockDeclineSquare,
+                  { backgroundColor: c.elevate2, borderColor: c.border },
+                  pressed && { opacity: 0.7 },
+                  busy && { opacity: 0.5 },
+                ]}
+                accessibilityLabel="Decline quote"
+              >
+                <Ionicons name="close" size={20} color={c.textMid} />
+              </Pressable>
+              <Pressable
+                onPress={() => confirmAndDecide("accepted")}
+                disabled={busy}
+                style={({ pressed }) => [
+                  styles.dockAcceptBtn,
+                  pressed && { opacity: 0.85 },
+                  busy && { opacity: 0.5 },
+                ]}
+              >
+                <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                <ThemedText style={styles.dockAcceptText}>
+                  {busy ? "Processing…" : "Accept quote"}
+                </ThemedText>
+              </Pressable>
+            </View>
+          )}
         </>
       )}
 
@@ -2144,6 +2413,79 @@ function makeStyles(c, dark) {
     marginTop: 2,
     fontSize: 12,
     color: c.textMid,
+  },
+  // === Redesigned hero (£ TOTAL is the page hero) ===
+  heroEyebrow: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 10.5,
+    letterSpacing: 1.2,
+    color: c.textMuted,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  heroTotalBlock: {
+    marginTop: 18,
+    paddingTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: c.border,
+  },
+  heroTotalValue: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 44,
+    letterSpacing: -1.6,
+    lineHeight: 48,
+    color: c.text,
+  },
+  heroTotalSub: {
+    marginTop: 6,
+    fontSize: 12,
+    color: c.textMuted,
+    fontFamily: "DMSans_400Regular",
+  },
+  // === Pinned Accept/Decline dock (bottom of screen, outside scroll).
+  // Lifted ABOVE the floating tab bar (bottom: insets.bottom + 92) so
+  // the dock is never covered by the bar. The bar stays visible and
+  // interactive on this screen — that's intentional.
+  acceptDock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 92,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  dockDeclineSquare: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dockAcceptBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+    backgroundColor: Colors.primary,
+  },
+  dockAcceptText: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 16,
+    letterSpacing: -0.1,
+    color: "#FFFFFF",
+  },
+  messageTradeInline: {
+    marginBottom: 16,
+    alignItems: "center",
   },
 
   acceptedPanel: {

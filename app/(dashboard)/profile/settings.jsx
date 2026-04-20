@@ -21,6 +21,7 @@ import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
 import { useTheme } from "../../../hooks/useTheme";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 import { getMyRole, getMyProfile } from "../../../lib/api/profile";
 import { getMyVerificationStatus } from "../../../lib/api/verification";
 import { isCurrentUserAdmin } from "../../../lib/api/admin";
@@ -39,6 +40,8 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { user, authChecked } = useUser();
   const { mode: themeMode, setMode: setThemeMode } = useTheme();
+  // Settings is a deep page (chevron-back) — hide the floating tab bar.
+  useHideTabBar();
 
   const [role, setRole] = useState(null);
   const [roleLoading, setRoleLoading] = useState(true);
@@ -496,7 +499,7 @@ export default function SettingsScreen() {
           <ThemedText style={styles.versionText}>App version {appVersion}</ThemedText>
         </View>
 
-        <Spacer height={insets.bottom + 110} />
+        <Spacer height={insets.bottom + 180} />
       </ScrollView>
     </ThemedView>
   );

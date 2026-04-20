@@ -27,6 +27,7 @@ import { useUser } from "../../../hooks/useUser";
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
 import { getServiceCategories, getServiceTypes } from "../../../lib/api/services";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 const PRIMARY = Colors?.light?.tint || "#7C3AED";
 
@@ -54,6 +55,7 @@ const JOB_TITLE_OPTIONS = [
 ];
 
 export default function BusinessInfoScreen() {
+  useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();

@@ -144,7 +144,7 @@ export default function ClientHomeScreen() {
         style={[styles.scrollView, { marginTop: insets.top }]}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: 54, paddingBottom: insets.bottom + 130 },
+          { paddingTop: 54, paddingBottom: insets.bottom + 180 },
         ]}
         showsVerticalScrollIndicator={false}
         refreshControl={

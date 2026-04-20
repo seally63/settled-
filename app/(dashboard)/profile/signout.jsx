@@ -29,10 +29,10 @@ export default function SignOutScreen() {
     try {
       setLoading(true);
       await logout?.();
-      router.replace("/");
+      router.replace("/login");
     } catch (e) {
       console.log("Sign out error:", e);
-      router.replace("/");
+      router.replace("/login");
     }
   }
 

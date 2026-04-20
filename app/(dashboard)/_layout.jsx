@@ -10,6 +10,13 @@ import { useTheme } from '../../hooks/useTheme';
 import { supabase } from '../../lib/supabase';
 import FloatingTabBar from '../../components/design/FloatingTabBar';
 
+// NOTE — hiding the floating pill on nested sub-routes (settings, chat
+// threads, detail pages) is handled inside FloatingTabBar itself via
+// getFocusedRouteNameFromRoute. Doing it there lets the `options` here
+// stay plain object literals, which is required for expo-router's
+// `href: null` → hide-tab shortcut to work (that transformation is
+// skipped when `options` is a function).
+
 export default function DashboardLayout() {
   const { colors: theme } = useTheme();
   const router = useRouter();

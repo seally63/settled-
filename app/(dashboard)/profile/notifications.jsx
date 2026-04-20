@@ -27,8 +27,10 @@ import {
 } from "../../../lib/api/notifications";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 export default function NotificationsScreen() {
+  useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { isRegistered, registerNotifications } = useNotifications();

@@ -22,8 +22,10 @@ import { Colors } from "../../../constants/Colors";
 
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 export default function AddressScreen() {
+  useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 

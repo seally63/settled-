@@ -1588,7 +1588,7 @@ export default function ClientProjects() {
 
       <ScrollView
         style={{ flex: 1, marginTop: insets.top }}
-        contentContainerStyle={{ paddingTop: 54, paddingBottom: insets.bottom + 130 }}
+        contentContainerStyle={{ paddingTop: 54, paddingBottom: insets.bottom + 180 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />

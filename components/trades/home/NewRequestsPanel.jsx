@@ -68,12 +68,14 @@ function RequestRow({ request, onPress }) {
     request.suggested_title ||
     "Request";
 
-  // Subtitle: location · posted ago · (budget or distance if present)
+  // Subtitle: location · enquired ago · (budget or distance if present)
+  // Verb is "enquired" (V2: client direct-enquires a trade) rather than
+  // "posted" (legacy broadcast wording).
   const subParts = [];
   const loc = request.postcode || request.client_postcode || request.location;
   if (loc) subParts.push(loc);
   const ts = request.invited_at || request.created_at;
-  if (ts) subParts.push(`posted ${timeSince(ts)}`);
+  if (ts) subParts.push(`enquired ${timeSince(ts)}`);
   if (request.budget_band) {
     subParts.push(request.budget_band);
   } else if (

@@ -1605,7 +1605,7 @@ export default function TradesmanHome() {
         style={{ flex: 1 }}
         contentContainerStyle={[
           rootStyles.scrollContent,
-          { paddingTop: 54, paddingBottom: insets.bottom + 130 },
+          { paddingTop: 54, paddingBottom: insets.bottom + 180 },
         ]}
         refreshControl={
           <RefreshControl
@@ -1683,12 +1683,14 @@ const tradeHomeStyles = StyleSheet.create({
 // STYLES
 // ============================================
 // Static outer styles — no theme needed for these.
+// paddingHorizontal: 0 — header + each panel handle their own 16-20px
+// gutter, matching the Projects tab so the two screens line up.
 const rootStyles = StyleSheet.create({
   container: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 0,
     paddingTop: 12,
     paddingBottom: 20,
   },

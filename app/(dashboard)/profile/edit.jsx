@@ -32,8 +32,10 @@ import {
 } from "../../../lib/api/profile";
 import { geocodeUkPostcode } from "../../../lib/api/search";
 import { supabase } from "../../../lib/supabase";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 export default function EditProfileScreen() {
+  useHideTabBar();
   const { user } = useUser();
   const router = useRouter();
   const [role, setRole] = useState(null);

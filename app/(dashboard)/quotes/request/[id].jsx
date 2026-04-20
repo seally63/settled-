@@ -24,6 +24,7 @@ import { Colors } from "../../../../constants/Colors";
 import { FontFamily, Radius } from "../../../../constants/Typography";
 import { useUser } from "../../../../hooks/useUser";
 import { useTheme } from "../../../../hooks/useTheme";
+import useHideTabBar from "../../../../hooks/useHideTabBar";
 import { supabase } from "../../../../lib/supabase";
 
 // RPC wrappers
@@ -31,6 +32,187 @@ import { acceptRequest, declineRequest } from "../../../../lib/api/requests";
 import { listRequestImagePaths, getSignedUrls } from "../../../../lib/api/attachments";
 const CELL = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
+
+// Static layout for the redesigned trade-reviews-request screen.
+// Colours are applied inline against the active theme palette.
+const trvStyles = StyleSheet.create({
+  floatBack: {
+    position: "absolute",
+    left: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 20,
+  },
+  eyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 20,
+    marginTop: 4,
+  },
+  eyebrowDot: { width: 6, height: 6, borderRadius: 3 },
+  eyebrow: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  title: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 28,
+    letterSpacing: -0.7,
+    lineHeight: 32,
+    paddingHorizontal: 20,
+    marginTop: 8,
+  },
+  clientRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+    marginTop: 14,
+  },
+  clientAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  clientInitials: { fontFamily: "PublicSans_700Bold", fontSize: 13 },
+  clientName: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 14,
+    letterSpacing: -0.1,
+  },
+  clientMeta: { fontSize: 11.5, fontFamily: "DMSans_400Regular", marginTop: 2 },
+  distanceText: { fontSize: 12, fontFamily: "PublicSans_600SemiBold" },
+  factsRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 16,
+    marginTop: 20,
+  },
+  factPill: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  factLabel: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 10,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  factValue: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 16,
+    letterSpacing: -0.3,
+    marginTop: 4,
+  },
+  sectionLabel: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 11,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    paddingHorizontal: 20,
+    marginTop: 22,
+    marginBottom: 4,
+  },
+  sectionCard: {
+    marginHorizontal: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  scopeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  scopeIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scopeTitle: { fontFamily: "DMSans_500Medium", fontSize: 14 },
+  scopeSub: { fontSize: 11.5, fontFamily: "DMSans_400Regular", marginTop: 2 },
+  scopeDivider: { height: 1, marginLeft: 58 },
+  notesCard: {
+    marginHorizontal: 20,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  notesText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  photoThumb: {
+    width: 120,
+    height: 120,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  dock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    // Lifted above the floating tab bar so the dock isn't covered.
+    bottom: 92,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  dockGhostBtn: {
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dockGhostText: { fontFamily: "PublicSans_600SemiBold", fontSize: 15 },
+  dockSquareBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dockPrimaryBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: Colors.primary,
+  },
+  dockPrimaryText: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 16,
+    color: "#FFFFFF",
+  },
+});
 
 // Per-theme styles factory shared by all sub-components in this file.
 function useStyles() {
@@ -641,6 +823,8 @@ export default function RequestDetails() {
   const { user } = useUser();
   const insets = useSafeAreaInsets();
   const { styles, colors: c, dark } = useStyles();
+  // Detail screen has its own bottom dock — hide the floating tab bar.
+  useHideTabBar();
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
@@ -1029,82 +1213,294 @@ export default function RequestDetails() {
 
   const hasAttachments = attachments.length > 0;
 
+  // === Derived values for the redesigned hero ===
+  const reqTitle =
+    req?.suggested_title ||
+    req?.service_types?.name ||
+    parsed.service ||
+    parsed.title ||
+    "New request";
+  const clientPostcode = req?.postcode || "";
+  const clientLocation = clientPostcode
+    ? `Verified client · ${clientPostcode.split(" ")[0]}`
+    : "Verified client";
+  const distanceMiles = tgt?.distance_miles
+    ? `${Number(tgt.distance_miles).toFixed(1)} mi`
+    : null;
+  const budgetText = req?.budget_band || parsed.budget || "—";
+  const timingText = req?.timing_options?.name || parsed.timing || "—";
+  // Item count = scope items count if we can derive any
+  const scopeItems = (() => {
+    const list = [];
+    const svc = req?.service_types?.name || parsed.service;
+    const cat = req?.service_categories?.name || parsed.category;
+    if (svc) list.push({ icon: svc, title: svc, sub: cat || "" });
+    return list;
+  })();
+  const itemsCount = scopeItems.length > 0 ? scopeItems.length : 1;
+  const clientInitials = (() => {
+    const n = clientName || "Client";
+    const parts = n.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return n.slice(0, 2).toUpperCase();
+  })();
+  const enquiredAgo = (() => {
+    const ts = req?.created_at;
+    if (!ts) return "";
+    const diff = Math.max(0, Math.floor((Date.now() - new Date(ts).getTime()) / 60000));
+    if (diff < 1) return "just now";
+    if (diff < 60) return `${diff}m ago`;
+    const hr = Math.floor(diff / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const day = Math.floor(hr / 24);
+    return `${day}d ago`;
+  })();
+  const eyebrowText =
+    status === "open"
+      ? `NEW REQUEST · ${enquiredAgo}`
+      : status === "claimed"
+      ? "ACTIVE REQUEST"
+      : status === "declined"
+      ? "DECLINED REQUEST"
+      : `REQUEST · ${enquiredAgo}`;
+  const eyebrowDot =
+    status === "open"
+      ? Colors.status.pending
+      : status === "claimed"
+      ? Colors.status.scheduled
+      : Colors.status.declined;
+
   return (
     <ThemedView style={styles.container}>
-      {/* Header - Shows "Client Request" with close button */}
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <View style={styles.headerRow}>
-          <ThemedText style={styles.headerTitle}>Client Request</ThemedText>
-          <Pressable
-            onPress={() =>
-              router.canGoBack?.() ? router.back() : router.replace("/quotes")
-            }
-            hitSlop={10}
-            style={styles.closeButton}
-          >
-            <Ionicons name="close" size={28} color={c.textMid} />
-          </Pressable>
-        </View>
-      </View>
+      {/* Floating chevron back — no horizontal header band. */}
+      <Pressable
+        onPress={() =>
+          router.canGoBack?.() ? router.back() : router.replace("/quotes")
+        }
+        hitSlop={10}
+        style={[
+          trvStyles.floatBack,
+          {
+            top: insets.top + 10,
+            backgroundColor: c.elevate,
+            borderColor: c.border,
+          },
+        ]}
+      >
+        <Ionicons name="chevron-back" size={20} color={c.text} />
+      </Pressable>
 
       {loading ? (
-        <RequestDetailSkeleton paddingTop={0} />
+        <RequestDetailSkeleton paddingTop={insets.top + 60} />
       ) : err ? (
-        <>
-          <Spacer />
+        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }}>
           <ThemedText>Error: {err}</ThemedText>
-        </>
+        </View>
       ) : !req ? (
-        <>
-          <Spacer />
+        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }}>
           <ThemedText>Request not found.</ThemedText>
-        </>
+        </View>
       ) : (
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 140 }}
+          contentContainerStyle={{
+            paddingTop: insets.top + 60,
+            paddingBottom: insets.bottom + 200,
+          }}
           contentInsetAdjustmentBehavior="always"
           keyboardShouldPersistTaps="handled"
         >
-          {/* Actions - shown when request is open */}
-          {status === "open" && (
-            <View style={styles.actionButtonsContainer}>
-              <Pressable
-                onPress={onDecline}
-                style={styles.declineButton}
-              >
-                <ThemedText style={styles.declineButtonText}>
-                  {tgt?.outside_service_area ? "Decline – too far" : "Decline"}
-                </ThemedText>
-              </Pressable>
+          {/* Eyebrow */}
+          <View style={trvStyles.eyebrowRow}>
+            <View style={[trvStyles.eyebrowDot, { backgroundColor: eyebrowDot }]} />
+            <ThemedText style={[trvStyles.eyebrow, { color: c.textMuted }]}>
+              {eyebrowText}
+            </ThemedText>
+          </View>
 
-              <Pressable
-                onPress={onAccept}
-                style={styles.acceptButton}
+          {/* Big title */}
+          <ThemedText style={[trvStyles.title, { color: c.text }]}>
+            {reqTitle}
+          </ThemedText>
+
+          {/* Client row */}
+          <View style={trvStyles.clientRow}>
+            <View style={[trvStyles.clientAvatar, { backgroundColor: Colors.primaryTint }]}>
+              <ThemedText style={[trvStyles.clientInitials, { color: Colors.primary }]}>
+                {clientInitials}
+              </ThemedText>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ThemedText
+                style={[trvStyles.clientName, { color: c.text }]}
+                numberOfLines={1}
               >
-                <ThemedText style={styles.acceptButtonText}>
-                  {tgt?.outside_service_area ? "Accept anyway" : "Accept request"}
+                {clientName || "Client"}
+              </ThemedText>
+              <ThemedText
+                style={[trvStyles.clientMeta, { color: c.textMuted }]}
+                numberOfLines={1}
+              >
+                {clientLocation}
+              </ThemedText>
+            </View>
+            {distanceMiles ? (
+              <ThemedText style={[trvStyles.distanceText, { color: c.textMid }]}>
+                {distanceMiles}
+              </ThemedText>
+            ) : null}
+          </View>
+
+          {/* Three quick-fact pills */}
+          <View style={trvStyles.factsRow}>
+            <View style={[trvStyles.factPill, { backgroundColor: c.elevate, borderColor: c.border }]}>
+              <ThemedText style={[trvStyles.factLabel, { color: c.textMuted }]}>BUDGET</ThemedText>
+              <ThemedText style={[trvStyles.factValue, { color: c.text }]} numberOfLines={1}>
+                {budgetText}
+              </ThemedText>
+            </View>
+            <View style={[trvStyles.factPill, { backgroundColor: c.elevate, borderColor: c.border }]}>
+              <ThemedText style={[trvStyles.factLabel, { color: c.textMuted }]}>TIMING</ThemedText>
+              <ThemedText style={[trvStyles.factValue, { color: c.text }]} numberOfLines={1}>
+                {timingText}
+              </ThemedText>
+            </View>
+            <View style={[trvStyles.factPill, { backgroundColor: c.elevate, borderColor: c.border }]}>
+              <ThemedText style={[trvStyles.factLabel, { color: c.textMuted }]}>ITEMS</ThemedText>
+              <ThemedText style={[trvStyles.factValue, { color: c.text }]}>
+                {itemsCount}
+              </ThemedText>
+            </View>
+          </View>
+
+          {/* Scope */}
+          <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>SCOPE</ThemedText>
+          <View
+            style={[
+              trvStyles.sectionCard,
+              { backgroundColor: c.elevate, borderColor: c.border },
+            ]}
+          >
+            {scopeItems.length === 0 ? (
+              <View style={trvStyles.scopeRow}>
+                <View style={[trvStyles.scopeIconBox, { backgroundColor: c.elevate2 }]}>
+                  <Ionicons name="construct-outline" size={18} color={c.text} />
+                </View>
+                <ThemedText style={[trvStyles.scopeTitle, { color: c.text }]}>
+                  No scope items provided
                 </ThemedText>
-              </Pressable>
+              </View>
+            ) : (
+              scopeItems.map((s, i) => (
+                <View key={i}>
+                  {i > 0 && <View style={[trvStyles.scopeDivider, { backgroundColor: c.divider }]} />}
+                  <View style={trvStyles.scopeRow}>
+                    <View style={[trvStyles.scopeIconBox, { backgroundColor: c.elevate2 }]}>
+                      <Ionicons name="construct-outline" size={18} color={c.text} />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <ThemedText
+                        style={[trvStyles.scopeTitle, { color: c.text }]}
+                        numberOfLines={1}
+                      >
+                        {s.title}
+                      </ThemedText>
+                      {!!s.sub && (
+                        <ThemedText
+                          style={[trvStyles.scopeSub, { color: c.textMuted }]}
+                          numberOfLines={1}
+                        >
+                          {s.sub}
+                        </ThemedText>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+
+          {/* Notes from client */}
+          {(parsed.description || parsed.notes) && (
+            <>
+              <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>
+                NOTES FROM CLIENT
+              </ThemedText>
+              <View
+                style={[
+                  trvStyles.notesCard,
+                  { backgroundColor: c.elevate, borderColor: c.border },
+                ]}
+              >
+                <ThemedText style={[trvStyles.notesText, { color: c.textMid }]}>
+                  {parsed.description || parsed.notes}
+                </ThemedText>
+              </View>
+            </>
+          )}
+
+          {/* Photos */}
+          {hasAttachments && (
+            <>
+              <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>
+                PHOTOS · {attachmentsCount}
+              </ThemedText>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
+              >
+                {attachments.map((url, i) => (
+                  <Pressable
+                    key={`${url}-${i}`}
+                    onPress={() => setViewer({ open: true, index: i })}
+                    style={[
+                      trvStyles.photoThumb,
+                      { borderColor: c.border, backgroundColor: c.elevate2 },
+                    ]}
+                  >
+                    <Image
+                      source={{ uri: url }}
+                      style={{ width: "100%", height: "100%" }}
+                      resizeMode="cover"
+                    />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </>
+          )}
+
+          {/* Banners (legacy) — extended match / outside area */}
+          {tgt?.extended_match && (
+            <View style={[styles.extendedMatchBanner, { marginHorizontal: 16, marginTop: 18 }]}>
+              <View style={styles.extendedMatchIcon}>
+                <Ionicons name="car-outline" size={20} color="#3B82F6" />
+              </View>
+              <View style={styles.extendedMatchContent}>
+                <ThemedText style={styles.extendedMatchTitle}>Extended Travel Job</ThemedText>
+                <ThemedText style={styles.extendedMatchDescription}>
+                  This job is outside your normal service area but matches your extended travel settings.
+                </ThemedText>
+              </View>
+            </View>
+          )}
+          {tgt?.outside_service_area && (
+            <View style={[styles.outsideServiceAreaBanner, { marginHorizontal: 16, marginTop: 12 }]}>
+              <View style={styles.outsideServiceAreaIcon}>
+                <Ionicons name="location-outline" size={20} color="#F59E0B" />
+              </View>
+              <View style={styles.outsideServiceAreaContent}>
+                <ThemedText style={styles.outsideServiceAreaTitle}>
+                  Outside Your Service Area{tgt?.distance_miles ? ` (${tgt.distance_miles} mi)` : ""}
+                </ThemedText>
+                <ThemedText style={styles.outsideServiceAreaText}>
+                  This client's location is outside your usual radius.
+                </ThemedText>
+              </View>
             </View>
           )}
 
-          {/* Declined banner */}
-          {status === "declined" && (
-            <View style={[styles.statusBanner, styles.statusBannerDeclined]}>
-              <View style={[styles.statusBannerIcon, styles.statusBannerIconDeclined]}>
-                <Ionicons name="close-circle" size={24} color="#EF4444" />
-              </View>
-              <View style={styles.statusBannerContent}>
-                <ThemedText style={styles.statusBannerTitle}>Request declined</ThemedText>
-                <ThemedText style={styles.statusBannerSubtitle}>
-                  You have declined this request
-                </ThemedText>
-              </View>
-            </View>
-          )}
-
-          {/* Appointments Section - shown when request is claimed */}
+          {/* Appointments (when claimed) */}
           {status === "claimed" && (
             <>
               <View style={styles.sectionHeaderRow}>
@@ -1128,7 +1524,6 @@ export default function RequestDetails() {
                   <ThemedText style={styles.sectionHeaderBtnText}>Add</ThemedText>
                 </Pressable>
               </View>
-
               <View style={[styles.card, { marginTop: 8 }]}>
                 {appointments.length === 0 ? (
                   <ThemedText style={styles.emptyStateText}>No appointments scheduled</ThemedText>
@@ -1137,16 +1532,10 @@ export default function RequestDetails() {
                     const scheduledDate = new Date(appt.scheduled_at);
                     const isProposed = appt.status === "proposed";
                     const isConfirmed = appt.status === "confirmed";
-                    const isDeclined = appt.status === "declined";
-
                     return (
                       <View key={appt.id}>
                         <View style={styles.appointmentListItem}>
-                          <Ionicons
-                            name="calendar"
-                            size={20}
-                            color={c.textMid}
-                          />
+                          <Ionicons name="calendar" size={20} color={c.textMid} />
                           <View style={{ flex: 1 }}>
                             <ThemedText style={styles.appointmentListTitle}>
                               {appt.title || "Survey visit"}
@@ -1156,31 +1545,22 @@ export default function RequestDetails() {
                                 weekday: "short",
                                 day: "numeric",
                                 month: "short",
-                              })}, {scheduledDate.toLocaleTimeString(undefined, {
+                              })}
+                              , {scheduledDate.toLocaleTimeString(undefined, {
                                 hour: "2-digit",
                                 minute: "2-digit",
                               })}
                             </ThemedText>
-                            {appt.location && (
-                              <ThemedText style={styles.appointmentListLocation}>
-                                {appt.location}
-                              </ThemedText>
-                            )}
                           </View>
                           <View style={[
                             styles.appointmentListBadge,
-                            { backgroundColor: isConfirmed ? "#D1FAE5" : isProposed ? "#FEF3C7" : "#FEE2E2" }
+                            { backgroundColor: isConfirmed ? "#D1FAE5" : isProposed ? "#FEF3C7" : "#FEE2E2" },
                           ]}>
-                            <Ionicons
-                              name={isConfirmed ? "checkmark-circle" : isProposed ? "hourglass" : "close-circle"}
-                              size={14}
-                              color={isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#EF4444"}
-                            />
                             <ThemedText style={[
                               styles.appointmentListBadgeText,
-                              { color: isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#EF4444" }
+                              { color: isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#EF4444" },
                             ]}>
-                              {isConfirmed ? "Confirmed" : isProposed ? "Awaiting confirmation" : isDeclined ? "Declined" : appt.status}
+                              {isConfirmed ? "Confirmed" : isProposed ? "Awaiting" : "Declined"}
                             </ThemedText>
                           </View>
                         </View>
@@ -1190,214 +1570,115 @@ export default function RequestDetails() {
                   })
                 )}
               </View>
+              <QuotesSection
+                quotes={quotes}
+                hasQuotes={hasQuotes}
+                canCreateQuote={canCreateQuote}
+                router={router}
+                requestId={id}
+                derivedTitleForCreate={derivedTitleForCreate}
+                clientName={clientName}
+              />
             </>
           )}
 
-          {/* Quote Section - shown when request is claimed */}
-          {status === "claimed" && (
-            <QuotesSection
-              quotes={quotes}
-              hasQuotes={hasQuotes}
-              canCreateQuote={canCreateQuote}
-              router={router}
-              requestId={id}
-              derivedTitleForCreate={derivedTitleForCreate}
-              clientName={clientName}
-            />
-          )}
-
-          {/* Extended Match Info Banner */}
-          {tgt?.extended_match && (
-            <View style={styles.extendedMatchBanner}>
-              <View style={styles.extendedMatchIcon}>
-                <Ionicons name="car-outline" size={20} color="#3B82F6" />
+          {/* Declined banner */}
+          {status === "declined" && (
+            <View style={[styles.statusBanner, styles.statusBannerDeclined]}>
+              <View style={[styles.statusBannerIcon, styles.statusBannerIconDeclined]}>
+                <Ionicons name="close-circle" size={24} color="#EF4444" />
               </View>
-              <View style={styles.extendedMatchContent}>
-                <ThemedText style={styles.extendedMatchTitle}>
-                  Extended Travel Job
-                </ThemedText>
-                <ThemedText style={styles.extendedMatchDescription}>
-                  This job is outside your normal service area but matches your extended travel settings for higher-budget jobs.
+              <View style={styles.statusBannerContent}>
+                <ThemedText style={styles.statusBannerTitle}>Request declined</ThemedText>
+                <ThemedText style={styles.statusBannerSubtitle}>
+                  You have declined this request
                 </ThemedText>
               </View>
             </View>
           )}
 
-          {/* Outside Service Area Warning Banner */}
-          {tgt?.outside_service_area && (
-            <View style={styles.outsideServiceAreaBanner}>
-              <View style={styles.outsideServiceAreaIcon}>
-                <Ionicons name="location-outline" size={20} color="#F59E0B" />
-              </View>
-              <View style={styles.outsideServiceAreaContent}>
-                <ThemedText style={styles.outsideServiceAreaTitle}>
-                  Outside Your Service Area{tgt?.distance_miles ? ` (${tgt.distance_miles} miles away)` : ""}
-                </ThemedText>
-                <ThemedText style={styles.outsideServiceAreaText}>
-                  This client's location is outside your usual service radius. They were informed but chose to request a quote anyway.
-                </ThemedText>
-              </View>
-            </View>
-          )}
-
-          {/* Service Details Card */}
-          <View style={styles.sectionHeaderRow}>
-            <ThemedText style={styles.sectionHeaderTitle}>Service Details</ThemedText>
-          </View>
-          <View style={[styles.card, { marginTop: 8 }]}>
-            {/* Category - from joined table or parsed */}
-            <View style={styles.requestDetailRow}>
-              <Ionicons name="grid-outline" size={18} color={c.textMid} />
-              <View style={styles.requestDetailContent}>
-                <ThemedText style={styles.requestDetailLabel}>Category</ThemedText>
-                <ThemedText style={styles.requestDetailValue}>
-                  {req?.service_categories?.name || parsed.category || "—"}
-                </ThemedText>
-              </View>
-            </View>
-
-            {/* Service Type - from joined table or parsed */}
-            <View style={styles.requestDetailRow}>
-              <Ionicons name="construct-outline" size={18} color={c.textMid} />
-              <View style={styles.requestDetailContent}>
-                <ThemedText style={styles.requestDetailLabel}>Service</ThemedText>
-                <ThemedText style={styles.requestDetailValue}>
-                  {req?.service_types?.name || parsed.service || parsed.main || "—"}
-                </ThemedText>
-              </View>
-            </View>
-
-            {/* Property Type - from joined table or parsed */}
-            <View style={styles.requestDetailRow}>
-              <Ionicons name="home-outline" size={18} color={c.textMid} />
-              <View style={styles.requestDetailContent}>
-                <ThemedText style={styles.requestDetailLabel}>Property</ThemedText>
-                <ThemedText style={styles.requestDetailValue}>
-                  {req?.property_types?.name || parsed.property || "Not specified"}
-                </ThemedText>
-              </View>
-            </View>
-
-            {/* Timing - from joined table or parsed */}
-            <View style={styles.requestDetailRow}>
-              <Ionicons name="time-outline" size={18} color={req?.timing_options?.is_emergency ? "#EF4444" : "#6B7280"} />
-              <View style={styles.requestDetailContent}>
-                <ThemedText style={styles.requestDetailLabel}>Timing</ThemedText>
-                <ThemedText style={[styles.requestDetailValue, req?.timing_options?.is_emergency && { color: "#EF4444" }]}>
-                  {req?.timing_options?.name || parsed.timing || "—"}
-                </ThemedText>
-              </View>
-            </View>
-
-            {/* Location - postcode */}
-            {!!req?.postcode && (
-              <View style={styles.requestDetailRow}>
-                <Ionicons name="location-outline" size={18} color={c.textMid} />
-                <View style={styles.requestDetailContent}>
-                  <ThemedText style={styles.requestDetailLabel}>Location</ThemedText>
-                  <ThemedText style={styles.requestDetailValue}>{req.postcode}</ThemedText>
-                </View>
-              </View>
-            )}
-
-            {/* Budget - from database or parsed from details */}
-            {(!!req?.budget_band || !!parsed.budget) && (
-              <View style={styles.requestDetailRow}>
-                <Ionicons name="cash-outline" size={18} color={c.textMid} />
-                <View style={styles.requestDetailContent}>
-                  <ThemedText style={styles.requestDetailLabel}>Budget</ThemedText>
-                  <ThemedText style={styles.requestDetailValue}>{req?.budget_band || parsed.budget}</ThemedText>
-                </View>
-              </View>
-            )}
-
-            {/* Legacy: Address if available */}
-            {!!parsed.address && (
-              <View style={styles.requestDetailRow}>
-                <Ionicons name="navigate-outline" size={18} color={c.textMid} />
-                <View style={styles.requestDetailContent}>
-                  <ThemedText style={styles.requestDetailLabel}>Address</ThemedText>
-                  <ThemedText style={styles.requestDetailValue}>{parsed.address}</ThemedText>
-                </View>
-              </View>
-            )}
-
-            {/* Legacy: Start date if available */}
-            {!!parsed.start && (
-              <View style={styles.requestDetailRow}>
-                <Ionicons name="calendar-outline" size={18} color={c.textMid} />
-                <View style={styles.requestDetailContent}>
-                  <ThemedText style={styles.requestDetailLabel}>Start</ThemedText>
-                  <ThemedText style={styles.requestDetailValue}>{parsed.start}</ThemedText>
-                </View>
-              </View>
-            )}
-
-            {/* Legacy: Refit type if available */}
-            {!!parsed.refit && (
-              <View style={styles.requestDetailRow}>
-                <Ionicons name="hammer-outline" size={18} color={c.textMid} />
-                <View style={styles.requestDetailContent}>
-                  <ThemedText style={styles.requestDetailLabel}>Refit type</ThemedText>
-                  <ThemedText style={styles.requestDetailValue}>{parsed.refit}</ThemedText>
-                </View>
-              </View>
-            )}
-
-            {/* Description - always show, even if empty */}
-            <View style={styles.divider} />
-            <View style={styles.requestDetailRow}>
-              <Ionicons name="document-text-outline" size={18} color={c.textMid} />
-              <View style={styles.requestDetailContent}>
-                <ThemedText style={styles.requestDetailLabel}>Description</ThemedText>
-                <ThemedText style={[
-                  styles.requestDetailValue,
-                  !(parsed.description || parsed.notes) && styles.descriptionEmpty
-                ]}>
-                  {parsed.description || parsed.notes || "No description provided"}
-                </ThemedText>
-              </View>
-            </View>
-          </View>
-
-          {/* Photos Card - horizontally scrollable */}
-          <View style={styles.sectionHeaderRow}>
-            <ThemedText style={styles.sectionHeaderTitle}>Photos</ThemedText>
-            {attachmentsCount > 0 && (
-              <View style={styles.photoCountBadge}>
-                <ThemedText style={styles.photoCountText}>{attachmentsCount}</ThemedText>
-              </View>
-            )}
-          </View>
-          <View style={[styles.card, { marginTop: 8 }]}>
-            {hasAttachments ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.photoScrollContent}
-              >
-                {attachments.map((url, i) => (
-                  <Pressable
-                    key={`${url}-${i}`}
-                    onPress={() => setViewer({ open: true, index: i })}
-                    style={styles.photoThumb}
-                  >
-                    <Image
-                      source={{ uri: url }}
-                      style={styles.photoImg}
-                      resizeMode="cover"
-                      onError={(e) =>
-                        console.warn("thumb error:", url, e?.nativeEvent?.error)
-                      }
-                    />
-                  </Pressable>
-                ))}
-              </ScrollView>
-            ) : (
-              <ThemedText style={styles.emptyStateText}>No photos attached</ThemedText>
-            )}
-          </View>
         </ScrollView>
+      )}
+
+      {/* Pinned bottom dock — action buttons depend on the request state.
+          OPEN: Decline + Accept (so the trade can take it on or pass).
+          CLAIMED: Chat icon + Draft quote (matches design).            */}
+      {!loading && req && (status === "open" || status === "claimed") && (
+        <View
+          style={[
+            trvStyles.dock,
+            {
+              backgroundColor: c.background,
+              borderTopColor: c.border,
+            },
+          ]}
+        >
+          {status === "open" ? (
+            <>
+              <Pressable
+                onPress={onDecline}
+                style={({ pressed }) => [
+                  trvStyles.dockGhostBtn,
+                  { backgroundColor: c.elevate2, borderColor: c.border },
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <ThemedText style={[trvStyles.dockGhostText, { color: c.textMid }]}>
+                  {tgt?.outside_service_area ? "Too far" : "Decline"}
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={onAccept}
+                style={({ pressed }) => [
+                  trvStyles.dockPrimaryBtn,
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                <ThemedText style={trvStyles.dockPrimaryText}>
+                  {tgt?.outside_service_area ? "Accept anyway" : "Accept request"}
+                </ThemedText>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Pressable
+                onPress={() => {
+                  router.push({
+                    pathname: "/(dashboard)/messages/[id]",
+                    params: { id: String(id), name: clientName || "" },
+                  });
+                }}
+                style={({ pressed }) => [
+                  trvStyles.dockSquareBtn,
+                  { backgroundColor: c.elevate2, borderColor: c.border },
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <Ionicons name="chatbubble-outline" size={20} color={c.text} />
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  router.push({
+                    pathname: "/quotes/create",
+                    params: {
+                      requestId: String(id),
+                      title: encodeURIComponent(derivedTitleForCreate),
+                      clientName: encodeURIComponent(clientName || ""),
+                    },
+                  });
+                }}
+                style={({ pressed }) => [
+                  trvStyles.dockPrimaryBtn,
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <Ionicons name="create-outline" size={18} color="#FFFFFF" />
+                <ThemedText style={trvStyles.dockPrimaryText}>Draft quote</ThemedText>
+              </Pressable>
+            </>
+          )}
+        </View>
       )}
 
       {/* Image preview modal – zoom + swipe + pull-down-to-dismiss */}

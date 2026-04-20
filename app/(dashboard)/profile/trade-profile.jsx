@@ -35,6 +35,7 @@ import { getMyProfile, getTradePublicById } from "../../../lib/api/profile";
 import { getTradeReviews } from "../../../lib/api/trust";
 import { supabase } from "../../../lib/supabase";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 const PRIMARY = Colors?.light?.tint || "#7C3AED";
 
@@ -57,6 +58,7 @@ function getNameWithInitial(fullName) {
 }
 
 export default function TradeProfileScreen() {
+  useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();
