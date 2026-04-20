@@ -94,6 +94,21 @@ function parseTitle(suggestedTitle) {
   return { service: cleanTitle, category: "" };
 }
 
+// Prefer FK-joined names from quote_requests; fall back to parseTitle only
+// if the joins are empty (e.g. legacy rows that predate the wizard).
+function resolveServiceCategory(item) {
+  const fromJoin = {
+    service: item.serviceTypeName || null,
+    category: item.serviceCategoryName || null,
+  };
+  if (fromJoin.service && fromJoin.category) return fromJoin;
+  const parsed = parseTitle(item.title);
+  return {
+    service: fromJoin.service || parsed.service,
+    category: fromJoin.category || parsed.category,
+  };
+}
+
 // Calculate trade progress position
 // ProgressBar stage dots at: 12.5%, 37.5%, 62.5%, 87.5%
 // Progress fills from 0% left toward 100% right
@@ -159,7 +174,7 @@ function FilterPill({ active, label, count, onPress }) {
 // Project card component - visual design with progress bar
 function ProjectCard({ item, onPress }) {
   const router = useRouter();
-  const { service, category } = parseTitle(item.title);
+  const { service, category } = resolveServiceCategory(item);
   const hasActions = item.actions && item.actions.length > 0;
   const isDirectRequest = item.requestType === "client";
 
@@ -345,7 +360,7 @@ function ProjectCard({ item, onPress }) {
 
 // Past card component for expired/declined items - visual treatment with dashed border and explanation
 function PastCard({ item, onPress }) {
-  const { service, category } = parseTitle(item.title);
+  const { service, category } = resolveServiceCategory(item);
 
   // Determine icon based on past type
   const getIcon = () => {
@@ -571,14 +586,27 @@ export default function TradesmanProjects() {
         ])
       );
 
-      // Fetch request docs
+      // Fetch request docs — join service_types + service_categories so
+      // the card can show the real service + category names straight from
+      // FK joins instead of guessing via parseTitle(suggested_title).
       let reqById = {};
       if (reqIds.length) {
         const { data: reqs } = await supabase
           .from("quote_requests")
-          .select(
-            "id, details, created_at, status, postcode, budget_band, suggested_title, requester_id"
-          )
+          .select(`
+            id,
+            details,
+            created_at,
+            status,
+            postcode,
+            budget_band,
+            suggested_title,
+            requester_id,
+            service_type_id,
+            service_category_id,
+            service_types:service_type_id ( id, name ),
+            service_categories:service_category_id ( id, name )
+          `)
           .in("id", reqIds);
         (reqs || []).forEach((r) => (reqById[r.id] = r));
       }
@@ -755,6 +783,11 @@ export default function TradesmanProjects() {
             request_type: t.invited_by || "system",
             state: t.state,
             title: r?.suggested_title || "Project",
+            // Real service + category names straight from the FK joins so
+            // the card stops falling back to parseTitle when
+            // suggested_title is empty or differently-formatted.
+            serviceTypeName: r?.service_types?.name || null,
+            serviceCategoryName: r?.service_categories?.name || null,
             created_at: r?.created_at,
             budget_band: budgetBand,
             postcode: r?.postcode || null,
@@ -872,6 +905,8 @@ export default function TradesmanProjects() {
             issued_at: primaryQuote.issued_at ?? primaryQuote.created_at,
             valid_until: primaryQuote.valid_until,
             title: r?.suggested_title || "Project",
+            serviceTypeName: r?.service_types?.name || null,
+            serviceCategoryName: r?.service_categories?.name || null,
             request_type: t?.invited_by || "system",
             budget_band: r?.budget_band || null,
             postcode: r?.postcode || null,
