@@ -1,6 +1,6 @@
 // app/(dashboard)/quotes/index.jsx
 // Trade Projects Screen - v5 with Progress Bars and Visual Design
-import { useCallback, useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -21,9 +21,16 @@ import ProgressBar from "../../../components/ProgressBar";
 import { ProjectsPageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import { supabase } from "../../../lib/supabase";
 import { acceptRequest, declineRequest } from "../../../lib/api/requests";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import { IconBtn, FilterPills, ProjectRow } from "../../../components/design";
+import {
+  getCategoryIcon,
+  getServiceTypeIcon,
+  defaultServiceTypeIcon,
+} from "../../../assets/icons";
 
 const TINT = Colors?.light?.tint || "#6849a7";
 
@@ -478,6 +485,7 @@ export default function TradesmanProjects() {
   const router = useRouter();
   const { user } = useUser();
   const insets = useSafeAreaInsets();
+  const { colors: c } = useTheme();
 
   const [filter, setFilter] = useState("all"); // all | new | active | past
   const [loading, setLoading] = useState(true);
@@ -1493,171 +1501,128 @@ export default function TradesmanProjects() {
   if (loading) {
     return (
       <ThemedView style={styles.container}>
-        <ThemedStatusBar backgroundColor="#FFFFFF" />
+        <ThemedStatusBar />
         <ProjectsPageSkeleton paddingTop={insets.top + 16} />
       </ThemedView>
     );
   }
 
+  // === REDESIGN — flat list per design spec ===
+  const visibleRows = (() => {
+    if (filter !== "past") return filteredProjects;
+    return [
+      ...pastGrouped.completed,
+      ...pastGrouped.expired,
+      ...pastGrouped.declined,
+    ];
+  })();
+
+  const summary = (() => {
+    let pipeline = 0;
+    let onJobs = 0;
+    let quotesOut = 0;
+    let jobsInProgress = 0;
+    for (const p of projects) {
+      const n = Number(p.quoteAmount) || 0;
+      if (p.stage === "QUOTE") { pipeline += n; quotesOut += 1; }
+      if (p.stage === "WORK")  { onJobs += n;  jobsInProgress += 1; }
+    }
+    return { pipeline, onJobs, quotesOut, jobsInProgress };
+  })();
+
+  const statusLine = (() => {
+    const parts = [];
+    if (counts.new > 0) parts.push(`${counts.new} new`);
+    if (counts.active > 0) parts.push(`${counts.active} in flight`);
+    return parts.join(" · ") || "Nothing in flight";
+  })();
+
   return (
     <ThemedView style={styles.container}>
-      <ThemedStatusBar backgroundColor="#FFFFFF" />
+      <ThemedStatusBar />
 
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <ThemedText style={styles.headerTitle}>Projects</ThemedText>
-      </View>
-
-      {/* Filter pills */}
-      <View style={styles.filterRow}>
-        <FilterPill
-          active={filter === "all"}
-          label="All"
-          count={counts.all}
-          onPress={() => setFilter("all")}
-        />
-        <FilterPill
-          active={filter === "new"}
-          label="New"
-          count={counts.new}
-          onPress={() => setFilter("new")}
-        />
-        <FilterPill
-          active={filter === "active"}
-          label="Active"
-          count={counts.active}
-          onPress={() => setFilter("active")}
-        />
-        <FilterPill
-          active={filter === "past"}
-          label="Past"
-          count={counts.past}
-          onPress={() => setFilter("past")}
-        />
+      {/* Top-right icon dock */}
+      <View style={[redesign.topBar, { top: insets.top + 12 }]}>
+        <IconBtn icon="search-outline" />
+        <IconBtn icon="options-outline" />
       </View>
 
       <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.scrollContent}
+        style={{ flex: 1, marginTop: insets.top }}
+        contentContainerStyle={{ paddingTop: 54, paddingBottom: insets.bottom + 130 }}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        showsVerticalScrollIndicator={false}
       >
-        {/* Regular project cards for non-Past tabs */}
-        {filter !== "past" && filteredProjects.length > 0 && (
-          <View style={styles.projectsList}>
-            {filteredProjects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                item={project}
-                onPress={() => {
-                  // Only go to Quote Overview if client has accepted a quote
-                  // Otherwise go to Client Request page where trade can see/manage all quotes
-                  if (project.hasAcceptedQuote && project.quoteId) {
-                    router.push(`/quotes/${project.quoteId}`);
-                  } else {
-                    router.push(`/quotes/request/${project.requestId}`);
-                  }
-                }}
-              />
-            ))}
-          </View>
-        )}
+        <View style={redesign.titleBlock}>
+          <ThemedText style={[redesign.title, { color: c.text }]}>
+            Projects
+          </ThemedText>
+          <ThemedText style={[redesign.subtitle, { color: c.textMid }]}>
+            {statusLine}
+          </ThemedText>
+        </View>
 
-        {/* Grouped sections for Past tab */}
-        {filter === "past" && (
-          <View style={styles.projectsList}>
-            {/* COMPLETED Section */}
-            {pastGrouped.completed.length > 0 && (
-              <>
-                <SectionHeader
-                  title="COMPLETED"
-                  count={pastGrouped.completed.length}
-                />
-                {pastGrouped.completed.map((project) => (
-                  <PastCard
-                    key={project.id}
-                    item={project}
+        <FilterPills
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { key: "all",    label: "All",     count: counts.all },
+            { key: "new",    label: "New",     count: counts.new },
+            { key: "active", label: "Active",  count: counts.active },
+            { key: "past",   label: "Past",    count: counts.past },
+          ]}
+        />
+
+        {/* Pipeline strip — always shown on All (even when both totals are
+            0 — signals "your money at play" slot exists). */}
+        {filter === "all" && <TradeSummaryStrip summary={summary} />}
+
+        {/* Flat list */}
+        {visibleRows.length > 0 && (
+          <View style={{ paddingTop: 10, paddingBottom: 4 }}>
+            {visibleRows.map((project, idx) => {
+              const row = buildTradeRow(project, formatNumber);
+              return (
+                <React.Fragment key={project.id}>
+                  <ProjectRow
+                    {...row}
                     onPress={() => {
-                      if (project.quoteId) {
+                      if (project.hasAcceptedQuote && project.quoteId) {
                         router.push(`/quotes/${project.quoteId}`);
+                      } else if (project.quoteId) {
+                        router.push(`/quotes/${project.quoteId}`);
+                      } else {
+                        router.push(`/quotes/request/${project.requestId}`);
                       }
                     }}
                   />
-                ))}
-              </>
-            )}
-
-            {/* EXPIRED Section */}
-            {pastGrouped.expired.length > 0 && (
-              <>
-                <SectionHeader
-                  title="EXPIRED"
-                  count={pastGrouped.expired.length}
-                  expanded={expandedSections.expired}
-                  onToggle={() => toggleSection("expired")}
-                />
-                {expandedSections.expired &&
-                  pastGrouped.expired.map((project) => (
-                    <PastCard
-                      key={project.id}
-                      item={project}
-                      onPress={() => {
-                        if (project.quoteId) {
-                          router.push(`/quotes/${project.quoteId}`);
-                        } else if (project.requestId) {
-                          router.push(`/quotes/request/${project.requestId}`);
-                        }
-                      }}
-                    />
-                  ))}
-              </>
-            )}
-
-            {/* DECLINED Section */}
-            {pastGrouped.declined.length > 0 && (
-              <>
-                <SectionHeader
-                  title="DECLINED"
-                  count={pastGrouped.declined.length}
-                  expanded={expandedSections.declined}
-                  onToggle={() => toggleSection("declined")}
-                />
-                {expandedSections.declined &&
-                  pastGrouped.declined.map((project) => (
-                    <PastCard
-                      key={project.id}
-                      item={project}
-                      onPress={() => {
-                        if (project.quoteId) {
-                          router.push(`/quotes/${project.quoteId}`);
-                        }
-                      }}
-                    />
-                  ))}
-              </>
-            )}
+                  {idx < visibleRows.length - 1 && (
+                    <View style={[redesign.divider, { backgroundColor: rowDividerColor }]} />
+                  )}
+                </React.Fragment>
+              );
+            })}
           </View>
         )}
 
-        {filter !== "past" && filteredProjects.length === 0 && filter === "all" && (
+        {/* Empty states */}
+        {visibleRows.length === 0 && filter === "all" && (
           <EmptyState
             icon="briefcase-outline"
             title="No active projects"
             subtitle="New quote requests will appear here"
           />
         )}
-
-        {filteredProjects.length === 0 && filter === "new" && (
+        {visibleRows.length === 0 && filter === "new" && (
           <EmptyState
             icon="mail-outline"
             title="No new requests"
             subtitle="New requests matching your services will appear here"
           />
         )}
-
-        {filteredProjects.length === 0 && filter === "active" && (
+        {visibleRows.length === 0 && filter === "active" && (
           <EmptyState
             icon="folder-outline"
             title="No active jobs"
@@ -1668,30 +1633,220 @@ export default function TradesmanProjects() {
             }}
           />
         )}
-
-        {filter === "past" && pastGrouped.completed.length === 0 && pastGrouped.expired.length === 0 && pastGrouped.declined.length === 0 && (
+        {visibleRows.length === 0 && filter === "past" && (
           <EmptyState
             icon="checkmark-circle-outline"
             title="No past projects"
             subtitle="Completed, expired and declined quotes will appear here"
           />
         )}
-
-        <Spacer height={insets.bottom + 110} />
       </ScrollView>
     </ThemedView>
   );
 }
 
+// ───────────────────────────────────────────────────────────────────
+// Redesign helpers (local to this file)
+// ───────────────────────────────────────────────────────────────────
+
+const rowDividerColor = "rgba(15,15,20,0.06)";
+
+function TradeSummaryStrip({ summary }) {
+  const { colors: c } = useTheme();
+  return (
+    <View style={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 }}>
+      <View
+        style={[
+          redesign.strip,
+          { backgroundColor: c.elevate, borderColor: c.border },
+        ]}
+      >
+        <View style={{ flex: 1 }}>
+          <ThemedText style={[redesign.stripEyebrow, { color: c.textMuted }]}>
+            PIPELINE
+          </ThemedText>
+          <ThemedText style={[redesign.stripValue, { color: c.text }]}>
+            £{Number(summary.pipeline || 0).toLocaleString("en-GB")}
+          </ThemedText>
+          <ThemedText style={[redesign.stripMeta, { color: c.textMuted }]}>
+            {summary.quotesOut} {summary.quotesOut === 1 ? "quote" : "quotes"} out
+          </ThemedText>
+        </View>
+        <View style={[redesign.stripDivider, { backgroundColor: c.divider }]} />
+        <View style={{ flex: 1, paddingLeft: 14 }}>
+          <ThemedText style={[redesign.stripEyebrow, { color: c.textMuted }]}>
+            ON JOBS
+          </ThemedText>
+          <ThemedText style={[redesign.stripValue, { color: c.text }]}>
+            £{Number(summary.onJobs || 0).toLocaleString("en-GB")}
+          </ThemedText>
+          <ThemedText style={[redesign.stripMeta, { color: c.textMuted }]}>
+            {summary.jobsInProgress} in progress
+          </ThemedText>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function buildTradeRow(project, formatNum) {
+  const { service, category } = parseTitle(project.title);
+  const iconSource =
+    (service ? (tryServiceIcon(service)) : null) ||
+    (category ? tryCategoryIcon(category) : null) ||
+    defaultServiceIcon;
+
+  const muted = project.stage === "EXPIRED" || project.stage === "DECLINED";
+  const fresh =
+    project.stage === "REQUEST" && (project.requestAge === 0 || project.isFresh);
+
+  const stageMeta = {
+    REQUEST:   { color: "#F4B740", label: "Needs quote" },
+    QUOTE:     { color: "#7C5CFF", label: "Quote sent" },
+    WORK:      { color: "#5BB3FF", label: "In progress" },
+    COMPLETED: { color: "#3DCF89", label: "Completed" },
+    EXPIRED:   { color: "#8A8A94", label: "Expired" },
+    DECLINED:  { color: "#8A8A94", label: "Declined" },
+  }[project.stage] || { color: "#8A8A94", label: "" };
+
+  let rightTop = null;
+  let rightBot = null;
+  const amt = project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : null;
+
+  switch (project.stage) {
+    case "REQUEST":
+      rightTop = "New";
+      rightBot =
+        project.budgetInfo ||
+        (project.requestAge != null
+          ? project.requestAge === 0
+            ? "Posted today"
+            : `Posted ${project.requestAge}d ago`
+          : null);
+      break;
+    case "QUOTE":
+      rightTop = amt || "Sent";
+      rightBot = project.statusDetail || project.statusText || null;
+      break;
+    case "WORK":
+      rightTop = amt || "Active";
+      rightBot = project.statusText || "In progress";
+      break;
+    case "COMPLETED":
+      rightTop = amt || "Completed";
+      rightBot = "Paid";
+      break;
+    case "EXPIRED":
+      rightTop = amt || "Expired";
+      rightBot = project.statusDetail || "—";
+      break;
+    case "DECLINED":
+      rightTop = amt || "Declined";
+      rightBot = "—";
+      break;
+    default:
+      rightTop = amt;
+      rightBot = project.statusText || null;
+  }
+
+  const subtitle = project.contextLine || project.statusDetail || null;
+
+  return {
+    iconSource,
+    stripeColor: stageMeta.color,
+    statusLabel: stageMeta.label,
+    title: service || project.title || "Project",
+    subtitle,
+    rightTop,
+    rightBot,
+    fresh,
+    muted,
+  };
+}
+
+function tryServiceIcon(name) {
+  try { return getServiceTypeIcon(name); } catch { return null; }
+}
+function tryCategoryIcon(name) {
+  try { return getCategoryIcon(name); } catch { return null; }
+}
+const defaultServiceIcon = (() => {
+  try { return defaultServiceTypeIcon; } catch { return null; }
+})();
+
+const redesign = StyleSheet.create({
+  topBar: {
+    position: "absolute",
+    right: 16,
+    flexDirection: "row",
+    gap: 8,
+    zIndex: 20,
+  },
+  titleBlock: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 2,
+  },
+  title: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 32,
+    letterSpacing: -0.8,
+    lineHeight: 34,
+  },
+  subtitle: {
+    fontSize: 13,
+    marginTop: 4,
+    fontFamily: "DMSans_400Regular",
+  },
+  strip: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(15,15,20,0.08)",
+  },
+  stripDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: "rgba(15,15,20,0.06)",
+  },
+  stripEyebrow: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 10.5,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    opacity: 0.6,
+  },
+  stripValue: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 24,
+    letterSpacing: -0.6,
+    lineHeight: 26,
+    marginTop: 6,
+  },
+  stripMeta: {
+    fontSize: 11,
+    opacity: 0.55,
+    marginTop: 4,
+  },
+  divider: {
+    height: 1,
+    marginLeft: 66,
+    marginRight: 20,
+  },
+});
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // No hardcoded backgroundColor — ThemedView supplies theme-aware bg.
   },
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: "#FFFFFF",
   },
   headerTitle: {
     fontSize: 28,

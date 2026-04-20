@@ -8,7 +8,7 @@ import {
   ScrollView,
   RefreshControl,
 } from "react-native";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../../../../lib/supabase";
 import { useUser } from "../../../../hooks/useUser";
+import { useTheme } from "../../../../hooks/useTheme";
 
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
@@ -25,6 +26,12 @@ import ProgressBar from "../../../../components/ProgressBar";
 import { ProjectsPageSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
 import ThemedStatusBar from "../../../../components/ThemedStatusBar";
+import { IconBtn, FilterPills, ProjectRow } from "../../../../components/design";
+import {
+  getCategoryIcon,
+  getServiceTypeIcon,
+  defaultServiceTypeIcon,
+} from "../../../../assets/icons";
 
 const TINT = Colors?.light?.tint || "#6849a7";
 
@@ -501,6 +508,7 @@ export default function ClientProjects() {
   const { user } = useUser();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { colors: c } = useTheme();
 
   const [filter, setFilter] = useState("all"); // all | quotes | active | done
   const [refreshing, setRefreshing] = useState(false);
@@ -875,9 +883,16 @@ export default function ClientProjects() {
         statusText = "Waiting for trade";
       }
 
-      const contextLine = isDirectRequest
-        ? `Direct request · ${req.trade_business_name || "Trade"}`
-        : `Open request · ${req.target_count || 5} trades invited`;
+      // V2 is browse-and-choose only — there is no "open request /
+      // N trades invited" anymore. Everything goes through a direct
+      // request to one trade. Subtitle shows that trade's name +
+      // location when we have it.
+      const contextLine = [
+        req.trade_business_name || (isDirectRequest ? "Trade" : null),
+        req.postcode || null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
 
       allProjects.push({
         id: `request-${req.id}`,
@@ -958,10 +973,8 @@ export default function ClientProjects() {
       const isDirectRequest = group.isDirectRequest;
       const tradeName = group.preparingTrades[0]?.name || "Trade";
 
-      // Build context line based on request type
-      const contextLine = isDirectRequest
-        ? `Direct request · ${tradeName}`
-        : `Open request · ${group.preparingTrades.length} trades preparing`;
+      // V2: only direct requests exist. Subtitle = trade name preparing the quote.
+      const contextLine = tradeName ? `${tradeName} preparing quote` : "Preparing quote";
 
       // Check for existing request card and skip if already added
       const existingRequest = allProjects.find(
@@ -1159,10 +1172,9 @@ export default function ClientProjects() {
         }
       }
 
-      // Context line: show trade name for direct requests, quote count for open requests
-      const contextLine = isDirectRequest
-        ? `Direct request · ${group.tradeName || "Trade"}`
-        : `Open request · ${quotesCount} quote${quotesCount !== 1 ? "s" : ""}`;
+      // V2: always a direct request — subtitle is trade name (fall back to
+      // a generic "Trade" only if we don't have it).
+      const contextLine = `${group.tradeName || "Trade"}`;
 
       // Remove any existing request/preparing card for this request
       const existingIdx = allProjects.findIndex(
@@ -1543,167 +1555,100 @@ export default function ClientProjects() {
 
   const isLoading = initialLoading || isFocusLoading;
 
+  // === REDESIGN — flat list per design spec ===
+  // Map each project to the row-level props ProjectRow expects.
+  const visibleRows = (() => {
+    if (filter !== "done") return filteredProjects;
+    // Done = completed + expired + cancelled in one stream (no per-group
+    // collapsibles in the new design).
+    return [
+      ...doneGrouped.completed,
+      ...doneGrouped.expired,
+      ...doneGrouped.cancelled,
+    ];
+  })();
+
+  const statusLine = (() => {
+    const parts = [];
+    if (counts.active > 0) parts.push(`${counts.active} active`);
+    if (counts.quotes > 0) parts.push(`${counts.quotes} awaiting your review`);
+    return parts.join(" · ") || "Nothing in flight yet";
+  })();
+
   return (
     <ThemedView style={styles.container}>
-      <ThemedStatusBar backgroundColor="#FFFFFF" />
+      <ThemedStatusBar />
 
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <ThemedText style={styles.headerTitle}>My Projects</ThemedText>
-      </View>
-
-      {/* Request usage badges */}
-      {requestUsage && (
-        <View style={usageStyles.usageContainer}>
-          <RequestUsageBadge
-            current={requestUsage.open_requests?.current || 0}
-            max={requestUsage.open_requests?.max}
-            unlimited={requestUsage.open_requests?.unlimited}
-            label="Open"
-          />
-          <RequestUsageBadge
-            current={requestUsage.direct_requests?.current || 0}
-            max={requestUsage.direct_requests?.max}
-            unlimited={requestUsage.direct_requests?.unlimited}
-            label="Direct"
-          />
-        </View>
-      )}
-
-      {/* Filter pills */}
-      <View style={styles.filterRow}>
-        <FilterPill
-          active={filter === "all"}
-          label="All"
-          count={counts.all}
-          onPress={() => setFilter("all")}
-        />
-        <FilterPill
-          active={filter === "quotes"}
-          label="Quotes"
-          count={counts.quotes}
-          onPress={() => setFilter("quotes")}
-        />
-        <FilterPill
-          active={filter === "active"}
-          label="Active"
-          count={counts.active}
-          onPress={() => setFilter("active")}
-        />
-        <FilterPill
-          active={filter === "done"}
-          label="Done"
-          count={counts.done}
-          onPress={() => setFilter("done")}
-        />
+      {/* Top-right icon dock — both are placeholders for future filter /
+          search on THIS screen. They do nothing for now per product. */}
+      <View style={[redesign.topBar, { top: insets.top + 12 }]}>
+        <IconBtn icon="search-outline" />
+        <IconBtn icon="options-outline" />
       </View>
 
       <ScrollView
+        style={{ flex: 1, marginTop: insets.top }}
+        contentContainerStyle={{ paddingTop: 54, paddingBottom: insets.bottom + 130 }}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        contentContainerStyle={styles.scrollContent}
       >
+        {/* Title block — explicit c.text so it stays visible in both themes */}
+        <View style={redesign.titleBlock}>
+          <ThemedText style={[redesign.title, { color: c.text }]}>
+            Projects
+          </ThemedText>
+          <ThemedText style={[redesign.subtitle, { color: c.textMid }]}>
+            {statusLine}
+          </ThemedText>
+        </View>
+
+        {/* Filter pills */}
+        <FilterPills
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { key: "all",    label: "All",     count: counts.all },
+            { key: "quotes", label: "Quotes",  count: counts.quotes },
+            { key: "active", label: "Active",  count: counts.active },
+            { key: "done",   label: "Done",    count: counts.done },
+          ]}
+        />
+
+        {/* No summary strip on the client side per product (Committed /
+            In review removed — feature wasn't wanted). */}
+
         {isLoading && <ProjectsPageSkeleton paddingTop={0} />}
 
-        {/* Regular project cards for non-Done tabs */}
-        {!isLoading && filter !== "done" && filteredProjects.length > 0 && (
-          <View style={styles.projectsList}>
-            {filteredProjects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                item={project}
-                onPress={() => {
-                  if (project.quoteId) {
-                    router.push(`/(dashboard)/myquotes/${project.quoteId}`);
-                  } else {
-                    router.push(
-                      `/(dashboard)/myquotes/request/${project.requestId}`
-                    );
-                  }
-                }}
-              />
-            ))}
-          </View>
-        )}
-
-        {/* Grouped sections for Done tab */}
-        {!isLoading && filter === "done" && (
-          <View style={styles.projectsList}>
-            {/* COMPLETED Section */}
-            {doneGrouped.completed.length > 0 && (
-              <>
-                <DoneSectionHeader
-                  title="COMPLETED"
-                  count={doneGrouped.completed.length}
-                />
-                {doneGrouped.completed.map((project) => (
-                  <ClientPastCard
-                    key={project.id}
-                    item={project}
+        {/* Flat list of project rows */}
+        {!isLoading && visibleRows.length > 0 && (
+          <View style={{ paddingTop: 10, paddingBottom: 4 }}>
+            {visibleRows.map((project, idx) => {
+              const row = buildClientRow(project);
+              return (
+                <React.Fragment key={project.id}>
+                  <ProjectRow
+                    {...row}
                     onPress={() => {
                       if (project.quoteId) {
                         router.push(`/(dashboard)/myquotes/${project.quoteId}`);
+                      } else if (project.requestId) {
+                        router.push(`/(dashboard)/myquotes/request/${project.requestId}`);
                       }
                     }}
                   />
-                ))}
-              </>
-            )}
-
-            {/* EXPIRED Section */}
-            {doneGrouped.expired.length > 0 && (
-              <>
-                <DoneSectionHeader
-                  title="EXPIRED"
-                  count={doneGrouped.expired.length}
-                  expanded={expandedDoneSections.expired}
-                  onToggle={() => toggleDoneSection("expired")}
-                />
-                {expandedDoneSections.expired &&
-                  doneGrouped.expired.map((project) => (
-                    <ClientPastCard
-                      key={project.id}
-                      item={project}
-                      onPress={() => {
-                        if (project.quoteId) {
-                          router.push(`/(dashboard)/myquotes/${project.quoteId}`);
-                        } else if (project.requestId) {
-                          router.push(`/(dashboard)/myquotes/request/${project.requestId}`);
-                        }
-                      }}
-                    />
-                  ))}
-              </>
-            )}
-
-            {/* CANCELLED Section */}
-            {doneGrouped.cancelled.length > 0 && (
-              <>
-                <DoneSectionHeader
-                  title="CANCELLED"
-                  count={doneGrouped.cancelled.length}
-                  expanded={expandedDoneSections.cancelled}
-                  onToggle={() => toggleDoneSection("cancelled")}
-                />
-                {expandedDoneSections.cancelled &&
-                  doneGrouped.cancelled.map((project) => (
-                    <ClientPastCard
-                      key={project.id}
-                      item={project}
-                      onPress={() => {
-                        if (project.quoteId) {
-                          router.push(`/(dashboard)/myquotes/${project.quoteId}`);
-                        }
-                      }}
-                    />
-                  ))}
-              </>
-            )}
+                  {idx < visibleRows.length - 1 && (
+                    <View style={[redesign.divider, { backgroundColor: rowDividerColor }]} />
+                  )}
+                </React.Fragment>
+              );
+            })}
           </View>
         )}
 
-        {!isLoading && filter !== "done" && filteredProjects.length === 0 && filter === "all" && (
+        {/* Empty states */}
+        {!isLoading && visibleRows.length === 0 && filter === "all" && (
           <EmptyState
             icon="clipboard-outline"
             title="No projects yet"
@@ -1714,8 +1659,7 @@ export default function ClientProjects() {
             }}
           />
         )}
-
-        {!isLoading && filteredProjects.length === 0 && filter === "quotes" && (
+        {!isLoading && visibleRows.length === 0 && filter === "quotes" && (
           <EmptyState
             icon="document-text-outline"
             title="No quotes"
@@ -1726,33 +1670,201 @@ export default function ClientProjects() {
             }}
           />
         )}
-
-        {!isLoading && filteredProjects.length === 0 && filter === "active" && (
+        {!isLoading && visibleRows.length === 0 && filter === "active" && (
           <EmptyState
             icon="construct-outline"
             title="No active jobs"
             subtitle="Accept a quote to start a job"
           />
         )}
-
-        {!isLoading && filter === "done" && doneGrouped.completed.length === 0 && doneGrouped.expired.length === 0 && doneGrouped.cancelled.length === 0 && (
+        {!isLoading && visibleRows.length === 0 && filter === "done" && (
           <EmptyState
             icon="checkmark-circle-outline"
             title="No past projects"
             subtitle="Completed, expired and cancelled projects will appear here"
           />
         )}
-
-        <Spacer height={insets.bottom + 110} />
       </ScrollView>
     </ThemedView>
   );
 }
 
+// ───────────────────────────────────────────────────────────────────
+// Redesign helpers (local to this file)
+// ───────────────────────────────────────────────────────────────────
+
+const rowDividerColor = "rgba(15,15,20,0.06)";
+
+// SummaryStrip intentionally removed — product decision: client side does
+// not surface Committed / In review totals on the Projects tab.
+
+// Turn a ClientProjects internal project object into ProjectRow props.
+function buildClientRow(project) {
+  const { service, category } = parseTitle(project.title);
+  const iconSource =
+    (service ? getServiceTypeIconLocal(service) : null) ||
+    (category ? getCategoryIconLocal(category) : null) ||
+    defaultServiceTypeIconLocal;
+
+  const muted = project.stage === "EXPIRED" || project.stage === "CANCELLED";
+  const fresh = project.type === "quotes" && (project.isFresh || project.quotesCount >= 1 && project.daysOld <= 0);
+
+  // Stage → stripe colour + label
+  const stageMeta = {
+    POSTED:    { color: "#F4B740", label: "Awaiting quotes" },
+    QUOTES:    { color: "#7C5CFF", label: "Review quotes" },
+    HIRED:     { color: "#3DCF89", label: "Scheduled" },
+    DONE:      { color: "#3DCF89", label: "Completed" },
+    EXPIRED:   { color: "#8A8A94", label: "Expired" },
+    CANCELLED: { color: "#8A8A94", label: "Cancelled" },
+  }[project.stage] || { color: "#8A8A94", label: "" };
+
+  // Right column — follows the trade-side format: primary line is the £
+  // figure (or short state when no price yet), secondary is a short
+  // status sub-line. V2 is browse-and-choose, so nothing references
+  // "N trades invited" / open-request semantics.
+  //   POSTED  : "Awaiting"   · "Direct request"
+  //   QUOTES  : priceInfo    · "Quote ready"
+  //   HIRED   : priceInfo    · "Scheduled" / short status
+  //   DONE    : priceInfo    · "Completed" / "Review given"
+  //   EXPIRED : priceInfo    · "Expired"
+  //   CANCELLED: "Cancelled" · "—"
+  let rightTop = null;
+  let rightBot = null;
+  switch (project.stage) {
+    case "POSTED":
+      rightTop = "Awaiting";
+      rightBot = "Direct request";
+      break;
+    case "QUOTES":
+      rightTop = project.priceInfo || "Quoted";
+      rightBot = project.statusText || "Quote ready";
+      break;
+    case "HIRED":
+      rightTop = project.priceInfo || "Hired";
+      rightBot = project.statusText || project.statusDetail || "Scheduled";
+      break;
+    case "DONE":
+      rightTop = project.priceInfo || "Completed";
+      rightBot = project.hasReview ? "Review given" : "Completed";
+      break;
+    case "EXPIRED":
+      rightTop = project.priceInfo || "Expired";
+      rightBot = "Expired";
+      break;
+    case "CANCELLED":
+      rightTop = "Cancelled";
+      rightBot = "—";
+      break;
+    default:
+      rightTop = project.priceInfo || null;
+      rightBot = project.statusText || null;
+  }
+
+  // Subtitle — short context line (e.g. "Direct request · Mark Thornton"
+  // or "SW4 · 6 items · posted 2d ago"). Keep it short — the row is single-line.
+  const subtitle = project.contextLine || project.statusDetail || null;
+
+  return {
+    iconSource,
+    stripeColor: stageMeta.color,
+    statusLabel: stageMeta.label,
+    title: service || project.title || "Project",
+    subtitle,
+    rightTop,
+    rightBot,
+    fresh,
+    muted,
+  };
+}
+
+// Thin wrappers so the file doesn't need additional top-level imports —
+// the icon module is already imported at the top of this file.
+function getServiceTypeIconLocal(name) {
+  try { return getServiceTypeIcon(name); } catch { return null; }
+}
+function getCategoryIconLocal(name) {
+  try { return getCategoryIcon(name); } catch { return null; }
+}
+const defaultServiceTypeIconLocal = (() => {
+  try { return defaultServiceTypeIcon; } catch { return null; }
+})();
+
+const redesign = StyleSheet.create({
+  topBar: {
+    position: "absolute",
+    right: 16,
+    flexDirection: "row",
+    gap: 8,
+    zIndex: 20,
+  },
+  titleBlock: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 2,
+  },
+  title: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 32,
+    letterSpacing: -0.8,
+    lineHeight: 34,
+  },
+  subtitle: {
+    fontSize: 13,
+    marginTop: 4,
+    fontFamily: "DMSans_400Regular",
+  },
+  usageRow: {
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    flexWrap: "wrap",
+  },
+  strip: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(15,15,20,0.08)",
+  },
+  stripDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: "rgba(15,15,20,0.06)",
+  },
+  stripEyebrow: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 10.5,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    opacity: 0.6,
+  },
+  stripValue: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 24,
+    letterSpacing: -0.6,
+    lineHeight: 26,
+    marginTop: 6,
+  },
+  stripAvg: {
+    fontSize: 13,
+    opacity: 0.55,
+  },
+  divider: {
+    height: 1,
+    marginLeft: 66,
+    marginRight: 20,
+  },
+});
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // No hardcoded backgroundColor — ThemedView supplies theme-aware bg.
   },
   header: {
     flexDirection: "row",
@@ -1760,7 +1872,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: "#FFFFFF",
   },
   headerTitle: {
     fontSize: 28,

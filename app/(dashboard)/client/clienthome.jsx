@@ -838,7 +838,7 @@ export default function ClientHome() {
   // ===== Step 1: Category Selection (Grid) =====
   const CategoryStep = (
     <ThemedView style={styles.container} safe={false}>
-      <ThemedStatusBar backgroundColor="#FFFFFF" />
+      <ThemedStatusBar />
       <SubHeader onBack={() => router.back()} currentStep={1} />
       <TradeRequestBanner />
       <ScrollView
@@ -877,7 +877,7 @@ export default function ClientHome() {
   // ===== Step 2: Service Type Selection (List) =====
   const ServiceTypeStep = (
     <ThemedView style={styles.container} safe={false}>
-      <ThemedStatusBar backgroundColor="#FFFFFF" />
+      <ThemedStatusBar />
       <SubHeader onBack={() => handleBack(1)} currentStep={2} />
       <TradeRequestBanner />
       <ScrollView
@@ -922,7 +922,7 @@ export default function ClientHome() {
   // ===== Step 3: Details Form =====
   const DetailsStep = (
     <ThemedView style={styles.container} safe={false}>
-      <ThemedStatusBar backgroundColor="#FFFFFF" />
+      <ThemedStatusBar />
       <SubHeader onBack={() => handleBack(2)} currentStep={3} />
       <TradeRequestBanner />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -1044,7 +1044,7 @@ export default function ClientHome() {
   // ===== Step 4: Budget =====
   const BudgetStep = (
     <ThemedView style={styles.container} safe={false}>
-      <ThemedStatusBar backgroundColor="#FFFFFF" />
+      <ThemedStatusBar />
       <SubHeader onBack={() => handleBack(3)} currentStep={4} totalSteps={6} />
       <TradeRequestBanner />
       <ScrollView
@@ -1109,7 +1109,7 @@ export default function ClientHome() {
   // ===== Step 5: Photos & Timing =====
   const PhotosTimingStep = (
     <ThemedView style={styles.container} safe={false}>
-      <ThemedStatusBar backgroundColor="#FFFFFF" />
+      <ThemedStatusBar />
       <SubHeader onBack={() => handleBack(4)} currentStep={5} totalSteps={6} />
       <TradeRequestBanner />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -1242,7 +1242,7 @@ export default function ClientHome() {
   // ===== Step 6: Review & Submit =====
   const ReviewStep = (
     <ThemedView style={styles.container} safe={false}>
-      <ThemedStatusBar backgroundColor="#FFFFFF" />
+      <ThemedStatusBar />
       <SubHeader onBack={() => setStep(5)} currentStep={6} totalSteps={6} />
       <TradeRequestBanner />
       <ScrollView
