@@ -8,3 +8,5 @@ export { default as StripeRow } from "./StripeRow";
 export { default as StatusBadge } from "./StatusBadge";
 export { default as IconBtn } from "./IconBtn";
 export { default as FloatingTabBar } from "./FloatingTabBar";
+export { default as FilterPills } from "./FilterPills";
+export { default as ProjectRow } from "./ProjectRow";

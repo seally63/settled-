@@ -195,7 +195,7 @@ export default function MessagesIndex() {
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedStatusBar backgroundColor="#FFFFFF" />
+      <ThemedStatusBar />
       {/* Header - Profile-style */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <ThemedText style={styles.headerTitle}>Messages</ThemedText>
