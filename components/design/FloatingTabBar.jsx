@@ -24,7 +24,16 @@ import { View, Pressable, StyleSheet } from "react-native";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
+import * as Device from "expo-device";
 import { useTheme } from "../../hooks/useTheme";
+
+// iOS Simulator swallows clicks near the bottom of the window far more
+// aggressively than a real device — Metro cursor gestures fight the
+// simulated home-indicator swipe-up zone, and clicks on views closer than
+// ~120px from the window bottom frequently never reach the Pressable. On
+// physical iOS the home indicator gesture zone is narrower, so 80px is
+// plenty. Device.isDevice is false in the simulator.
+const IS_SIMULATOR = Device.isDevice === false;
 
 export default function FloatingTabBar({ state, descriptors, navigation }) {
   const { colors: c, dark } = useTheme();
@@ -62,10 +71,11 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
       style={[
         styles.wrap,
         // Pill sits well above the iOS home-indicator / edge-swipe zone.
-        // Values lower than ~60-70 cause iOS to swallow taps on an
-        // iPhone 16-class device before they reach React Native. 80+
-        // is the verified-safe floor.
-        { bottom: Math.max(insets.bottom + 46, 80) },
+        // Physical iOS: 80px is verified-safe. Simulator: the bottom
+        // edge-gesture zone is wider (Metro mouse clicks are routed
+        // through simulated touch + the simulator adds its own edge
+        // buffer), so we lift the pill another 40px there.
+        { bottom: IS_SIMULATOR ? 130 : Math.max(insets.bottom + 46, 80) },
       ]}
       pointerEvents="box-none"
     >
