@@ -424,10 +424,9 @@ export default function ScheduleAppointment() {
         })
       : "Add time";
 
-  // Builder-style eyebrow: "APPOINTMENT FOR {CLIENT NAME} · {SPECIFIC SERVICE}"
-  // Derives the "specific service" the same way the builder does — prefer
-  // the FK service_types name, then the right half of suggested_title,
-  // then the category name.
+  // Eyebrow is just "APPOINTMENT FOR {CLIENT NAME}" — the big title
+  // below already carries the specific service name, no need to
+  // duplicate it on the eyebrow line.
   const specificService = (() => {
     if (serviceTypeName) return serviceTypeName;
     if (suggestedTitle && suggestedTitle.includes(" - ")) {
@@ -438,7 +437,7 @@ export default function ScheduleAppointment() {
     if (serviceCategoryName) return serviceCategoryName;
     return "Project";
   })();
-  const eyebrow = `APPOINTMENT FOR ${(clientName || "CLIENT").toUpperCase()} · ${specificService.toUpperCase()}`;
+  const eyebrow = `APPOINTMENT FOR ${(clientName || "CLIENT").toUpperCase()}`;
   const displayLocation = location || "Location not specified";
 
   return (
@@ -641,11 +640,13 @@ function makeStyles(c, dark) {
     flex: 1,
     backgroundColor: c.background,
   },
-  // Transparent inline chrome row (matches quote builder pattern).
+  // Transparent inline chrome row — paddingHorizontal: 4 here because
+  // scrollContent already carries 16px, so the chevron lands at 20px
+  // from the left edge (matching the quote builder + request page).
   inlineChrome: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 20,
+    paddingHorizontal: 4,
     paddingBottom: 14,
     gap: 10,
   },
@@ -690,8 +691,8 @@ function makeStyles(c, dark) {
     borderColor: c.border,
   },
   fieldLabel: {
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 13,
-    fontWeight: "500",
     marginBottom: 6,
     color: c.textMid,
   },
@@ -701,6 +702,7 @@ function makeStyles(c, dark) {
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 15,
     color: c.text,
     backgroundColor: c.elevate,
@@ -716,14 +718,16 @@ function makeStyles(c, dark) {
     paddingRight: 12,
   },
   detailLabel: {
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 13,
-    fontWeight: "500",
     color: c.textMid,
     marginBottom: 2,
   },
   detailValue: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 14,
     color: c.text,
+    letterSpacing: -0.1,
   },
   detailDivider: {
     height: StyleSheet.hairlineWidth,
@@ -736,8 +740,8 @@ function makeStyles(c, dark) {
     backgroundColor: c.elevate2,
   },
   detailPillText: {
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 13,
-    fontWeight: "500",
     color: c.textMid,
   },
   primaryBtn: {
@@ -748,9 +752,10 @@ function makeStyles(c, dark) {
     backgroundColor: PRIMARY,
   },
   primaryBtnText: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 16,
-    fontWeight: "600",
     color: "#FFFFFF",
+    letterSpacing: -0.1,
   },
   // Section label — builder uses small uppercase eyebrow. Matching
   // here so the typography feels consistent across the flow.
@@ -789,13 +794,14 @@ function makeStyles(c, dark) {
     marginRight: 12,
   },
   typeCardLabel: {
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 15,
     color: c.textMid,
-    fontWeight: "500",
   },
   typeCardLabelSelected: {
+    fontFamily: FontFamily.headerSemibold,
     color: PRIMARY,
-    fontWeight: "600",
+    letterSpacing: -0.1,
   },
   typeCardRadio: {
     width: 22,
@@ -822,6 +828,7 @@ function makeStyles(c, dark) {
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 15,
     color: c.text,
     backgroundColor: c.elevate,
@@ -844,8 +851,8 @@ function makeStyles(c, dark) {
     backgroundColor: PRIMARY,
   },
   keyboardDoneText: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 14,
-    fontWeight: "600",
     color: "#FFFFFF",
   },
   });
