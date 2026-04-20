@@ -10,3 +10,5 @@ export { default as IconBtn } from "./IconBtn";
 export { default as FloatingTabBar } from "./FloatingTabBar";
 export { default as FilterPills } from "./FilterPills";
 export { default as ProjectRow } from "./ProjectRow";
+export { default as WizardHeader } from "./WizardHeader";
+export { default as SelectCard } from "./SelectCard";

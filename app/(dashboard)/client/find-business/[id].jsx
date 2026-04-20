@@ -42,6 +42,7 @@ import {
   generateUploadSessionId,
 } from "../../../../lib/api/attachments";
 import PhotoUploadThumbnail from "../../../../components/PhotoUploadThumbnail";
+import { WizardHeader, SelectCard } from "../../../../components/design";
 import {
   getServiceCategories,
   getServiceTypes,
@@ -287,7 +288,7 @@ function PerformanceInfoModal({ visible, onClose, insets }) {
 }
 
 export default function TradeProfileClient() {
-  const { id } = useLocalSearchParams();
+  const { id, openRequest } = useLocalSearchParams();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { styles, colors: c, dark } = useStyles();
@@ -450,6 +451,18 @@ export default function TradeProfileClient() {
       loadTimingOptions();
     }
   }, [showRequestModal]);
+
+  // Auto-open the request wizard when arriving with ?openRequest=true
+  // (e.g. from the "Request a Quote" CTA on /client/trade-profile).
+  // We only auto-open once per navigation to avoid reopening if the user
+  // dismisses it while the param lingers in the URL.
+  const hasAutoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (openRequest === "true" && !hasAutoOpenedRef.current && trade) {
+      hasAutoOpenedRef.current = true;
+      setShowRequestModal(true);
+    }
+  }, [openRequest, trade]);
 
   useEffect(() => {
     if (selectedCategory?.id) {
@@ -1143,171 +1156,197 @@ export default function TradeProfileClient() {
           resetForm();
         }}
       >
-        <ThemedView style={styles.modalContainer}>
-          {/* Modal Header */}
-          <View style={styles.modalHeader}>
-            <Pressable
-              onPress={() => {
-                if (requestStep > 1) {
-                  setRequestStep(requestStep - 1);
-                } else {
-                  setShowRequestModal(false);
-                  resetForm();
-                }
-              }}
-              hitSlop={10}
-            >
-              <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
-            </Pressable>
-            <ThemedText style={styles.modalTitle}>
-              {requestStep === 1 && "Select Category"}
-              {requestStep === 2 && "Select Service"}
-              {requestStep === 3 && "Job Details"}
-              {requestStep === 4 && "Budget"}
-              {requestStep === 5 && "Photos & Timing"}
-              {requestStep === 6 && "Review"}
-            </ThemedText>
-            <Pressable onPress={() => { setShowRequestModal(false); resetForm(); }} hitSlop={10}>
-              <Ionicons name="close" size={24} color={Colors.light.title} />
-            </Pressable>
-          </View>
+        <ThemedView style={{ flex: 1, backgroundColor: c.background }}>
+          {/* New 4-step wizard header per redesign spec. Steps:
+              1. Category  ·  2. Service  ·  3. Details  ·  4. Review     */}
+          <WizardHeader
+            step={requestStep > 4 ? 4 : requestStep}
+            totalSteps={4}
+            title={
+              requestStep === 1 ? "Category" :
+              requestStep === 2 ? "Service" :
+              requestStep === 3 ? "Details" :
+              "Review"
+            }
+            onBack={() => {
+              if (requestStep > 1) {
+                setRequestStep(requestStep - 1);
+              } else {
+                setShowRequestModal(false);
+                resetForm();
+              }
+            }}
+            onClose={() => { setShowRequestModal(false); resetForm(); }}
+          />
 
-          {/* Progress Bar */}
-          <View style={styles.progressBarContainer}>
-            <View style={styles.progressBarTrack}>
-              <View style={[styles.progressBarFill, { width: `${(requestStep / 6) * 100}%` }]} />
-            </View>
-          </View>
-
-          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={styles.modalScrollContent}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 120 }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {/* Step 1: Category */}
+              {/* ── Step 1 · Category ─────────────────────────────── */}
               {requestStep === 1 && (
                 <>
-                  <ThemedText style={styles.stepTitle}>What do you need help with?</ThemedText>
+                  <ThemedText style={[wizardStyles.stepTitle, { color: c.text }]}>
+                    What do you need help with?
+                  </ThemedText>
+                  <ThemedText style={[wizardStyles.stepSubtitle, { color: c.textMid }]}>
+                    Pick the category that best fits the job.
+                  </ThemedText>
+
                   {loadingCategories ? (
                     <View style={{ marginTop: 16 }}>
                       <CategoryGridSkeleton />
                     </View>
                   ) : (
-                    <View style={styles.categoryGrid}>
+                    <View style={wizardStyles.tileGrid}>
                       {categories.map((cat) => (
-                        <Pressable
-                          key={cat.id}
-                          style={styles.categoryCard}
-                          onPress={() => {
-                            setSelectedCategory(cat);
-                            setSelectedServiceType(null);
-                            setRequestStep(2);
-                          }}
-                        >
-                          <View style={styles.categoryIconWrap}>
-                            <CategoryIcon category={cat} size={28} />
-                          </View>
-                          <ThemedText style={styles.categoryName}>{cat.name}</ThemedText>
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
-                </>
-              )}
-
-              {/* Step 2: Service Type */}
-              {requestStep === 2 && (
-                <>
-                  <ThemedText style={styles.stepTitle}>What type of {selectedCategory?.name?.toLowerCase() || "service"}?</ThemedText>
-                  {loadingServiceTypes ? (
-                    <View style={{ marginTop: 16 }}>
-                      {[1, 2, 3, 4, 5].map((i) => (
-                        <View key={i} style={styles.serviceTypeCardSkeleton}>
-                          <SkeletonBox width={40} height={40} borderRadius={20} />
-                          <SkeletonText width="60%" height={16} style={{ marginLeft: 14 }} />
+                        <View key={cat.id} style={wizardStyles.tileCell}>
+                          <SelectCard
+                            variant="tile"
+                            selected={selectedCategory?.id === cat.id}
+                            title={cat.name}
+                            iconSource={getCategoryIcon(cat.name) || defaultCategoryIcon}
+                            // Tap = select + auto-advance. Brief delay so the
+                            // user sees the purple ring confirm their pick.
+                            onPress={() => {
+                              setSelectedCategory(cat);
+                              setSelectedServiceType(null);
+                              setTimeout(() => setRequestStep(2), 180);
+                            }}
+                          />
                         </View>
                       ))}
                     </View>
+                  )}
+                </>
+              )}
+
+              {/* ── Step 2 · Service type ─────────────────────────── */}
+              {requestStep === 2 && (
+                <>
+                  <ThemedText style={[wizardStyles.stepTitle, { color: c.text }]}>
+                    Pick the job type
+                  </ThemedText>
+                  <ThemedText style={[wizardStyles.stepSubtitle, { color: c.textMid }]}>
+                    {selectedCategory?.name || "Service"} — what specifically?
+                  </ThemedText>
+
+                  {loadingServiceTypes ? (
+                    <View style={{ marginTop: 16, gap: 10 }}>
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <SkeletonBox key={i} width="100%" height={60} borderRadius={14} />
+                      ))}
+                    </View>
                   ) : (
-                    <View style={styles.serviceTypeList}>
+                    <View style={{ gap: 10 }}>
                       {serviceTypes.map((type) => (
-                        <Pressable
+                        <SelectCard
                           key={type.id}
-                          style={styles.serviceTypeCard}
+                          variant="row"
+                          selected={selectedServiceType?.id === type.id}
+                          title={type.name}
+                          iconSource={
+                            getServiceTypeIcon(type.name) ||
+                            getCategoryIcon(selectedCategory?.name) ||
+                            defaultServiceTypeIcon
+                          }
+                          // Tap = select + auto-advance. Brief delay so the
+                          // user sees the purple ring confirm their pick.
                           onPress={() => {
                             setSelectedServiceType(type);
-                            setRequestStep(3);
+                            setTimeout(() => setRequestStep(3), 180);
                           }}
-                        >
-                          <View style={styles.serviceTypeIcon}>
-                            <ServiceTypeIcon serviceType={type} size={20} />
-                          </View>
-                          <ThemedText style={styles.serviceTypeName}>{type.name}</ThemedText>
-                          <Ionicons name="chevron-forward" size={20} color="#999" />
-                        </Pressable>
+                        />
                       ))}
                     </View>
                   )}
                 </>
               )}
 
-              {/* Step 3: Details */}
+              {/* ── Step 3 · Details (merged old 3 + 4 + 5) ───────── */}
               {requestStep === 3 && (
                 <>
-                  <ThemedText style={styles.stepTitle}>Tell us more</ThemedText>
-                  <ThemedText style={styles.stepSubtitle}>
-                    {selectedCategory?.name} → {selectedServiceType?.name}
+                  <ThemedText style={[wizardStyles.stepTitle, { color: c.text }]}>
+                    Tell us a bit more
+                  </ThemedText>
+                  <ThemedText style={[wizardStyles.stepSubtitle, { color: c.textMid }]}>
+                    {selectedCategory?.name} — {selectedServiceType?.name}
                   </ThemedText>
 
-                  <View style={styles.fieldContainer}>
-                    <ThemedText style={styles.fieldLabel}>Describe the job</ThemedText>
+                  {/* Description */}
+                  <View style={wizardStyles.field}>
+                    <ThemedText style={[wizardStyles.fieldLabel, { color: c.text }]}>
+                      Describe the job
+                    </ThemedText>
                     <ThemedTextInput
-                      style={styles.textArea}
-                      placeholder="e.g., Need to fix a leaky tap under the kitchen sink..."
-                      placeholderTextColor="#6B7280"
+                      style={{
+                        minHeight: 110,
+                        paddingTop: 14,
+                      }}
+                      placeholder="e.g. Fix a leaky tap under the kitchen sink…"
                       value={description}
                       onChangeText={(t) => { if (t.length <= 500) setDescription(t); }}
                       multiline
                       textAlignVertical="top"
                       inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
                     />
-                    <ThemedText style={styles.charCount}>{description.length}/500</ThemedText>
+                    <ThemedText style={{ fontSize: 11, color: c.textMuted, textAlign: "right", marginTop: 4 }}>
+                      {description.length}/500
+                    </ThemedText>
                   </View>
 
-                  <View style={styles.fieldContainer}>
-                    <ThemedText style={styles.fieldLabel}>Property type</ThemedText>
-                    <Pressable style={styles.dropdown} onPress={() => setShowPropertyDropdown(!showPropertyDropdown)}>
-                      <ThemedText style={selectedPropertyType ? styles.dropdownText : styles.dropdownPlaceholder}>
+                  {/* Property type */}
+                  <View style={wizardStyles.field}>
+                    <ThemedText style={[wizardStyles.fieldLabel, { color: c.text }]}>
+                      Property type
+                    </ThemedText>
+                    <Pressable
+                      style={[wizardStyles.dropdown, { backgroundColor: c.elevate, borderColor: c.border }]}
+                      onPress={() => setShowPropertyDropdown(!showPropertyDropdown)}
+                    >
+                      <ThemedText style={{ color: selectedPropertyType ? c.text : c.textMuted, fontSize: 15 }}>
                         {selectedPropertyType?.name || "Select property type"}
                       </ThemedText>
-                      <Ionicons name={showPropertyDropdown ? "chevron-up" : "chevron-down"} size={20} color="#666" />
+                      <Ionicons
+                        name={showPropertyDropdown ? "chevron-up" : "chevron-down"}
+                        size={18}
+                        color={c.textMuted}
+                      />
                     </Pressable>
                     {showPropertyDropdown && (
-                      <View style={styles.dropdownMenu}>
+                      <View style={[wizardStyles.dropdownMenu, { backgroundColor: c.elevate, borderColor: c.border }]}>
                         {propertyTypes.map((pt) => (
                           <Pressable
                             key={pt.id}
-                            style={[styles.dropdownItem, selectedPropertyType?.id === pt.id && styles.dropdownItemSelected]}
+                            style={({ pressed }) => [
+                              wizardStyles.dropdownItem,
+                              pressed && { backgroundColor: c.elevate2 },
+                            ]}
                             onPress={() => { setSelectedPropertyType(pt); setShowPropertyDropdown(false); }}
                           >
-                            <ThemedText style={styles.dropdownItemText}>{pt.name}</ThemedText>
-                            {selectedPropertyType?.id === pt.id && <Ionicons name="checkmark" size={18} color={Colors.primary} />}
+                            <ThemedText style={{ color: c.text, fontSize: 15 }}>{pt.name}</ThemedText>
+                            {selectedPropertyType?.id === pt.id && (
+                              <Ionicons name="checkmark" size={18} color={Colors.primary} />
+                            )}
                           </Pressable>
                         ))}
                       </View>
                     )}
                   </View>
 
-                  <View style={styles.fieldContainer}>
-                    <ThemedText style={styles.fieldLabel}>
-                      Your postcode <ThemedText style={styles.requiredAsterisk}>*</ThemedText>
+                  {/* Postcode */}
+                  <View style={wizardStyles.field}>
+                    <ThemedText style={[wizardStyles.fieldLabel, { color: c.text }]}>
+                      Your postcode <ThemedText style={{ color: Colors.status.declined }}>*</ThemedText>
                     </ThemedText>
                     <ThemedTextInput
-                      style={styles.textInput}
-                      placeholder="e.g., EH48 3NN"
-                      placeholderTextColor="#6B7280"
+                      placeholder="e.g. EH48 3NN"
                       value={postcode}
                       onChangeText={(t) => setPostcode(t.toUpperCase())}
                       autoCapitalize="characters"
@@ -1315,180 +1354,307 @@ export default function TradeProfileClient() {
                     />
                   </View>
 
-                  <ThemedButton
-                    onPress={() => setRequestStep(4)}
-                    disabled={!postcode?.trim()}
-                    style={styles.continueButton}
-                  >
-                    <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
-                  </ThemedButton>
-                </>
-              )}
-
-              {/* Step 4: Budget */}
-              {requestStep === 4 && (
-                <>
-                  <ThemedText style={styles.stepTitle}>What's your budget?</ThemedText>
-                  <View style={styles.budgetList}>
-                    {BUDGET_OPTIONS.map((option) => (
-                      <Pressable
-                        key={option.id}
-                        style={[styles.budgetOption, selectedBudget?.id === option.id && styles.budgetOptionSelected]}
-                        onPress={() => setSelectedBudget(option)}
-                      >
-                        <View style={[styles.radioOuter, selectedBudget?.id === option.id && styles.radioOuterSelected]}>
-                          {selectedBudget?.id === option.id && <View style={styles.radioInner} />}
-                        </View>
-                        <ThemedText style={styles.budgetOptionText}>{option.label}</ThemedText>
-                      </Pressable>
-                    ))}
+                  {/* Budget */}
+                  <View style={wizardStyles.field}>
+                    <ThemedText style={[wizardStyles.fieldLabel, { color: c.text }]}>Budget</ThemedText>
+                    <View style={{ gap: 8 }}>
+                      {BUDGET_OPTIONS.map((option) => {
+                        const on = selectedBudget?.id === option.id;
+                        return (
+                          <Pressable
+                            key={option.id}
+                            onPress={() => setSelectedBudget(option)}
+                            style={({ pressed }) => [
+                              wizardStyles.radioRow,
+                              {
+                                backgroundColor: c.elevate,
+                                borderColor: on ? Colors.primary : c.border,
+                                borderWidth: on ? 2 : 1,
+                              },
+                              pressed && { backgroundColor: c.elevate2 },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                wizardStyles.radioOuter,
+                                { borderColor: on ? Colors.primary : c.borderStrong },
+                              ]}
+                            >
+                              {on ? <View style={wizardStyles.radioInner} /> : null}
+                            </View>
+                            <ThemedText style={{ color: c.text, fontSize: 15 }}>{option.label}</ThemedText>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
                   </View>
-                  <ThemedButton
-                    onPress={() => setRequestStep(5)}
-                    disabled={!selectedBudget}
-                    style={styles.continueButton}
-                  >
-                    <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
-                  </ThemedButton>
-                </>
-              )}
 
-              {/* Step 5: Photos & Timing */}
-              {requestStep === 5 && (
-                <>
-                  <ThemedText style={styles.stepTitle}>Almost done!</ThemedText>
+                  {/* Timing */}
+                  <View style={wizardStyles.field}>
+                    <ThemedText style={[wizardStyles.fieldLabel, { color: c.text }]}>
+                      When do you need this done?
+                    </ThemedText>
+                    <View style={{ gap: 8 }}>
+                      {timingOptions.map((opt) => {
+                        const on = selectedTiming?.id === opt.id;
+                        return (
+                          <Pressable
+                            key={opt.id}
+                            onPress={() => setSelectedTiming(opt)}
+                            style={({ pressed }) => [
+                              wizardStyles.radioRow,
+                              {
+                                backgroundColor: c.elevate,
+                                borderColor: on ? Colors.primary : c.border,
+                                borderWidth: on ? 2 : 1,
+                              },
+                              pressed && { backgroundColor: c.elevate2 },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                wizardStyles.radioOuter,
+                                { borderColor: on ? Colors.primary : c.borderStrong },
+                              ]}
+                            >
+                              {on ? <View style={wizardStyles.radioInner} /> : null}
+                            </View>
+                            <ThemedText
+                              style={{
+                                color: opt.is_emergency ? Colors.status.declined : c.text,
+                                fontSize: 15,
+                              }}
+                            >
+                              {opt.name}
+                            </ThemedText>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
 
-                  <View style={styles.sectionContainer}>
-                    <ThemedText style={styles.sectionTitle}>Add photos (optional)</ThemedText>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
-                      {photos.map((p, i) => (
-                        <PhotoUploadThumbnail
-                          key={p.id}
-                          photo={p}
-                          index={i}
-                          onRemove={removePhoto}
-                          onPress={(idx) => setViewer({ open: true, index: idx })}
-                          onRetry={(idx) => retryUpload(photos[idx]?.id)}
-                        />
-                      ))}
-                      {photos.length < 5 && (
-                        <Pressable onPress={pickFromLibrary} style={styles.addPhotoCell}>
-                          <Ionicons name="add" size={28} color="#666" />
-                          <ThemedText style={styles.addPhotoText}>Add</ThemedText>
-                        </Pressable>
-                      )}
+                  {/* Photos (optional) */}
+                  <View style={wizardStyles.field}>
+                    <ThemedText style={[wizardStyles.fieldLabel, { color: c.text }]}>
+                      Photos <ThemedText style={{ color: c.textMuted, fontWeight: "400" }}>(optional)</ThemedText>
+                    </ThemedText>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={{ flexDirection: "row", gap: 10 }}>
+                        {photos.map((p, i) => (
+                          <PhotoUploadThumbnail
+                            key={p.id}
+                            photo={p}
+                            index={i}
+                            onRemove={removePhoto}
+                            onPress={(idx) => setViewer({ open: true, index: idx })}
+                            onRetry={(idx) => retryUpload(photos[idx]?.id)}
+                          />
+                        ))}
+                        {photos.length < 5 && (
+                          <Pressable
+                            onPress={pickFromLibrary}
+                            style={[
+                              wizardStyles.addPhotoCell,
+                              { backgroundColor: c.elevate2, borderColor: c.border },
+                            ]}
+                          >
+                            <Ionicons name="add" size={26} color={c.textMid} />
+                            <ThemedText style={{ fontSize: 11, color: c.textMid, marginTop: 2 }}>Add</ThemedText>
+                          </Pressable>
+                        )}
+                      </View>
                     </ScrollView>
-                    {/* Upload status indicator */}
                     {photos.length > 0 && (
-                      <View style={styles.uploadStatusRow}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
                         {arePhotosReady() ? (
-                          <View style={styles.uploadStatusReady}>
-                            <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                            <ThemedText style={styles.uploadStatusText}>
+                          <>
+                            <Ionicons name="checkmark-circle" size={15} color={Colors.status.accepted} />
+                            <ThemedText style={{ fontSize: 12, color: c.textMid }}>
                               {photos.length} photo{photos.length !== 1 ? "s" : ""} ready
                             </ThemedText>
-                          </View>
+                          </>
                         ) : (
-                          <View style={styles.uploadStatusPending}>
-                            <ActivityIndicator size="small" color="#3B82F6" />
-                            <ThemedText style={styles.uploadStatusText}>
-                              Uploading {getUploadingCount()} photo{getUploadingCount() !== 1 ? "s" : ""}...
+                          <>
+                            <ActivityIndicator size="small" color={Colors.primary} />
+                            <ThemedText style={{ fontSize: 12, color: c.textMid }}>
+                              Uploading {getUploadingCount()} photo{getUploadingCount() !== 1 ? "s" : ""}…
                             </ThemedText>
-                          </View>
+                          </>
                         )}
                       </View>
                     )}
                   </View>
-
-                  <View style={styles.sectionContainer}>
-                    <ThemedText style={styles.sectionTitle}>When do you need this done?</ThemedText>
-                    <View style={styles.timingList}>
-                      {timingOptions.map((opt) => (
-                        <Pressable
-                          key={opt.id}
-                          style={[styles.timingOption, selectedTiming?.id === opt.id && styles.timingOptionSelected]}
-                          onPress={() => setSelectedTiming(opt)}
-                        >
-                          <View style={[styles.radioOuter, selectedTiming?.id === opt.id && styles.radioOuterSelected]}>
-                            {selectedTiming?.id === opt.id && <View style={styles.radioInner} />}
-                          </View>
-                          <ThemedText style={[styles.timingText, opt.is_emergency && styles.timingTextEmergency]}>
-                            {opt.name}
-                          </ThemedText>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </View>
-
-                  <ThemedButton
-                    onPress={() => setRequestStep(6)}
-                    disabled={!selectedTiming}
-                    style={styles.continueButton}
-                  >
-                    <ThemedText style={styles.continueButtonText}>Review Request</ThemedText>
-                  </ThemedButton>
                 </>
               )}
 
-              {/* Step 6: Review */}
-              {requestStep === 6 && (
+              {/* ── Step 4 · Review (old step 6) ──────────────────── */}
+              {requestStep === 4 && (
                 <>
-                  <ThemedText style={styles.stepTitle}>Review your request</ThemedText>
+                  <ThemedText style={[wizardStyles.stepTitle, { color: c.text }]}>
+                    Ready to send
+                  </ThemedText>
+                  <ThemedText style={[wizardStyles.stepSubtitle, { color: c.textMid }]}>
+                    Check everything before the trade gets this.
+                  </ThemedText>
 
-                  <View style={styles.reviewCard}>
+                  <View
+                    style={[
+                      wizardStyles.reviewCard,
+                      { backgroundColor: c.elevate, borderColor: c.border },
+                    ]}
+                  >
                     <ReviewRow icon="business-outline" label="BUSINESS" value={trade?.business_name || trade?.full_name} />
-                    <ReviewRow icon="construct-outline" label="SERVICE" value={`${selectedCategory?.name} → ${selectedServiceType?.name}`} onEdit={() => setRequestStep(1)} />
-                    <ReviewRow icon="document-text-outline" label="DETAILS" value={description?.trim() || "No description"} onEdit={() => setRequestStep(3)} />
-                    <ReviewRow icon="home-outline" label="PROPERTY" value={selectedPropertyType?.name || "Not specified"} onEdit={() => setRequestStep(3)} />
-                    <ReviewRow icon="location-outline" label="POSTCODE" value={postcode?.trim() || "Not specified"} onEdit={() => setRequestStep(3)} />
-                    <ReviewRow icon="cash-outline" label="BUDGET" value={selectedBudget?.label || "Not specified"} onEdit={() => setRequestStep(4)} />
+                    <ReviewRow
+                      icon="construct-outline"
+                      label="SERVICE"
+                      value={`${selectedCategory?.name} · ${selectedServiceType?.name}`}
+                      onEdit={() => setRequestStep(2)}
+                    />
+                    <ReviewRow
+                      icon="document-text-outline"
+                      label="DETAILS"
+                      value={description?.trim() || "No description"}
+                      onEdit={() => setRequestStep(3)}
+                    />
+                    <ReviewRow
+                      icon="home-outline"
+                      label="PROPERTY"
+                      value={selectedPropertyType?.name || "Not specified"}
+                      onEdit={() => setRequestStep(3)}
+                    />
+                    <ReviewRow
+                      icon="location-outline"
+                      label="POSTCODE"
+                      value={postcode?.trim() || "Not specified"}
+                      onEdit={() => setRequestStep(3)}
+                    />
+                    <ReviewRow
+                      icon="cash-outline"
+                      label="BUDGET"
+                      value={selectedBudget?.label || "Not specified"}
+                      onEdit={() => setRequestStep(3)}
+                    />
                     <ReviewRow
                       icon="time-outline"
                       label="TIMING"
-                      value={selectedTiming?.name}
+                      value={selectedTiming?.name || "Not specified"}
                       isEmergency={selectedTiming?.is_emergency}
-                      onEdit={() => setRequestStep(5)}
+                      onEdit={() => setRequestStep(3)}
                     />
                     <View style={styles.reviewSection}>
                       <View style={styles.reviewLabelRow}>
                         <Ionicons name="images-outline" size={16} color={c.textMid} />
-                        <ThemedText style={styles.reviewLabel}>PHOTOS</ThemedText>
+                        <ThemedText style={[styles.reviewLabel, { color: c.textMid }]}>PHOTOS</ThemedText>
                       </View>
                       <View style={styles.reviewPhotos}>
                         {photos.length > 0 ? photos.map((p, i) => (
                           <Image key={i} source={{ uri: p.uri }} style={styles.reviewPhotoThumb} />
                         )) : (
-                          <ThemedText style={styles.reviewValue}>No photos added</ThemedText>
+                          <ThemedText style={[styles.reviewValue, { color: c.text }]}>
+                            No photos added
+                          </ThemedText>
                         )}
                       </View>
-                      <Pressable onPress={() => setRequestStep(5)} style={styles.editButton}>
-                        <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+                      <Pressable onPress={() => setRequestStep(3)} style={styles.editButton}>
+                        <ThemedText style={[styles.editButtonText, { color: Colors.primary }]}>
+                          Edit
+                        </ThemedText>
                       </Pressable>
                     </View>
                   </View>
 
-                  <ThemedButton
-                    onPress={checkServiceAreaBeforeSubmit}
-                    disabled={submitting || checkingServiceArea || (photos.length > 0 && !arePhotosReady())}
-                    style={styles.continueButton}
+                  <ThemedText
+                    style={{
+                      fontSize: 12,
+                      color: c.textMuted,
+                      textAlign: "center",
+                      marginTop: 14,
+                      paddingHorizontal: 16,
+                    }}
                   >
-                    <ThemedText style={styles.continueButtonText}>
-                      {checkingServiceArea
-                        ? "Checking…"
-                        : submitting
-                        ? "Submitting…"
-                        : photos.length > 0 && !arePhotosReady()
-                        ? `Waiting for uploads (${getUploadingCount()})…`
-                        : "Submit Request"}
-                    </ThemedText>
-                  </ThemedButton>
-
-                  <ThemedText style={styles.disclaimer}>
-                    By submitting, you agree to receive a quote from this tradesperson
+                    By sending, you agree to receive a quote from this tradesperson.
                   </ThemedText>
                 </>
               )}
             </ScrollView>
+
+            {/* Sticky bottom dock — only rendered for steps 3 (Continue) and
+                4 (Send). Steps 1 and 2 auto-advance on tap, so a button
+                here would be redundant noise. */}
+            {(requestStep === 3 || requestStep === 4) && (
+            <View
+              style={[
+                wizardStyles.dock,
+                {
+                  backgroundColor: c.background,
+                  borderTopColor: c.border,
+                  paddingBottom: (insets.bottom || 8) + 10,
+                },
+              ]}
+            >
+              <Pressable
+                onPress={() => {
+                  if (requestStep === 3) {
+                    if (
+                      description?.trim() &&
+                      postcode?.trim() &&
+                      selectedBudget &&
+                      selectedTiming
+                    ) {
+                      setRequestStep(4);
+                    }
+                  } else if (requestStep === 4) {
+                    checkServiceAreaBeforeSubmit();
+                  }
+                }}
+                disabled={(() => {
+                  if (requestStep === 3) {
+                    return !(
+                      description?.trim() &&
+                      postcode?.trim() &&
+                      selectedBudget &&
+                      selectedTiming
+                    );
+                  }
+                  // step 4 submit
+                  return submitting || checkingServiceArea ||
+                    (photos.length > 0 && !arePhotosReady());
+                })()}
+                style={({ pressed }) => [
+                  wizardStyles.dockBtn,
+                  { backgroundColor: Colors.primary },
+                  pressed && { opacity: 0.85 },
+                  (() => {
+                    if (requestStep === 3 && !(
+                      description?.trim() && postcode?.trim() && selectedBudget && selectedTiming
+                    )) return { opacity: 0.45 };
+                    if (requestStep === 4 && (submitting || checkingServiceArea ||
+                      (photos.length > 0 && !arePhotosReady()))) return { opacity: 0.6 };
+                    return null;
+                  })(),
+                ]}
+              >
+                <ThemedText
+                  style={{
+                    fontSize: 15,
+                    fontFamily: FontFamily.headerSemibold,
+                    color: "#FFFFFF",
+                    letterSpacing: -0.1,
+                  }}
+                >
+                  {requestStep === 4
+                    ? (checkingServiceArea
+                        ? "Checking area…"
+                        : submitting
+                        ? "Sending…"
+                        : photos.length > 0 && !arePhotosReady()
+                        ? `Waiting for uploads (${getUploadingCount()})…`
+                        : "Send request")
+                    : "Continue"}
+                </ThemedText>
+              </Pressable>
+            </View>
+            )}
           </KeyboardAvoidingView>
         </ThemedView>
 
@@ -1940,7 +2106,7 @@ function makeStyles(c, dark) {
   infoModalHandle: {
     width: 36,
     height: 4,
-    backgroundColor: "#D1D5DB",
+    backgroundColor: c.borderStrong,
     borderRadius: 2,
     alignSelf: "center",
     marginBottom: 16,
@@ -2069,7 +2235,7 @@ function makeStyles(c, dark) {
   },
   categoryCard: {
     width: (SCREEN_WIDTH - 52) / 2,
-    backgroundColor: "#fff",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     padding: 16,
     alignItems: "center",
@@ -2096,7 +2262,7 @@ function makeStyles(c, dark) {
   serviceTypeCardSkeleton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: c.elevate,
     borderRadius: 12,
     padding: 16,
     marginBottom: 10,
@@ -2106,7 +2272,7 @@ function makeStyles(c, dark) {
   serviceTypeCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: c.elevate,
     borderRadius: 12,
     padding: 16,
     marginBottom: 10,
@@ -2145,11 +2311,11 @@ function makeStyles(c, dark) {
     borderRadius: 12,
     padding: 14,
     fontSize: 16,
-    backgroundColor: "#fff",
+    backgroundColor: c.elevate,
   },
   charCount: {
     fontSize: 12,
-    color: "#999",
+    color: c.textMuted,
     textAlign: "right",
     marginTop: 4,
   },
@@ -2159,7 +2325,7 @@ function makeStyles(c, dark) {
     borderRadius: 12,
     padding: 14,
     fontSize: 16,
-    backgroundColor: "#fff",
+    backgroundColor: c.elevate,
   },
   requiredAsterisk: {
     color: "#EF4444",
@@ -2172,7 +2338,7 @@ function makeStyles(c, dark) {
     borderColor: "rgba(0,0,0,0.15)",
     borderRadius: 12,
     padding: 14,
-    backgroundColor: "#fff",
+    backgroundColor: c.elevate,
   },
   dropdownText: {
     fontSize: 16,
@@ -2180,14 +2346,14 @@ function makeStyles(c, dark) {
   },
   dropdownPlaceholder: {
     fontSize: 16,
-    color: "#999",
+    color: c.textMuted,
   },
   dropdownMenu: {
     marginTop: 4,
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.1)",
     borderRadius: 12,
-    backgroundColor: "#fff",
+    backgroundColor: c.elevate,
     overflow: "hidden",
   },
   dropdownItem: {
@@ -2212,7 +2378,7 @@ function makeStyles(c, dark) {
   budgetOption: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: c.elevate,
     borderRadius: 12,
     padding: 16,
     marginBottom: 10,
@@ -2268,7 +2434,7 @@ function makeStyles(c, dark) {
     borderColor: "rgba(0,0,0,0.2)",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fafafa",
+    backgroundColor: c.elevate2,
   },
   addPhotoText: {
     fontSize: 12,
@@ -2312,7 +2478,7 @@ function makeStyles(c, dark) {
 
   // Review
   reviewCard: {
-    backgroundColor: "#fff",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.08)",
@@ -2333,7 +2499,7 @@ function makeStyles(c, dark) {
   reviewLabel: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#999",
+    color: c.textMuted,
     letterSpacing: 0.5,
   },
   reviewValue: {
@@ -2364,7 +2530,7 @@ function makeStyles(c, dark) {
     width: 50,
     height: 50,
     borderRadius: 8,
-    backgroundColor: "#eee",
+    backgroundColor: c.elevate2,
   },
 
   // Continue button
@@ -2381,7 +2547,7 @@ function makeStyles(c, dark) {
   },
   disclaimer: {
     fontSize: 13,
-    color: "#999",
+    color: c.textMuted,
     textAlign: "center",
     marginTop: 16,
     paddingHorizontal: 20,
@@ -2441,7 +2607,7 @@ function makeStyles(c, dark) {
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: c.borderStrong,
     alignItems: "center",
   },
   warningCancelText: {
@@ -2463,3 +2629,120 @@ function makeStyles(c, dark) {
   },
   });
 }
+
+// Static layout styles for the rebuilt 4-step wizard (theme-agnostic:
+// colour decisions happen inline in JSX against the current palette).
+const wizardStyles = StyleSheet.create({
+  stepTitle: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 24,
+    letterSpacing: -0.4,
+    lineHeight: 28,
+  },
+  stepSubtitle: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 14,
+    marginTop: 6,
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  // Category tile grid — 3 columns
+  tileGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginHorizontal: -6,
+  },
+  tileCell: {
+    width: "33.333%",
+    paddingHorizontal: 6,
+    marginBottom: 12,
+  },
+  // Generic field container
+  field: {
+    marginBottom: 20,
+  },
+  fieldLabel: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 13,
+    marginBottom: 8,
+    letterSpacing: -0.1,
+  },
+  // Radio-style list row (budget / timing)
+  radioRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: Radius.md + 2,
+  },
+  radioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: Colors.primary,
+  },
+  // Dropdown
+  dropdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+  },
+  dropdownMenu: {
+    marginTop: 6,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  dropdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  // Photo picker "add" cell
+  addPhotoCell: {
+    width: 76,
+    height: 76,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  // Review card on step 4
+  reviewCard: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: 4,
+  },
+  // Sticky bottom dock
+  dock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  dockBtn: {
+    height: 52,
+    borderRadius: Radius.lg - 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
