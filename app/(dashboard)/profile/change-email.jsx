@@ -24,6 +24,7 @@ import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 const SCREENS = {
   ENTER_EMAIL: "enter_email",
@@ -31,6 +32,7 @@ const SCREENS = {
 };
 
 export default function ChangeEmailScreen() {
+  useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();

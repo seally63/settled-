@@ -23,8 +23,10 @@ import { useUser } from "../../../hooks/useUser";
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
 import { supabase } from "../../../lib/supabase";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 export default function ProfilePhotoScreen() {
+  useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();

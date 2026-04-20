@@ -25,8 +25,10 @@ import {
   testConnection,
   resetToPrimary,
 } from "../../../lib/supabase";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 export default function DeveloperSettings() {
+  useHideTabBar();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 

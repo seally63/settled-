@@ -23,6 +23,7 @@ import { Colors } from "../../../constants/Colors";
 
 import { getMyProfile, updateServiceRadius, updateExtendedTravel } from "../../../lib/api/profile";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 const TINT = Colors.primary;
 
@@ -40,6 +41,7 @@ const BUDGET_BANDS = [
 ];
 
 export default function ServiceAreasScreen() {
+  useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 

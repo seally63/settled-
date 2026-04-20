@@ -945,7 +945,7 @@ export default function TradeProfileClient() {
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 130 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 180 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Hero Card - matches trade-profile.jsx */}

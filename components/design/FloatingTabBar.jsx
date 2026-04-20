@@ -4,21 +4,27 @@
 // as a brighter inner pill.
 //
 // Implementation notes:
-// — The bar is NOT position:absolute. React Navigation measures its height
-//   and applies that as bottom inset to scenes. So the outer View renders
-//   normally in the layout; the pill is centered inside with a transparent
-//   gutter so content underneath can be partially seen through the blur.
-// — If you want a screen's content to scroll *under* the bar, give that
-//   screen ~12–18px extra bottom padding beyond insets.bottom so the last
-//   line isn't tight against the pill.
+// — The outer `wrap` is position: absolute so the screens container can
+//   fill the full viewport with the pill floating over it. The wrap has
+//   an explicit `height` because iOS UIView hit-testing clips to a
+//   view's bounds — without a height, the wrap's native bounds were
+//   reported as 0-height (tap ghost region) and inner Pressables were
+//   never reached.
+// — The pill is pushed well above the iOS home-indicator / edge-gesture
+//   zone; taps placed inside the bottom ~40px of the screen are eaten
+//   by the system before they reach React Native.
+// — The BlurView renders as a pointer-transparent absolute backdrop
+//   behind the tab row so touches go straight to the Pressables on top.
+// — This component honours `tabBarStyle: { display: 'none' }` on the
+//   currently focused route, so nested sub-pages (settings, chat, etc.)
+//   can hide the floating bar via the Tabs.Screen options.
 
 import React from "react";
-import { View, Pressable, StyleSheet, Platform } from "react-native";
+import { View, Pressable, StyleSheet } from "react-native";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import { useTheme } from "../../hooks/useTheme";
-import { FontFamily } from "../../constants/Typography";
-import ThemedText from "../ThemedText";
 
 export default function FloatingTabBar({ state, descriptors, navigation }) {
   const { colors: c, dark } = useTheme();
@@ -27,9 +33,8 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
 
   // expo-router handles `href: null` on a Tabs.Screen by setting
   // `tabBarItemStyle: { display: 'none' }` (see
-  // node_modules/expo-router/build/layouts/TabsClient.js). We mirror that
-  // check here — `tabBarButton` is set for every href-using tab (visible
-  // or not), so it's not a reliable signal on its own.
+  // node_modules/expo-router/build/layouts/TabsClient.js). Mirror that
+  // check so role-hidden tabs don't render.
   const isTabHidden = (options) => {
     const itemStyle = options.tabBarItemStyle;
     if (!itemStyle) return false;
@@ -39,6 +44,15 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
     return flat?.display === "none";
   };
 
+  // Hide the whole bar on nested sub-routes (e.g. /profile/settings,
+  // /messages/[id], /quotes/[id]/edit). We read the focused tab's
+  // nested-child route name directly — doing this inside the tab bar
+  // lets Tabs.Screen `options` stay plain object literals, which is
+  // required for expo-router's `href: null` → hide-tab shortcut to work.
+  const focusedRoute = state.routes[state.index];
+  const focusedChild = getFocusedRouteNameFromRoute(focusedRoute) ?? "index";
+  if (focusedChild !== "index") return null;
+
   const visibleRoutes = state.routes
     .map((route, index) => ({ route, index }))
     .filter(({ route }) => !isTabHidden(descriptors[route.key].options));
@@ -47,40 +61,40 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
     <View
       style={[
         styles.wrap,
-        {
-          // Sit this many px above the home-indicator / nav inset.
-          bottom: Math.max(insets.bottom, 12) + 8,
-        },
+        // Pill sits well above the iOS home-indicator / edge-swipe zone.
+        // Values lower than ~60-70 cause iOS to swallow taps on an
+        // iPhone 16-class device before they reach React Native. 80+
+        // is the verified-safe floor.
+        { bottom: Math.max(insets.bottom + 46, 80) },
       ]}
       pointerEvents="box-none"
     >
       <View
         style={[
           styles.pillOuter,
-          {
-            shadowOpacity: dark ? 0.4 : 0.08,
-            shadowColor: "#000",
-          },
+          { shadowOpacity: dark ? 0.4 : 0.08, shadowColor: "#000" },
         ]}
         pointerEvents="box-none"
       >
-        <BlurView
-          intensity={80}
-          tint={tint}
-          experimentalBlurMethod="dimezisBlurView"
-          style={[
-            styles.pill,
-            {
-              borderColor: c.borderStrong,
-              // Very subtle tint on top of the blur for legibility —
-              // the blur itself does the heavy lifting for the frosted
-              // glass effect.
-              backgroundColor: dark
-                ? "rgba(20,20,24,0.35)"
-                : "rgba(255,255,255,0.45)",
-            },
-          ]}
-        >
+        <View style={[styles.pill, { borderColor: c.borderStrong }]}>
+          {/* Blurred translucent backdrop — pointer-transparent so taps
+              pass straight through to the Pressables above. */}
+          <BlurView
+            intensity={80}
+            tint={tint}
+            experimentalBlurMethod="dimezisBlurView"
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFillObject,
+              {
+                borderRadius: 999,
+                overflow: "hidden",
+                backgroundColor: dark
+                  ? "rgba(20,20,24,0.35)"
+                  : "rgba(255,255,255,0.45)",
+              },
+            ]}
+          />
           {visibleRoutes.map(({ route, index }) => {
             const { options } = descriptors[route.key];
             const isFocused = state.index === index;
@@ -115,7 +129,10 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
                 key={route.key}
                 accessibilityRole="button"
                 accessibilityState={isFocused ? { selected: true } : {}}
-                accessibilityLabel={options.tabBarAccessibilityLabel}
+                accessibilityLabel={
+                  options.tabBarAccessibilityLabel ??
+                  (typeof label === "string" ? label : undefined)
+                }
                 testID={options.tabBarTestID}
                 onPress={onPress}
                 onLongPress={onLongPress}
@@ -124,35 +141,24 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
                   isFocused && { backgroundColor: c.pillActive },
                   pressed && { opacity: 0.65 },
                 ]}
-                hitSlop={4}
+                // Wider hit region + tighter press-cancel so small
+                // finger drift doesn't drop the tap on iOS.
+                hitSlop={10}
+                pressRetentionOffset={20}
               >
                 <View style={styles.iconWrap}>
                   {renderIcon
                     ? renderIcon({
                         focused: isFocused,
                         color: iconColor,
-                        size: 20,
+                        size: 22,
                       })
                     : null}
                 </View>
-                <ThemedText
-                  style={[
-                    styles.label,
-                    {
-                      color: iconColor,
-                      fontFamily: isFocused
-                        ? FontFamily.headerSemibold
-                        : FontFamily.headerMedium,
-                    },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {label}
-                </ThemedText>
               </Pressable>
             );
           })}
-        </BlurView>
+        </View>
       </View>
     </View>
   );
@@ -160,19 +166,18 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
 
 const styles = StyleSheet.create({
   wrap: {
-    // Pulled out of flex flow so the screens container fills the full
-    // viewport and the pill truly floats over it. `bottom` is set
-    // dynamically in the render with the safe-area inset.
     position: "absolute",
     left: 0,
     right: 0,
+    // Explicit height so iOS treats the whole region as hit-testable.
+    height: 92,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-end",
     paddingHorizontal: 16,
+    zIndex: 100,
+    elevation: 100,
   },
   pillOuter: {
-    // Drop shadow sits outside the blur so it survives translucency.
-    // shadowColor + shadowOpacity set dynamically for light/dark above.
     shadowOffset: { width: 0, height: 8 },
     shadowRadius: 24,
     elevation: 12,
@@ -181,30 +186,27 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
-    paddingVertical: 6,
-    paddingHorizontal: 6,
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     borderRadius: 999,
     borderWidth: 1,
     overflow: "hidden",
   },
   tab: {
+    // Comfortable 48×48 tap target per tab (icon-only layout).
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 9,
-    paddingHorizontal: 15,
+    paddingVertical: 13,
+    paddingHorizontal: 18,
     borderRadius: 999,
-    minWidth: 60,
-    gap: 2,
+    minWidth: 48,
+    minHeight: 48,
   },
   iconWrap: {
     height: 22,
+    width: 22,
     alignItems: "center",
     justifyContent: "center",
-  },
-  label: {
-    fontSize: 10.5,
-    letterSpacing: 0.15,
-    marginTop: 1,
   },
 });

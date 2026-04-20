@@ -35,6 +35,7 @@ import {
   formatCoverage,
 } from "../../../lib/api/verification";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 const PRIMARY = Colors?.primary || "#7C3AED";
 
@@ -47,6 +48,7 @@ const COVERAGE_OPTIONS = [
 ];
 
 export default function InsuranceScreen() {
+  useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();

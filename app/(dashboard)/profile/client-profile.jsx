@@ -22,6 +22,7 @@ import { Colors } from "../../../constants/Colors";
 import { useUser } from "../../../hooks/useUser";
 import { getMyProfile } from "../../../lib/api/profile";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 function getInitials(name) {
   if (!name) return "?";
@@ -42,6 +43,7 @@ function formatDate(dateString) {
 }
 
 export default function ClientProfileScreen() {
+  useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();

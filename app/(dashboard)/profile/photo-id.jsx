@@ -29,6 +29,7 @@ import {
   uploadVerificationDocument,
 } from "../../../lib/api/verification";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import useHideTabBar from "../../../hooks/useHideTabBar";
 
 const PRIMARY = Colors?.primary || "#7C3AED";
 
@@ -40,6 +41,7 @@ const ID_TYPES = [
 ];
 
 export default function PhotoIDScreen() {
+  useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();
