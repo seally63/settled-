@@ -1853,7 +1853,12 @@ export default function RequestDetails() {
             // bottom offset) doesn't cover the last content row.
             paddingBottom: insets.bottom + 220,
           }}
-          contentInsetAdjustmentBehavior="always"
+          // `never` — we already reserve the safe-area-top ourselves via
+          // paddingTop above. With the default/"always" behaviour iOS
+          // silently added another insets.top worth of inset on top of
+          // our manual value, producing a ~175px empty band between the
+          // floating chevron and the eyebrow.
+          contentInsetAdjustmentBehavior="never"
           keyboardShouldPersistTaps="handled"
         >
           {/* Eyebrow — tight below the sticky chevron */}
