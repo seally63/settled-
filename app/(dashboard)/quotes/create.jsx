@@ -931,26 +931,31 @@ function PreviewModal({
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <ThemedView style={{ flex: 1 }}>
         <ThemedStatusBar />
-        <View style={[styles.topChrome, { paddingTop: insets.top + 10 }]}>
-          <Pressable
-            onPress={onClose}
-            hitSlop={10}
-            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
-          >
-            <Ionicons name="chevron-back" size={18} color={c.text} />
-          </Pressable>
-          <View style={{ flex: 1 }} />
-          <View style={styles.draftChip}>
-            <ThemedText style={styles.draftChipText}>Preview</ThemedText>
-          </View>
-          <View style={{ width: 36 }} />
-        </View>
-
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            {
+              paddingTop: insets.top + 10,
+              paddingBottom: insets.bottom + 40,
+            },
+          ]}
           showsVerticalScrollIndicator={false}
         >
+          {/* Inline chevron back — matches the builder (and schedule /
+              client-request) chrome: transparent row, scrolls with
+              content, no "Preview" chip, no block behind the icon. */}
+          <View style={styles.inlineChrome}>
+            <Pressable
+              onPress={onClose}
+              hitSlop={10}
+              style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
+              accessibilityLabel="Back"
+            >
+              <Ionicons name="chevron-back" size={18} color={c.text} />
+            </Pressable>
+            <View style={{ flex: 1 }} />
+          </View>
           <View style={styles.hero}>
             <ThemedText style={styles.eyebrow} numberOfLines={2}>
               {eyebrow}
