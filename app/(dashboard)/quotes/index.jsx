@@ -1810,16 +1810,23 @@ function buildTradeRow(project, formatNum) {
   const fresh =
     project.stage === "REQUEST" && (project.requestAge === 0 || project.isFresh);
 
-  // Distinguish "Accepted, no quote yet" (type === "accepted") from
-  // "Quote actually sent" — both used to share stage "QUOTE" and showed
-  // "Quote sent / Sent" labels even when no quote existed.
+  // Three mutually-exclusive sub-states inside the QUOTE stage:
+  //   · draft              — quote being worked on, not yet sent
+  //   · accepted-no-quote  — trade accepted the request, no quote yet
+  //   · quote sent         — quote actually delivered to the client
+  // Previously ALL three shared the same "Quote sent / Sent" label.
+  const quoteStatus = String(project.status || "").toLowerCase();
+  const isDraft = project.stage === "QUOTE" && quoteStatus === "draft";
   const isAcceptedWithoutQuote =
     project.stage === "QUOTE" &&
+    !isDraft &&
     (project.type === "accepted" || !project.quoteAmount);
 
   const stageMeta = {
     REQUEST:   { color: "#F4B740", label: "Needs quote" },
-    QUOTE:     isAcceptedWithoutQuote
+    QUOTE:     isDraft
+      ? { color: "#F4B740", label: "Draft saved" }
+      : isAcceptedWithoutQuote
       ? { color: "#5BB3FF", label: "Accepted — draft a quote" }
       : { color: "#7C5CFF", label: "Quote sent" },
     WORK:      { color: "#5BB3FF", label: "In progress" },
@@ -1844,7 +1851,9 @@ function buildTradeRow(project, formatNum) {
           : null);
       break;
     case "QUOTE":
-      rightTop = amt || (isAcceptedWithoutQuote ? "Accepted" : "Sent");
+      rightTop = isDraft
+        ? amt || "Draft"
+        : amt || (isAcceptedWithoutQuote ? "Accepted" : "Sent");
       rightBot = project.statusDetail || project.statusText || null;
       break;
     case "WORK":
