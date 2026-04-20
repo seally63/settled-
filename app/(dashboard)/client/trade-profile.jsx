@@ -2,7 +2,7 @@
 // Trade Profile page - shows detailed trade profile with reviews, services, etc.
 // Supports both self-view (trades viewing own profile) and public view (clients viewing a trade)
 // Uses IDENTICAL layout to profile/index.jsx for consistency
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -25,10 +25,19 @@ import { ProfilePageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import { getMyProfile, getTradePublicById } from "../../../lib/api/profile";
 import { getTradeReviews } from "../../../lib/api/trust";
 import { supabase } from "../../../lib/supabase";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import RequestQuoteSheet from "../../../components/client/RequestQuoteSheet";
+
+// Theme-aware styles factory — each sub-component calls useStyles().
+function useStyles() {
+  const { colors: c, dark } = useTheme();
+  const styles = useMemo(() => makeStyles(c, dark), [c, dark]);
+  return { styles, colors: c, dark };
+}
 
 const PRIMARY = Colors?.light?.tint || "#7C3AED";
 
@@ -55,6 +64,7 @@ export default function TradeProfileScreen() {
   const router = useRouter();
   const { user } = useUser();
   const { tradeId } = useLocalSearchParams();
+  const { styles, colors: c } = useStyles();
 
   // Determine if viewing own profile or another trade's profile
   const isPublicView = !!tradeId && tradeId !== user?.id;
@@ -63,6 +73,7 @@ export default function TradeProfileScreen() {
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAllReviews, setShowAllReviews] = useState(false);
+  const [showRequestSheet, setShowRequestSheet] = useState(false);
   const [performanceStats, setPerformanceStats] = useState({
     responseTimeHours: null,
     quoteRate: null,
@@ -184,45 +195,54 @@ export default function TradeProfileScreen() {
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
       <ThemedStatusBar />
 
-      {/* Header - with back button for public view */}
-      <View style={styles.header}>
-        {isPublicView ? (
-          <>
-            <Pressable
-              onPress={() => {
-                // Just go back — wherever the user came from (home feed,
-                // find-business list, or search modal). Do NOT auto-open the
-                // search modal; that was a legacy assumption from when trade
-                // profiles were only reachable via search.
-                if (router.canGoBack?.()) {
-                  router.back();
-                } else {
-                  router.replace("/client");
-                }
-              }}
-              hitSlop={10}
-            >
-              <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
-            </Pressable>
-            <ThemedText style={styles.headerTitle} numberOfLines={1}>{businessName}</ThemedText>
-            <View style={{ width: 24 }} />
-          </>
-        ) : (
-          <>
-            <ThemedText style={styles.headerTitleLarge}>Profile</ThemedText>
-            <Pressable
-              onPress={() => router.push("/profile/settings")}
-              hitSlop={10}
-              style={({ pressed }) => [pressed && { opacity: 0.7 }]}
-            >
-              <Ionicons name="menu-outline" size={26} color={Colors.light.title} />
-            </Pressable>
-          </>
-        )}
-      </View>
+      {/* Self-view header — only renders for trades viewing their own profile.
+          In public view (clients viewing a trade), there is NO header row at
+          all; only an absolutely-positioned floating chevron sits at the top-
+          left so scroll content starts right under the safe area. */}
+      {!isPublicView && (
+        <View style={styles.header}>
+          <ThemedText style={styles.headerTitleLarge}>Profile</ThemedText>
+          <Pressable
+            onPress={() => router.push("/profile/settings")}
+            hitSlop={10}
+            style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="menu-outline" size={26} color={c.text} />
+          </Pressable>
+        </View>
+      )}
+
+      {/* Floating circular back button — absolute, no surrounding row. */}
+      {isPublicView && (
+        <Pressable
+          onPress={() => {
+            if (router.canGoBack?.()) {
+              router.back();
+            } else {
+              router.replace("/client");
+            }
+          }}
+          hitSlop={10}
+          style={[
+            styles.publicBackBtn,
+            {
+              top: insets.top + 10,
+              backgroundColor: c.elevate,
+              borderColor: c.border,
+            },
+          ]}
+        >
+          <Ionicons name="chevron-back" size={20} color={c.text} />
+        </Pressable>
+      )}
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          // In public view, leave room for the absolute floating chevron
+          // so the profile card doesn't tuck under it.
+          isPublicView && { paddingTop: 56 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* Profile Card - Same two-column layout as index.jsx */}
@@ -243,7 +263,7 @@ export default function TradeProfileScreen() {
             onPress={() => setPerformanceInfoVisible(true)}
             hitSlop={10}
           >
-            <Ionicons name="information-circle-outline" size={18} color="#9CA3AF" />
+            <Ionicons name="information-circle-outline" size={18} color={c.textMuted} />
           </Pressable>
 
           {/* Horizontal 3-column layout: Rating | Response | Quotes */}
@@ -311,20 +331,14 @@ export default function TradeProfileScreen() {
           onShowAll={() => setShowAllReviews(true)}
         />
 
-        {/* Request a Quote Button - only for public view (clients viewing a trade) */}
+        {/* Request a Quote — opens the 4-step bottom sheet IN-PLACE so the
+            current trade profile zooms out behind the sheet (iOS pageSheet
+            transition) and zooms back in when the sheet is dismissed.
+            No navigation, no duplicate profile screen. */}
         {isPublicView && (
           <Pressable
             style={styles.requestQuoteButton}
-            onPress={() => {
-              // Navigate to the quote request form with this trade pre-selected
-              router.push({
-                pathname: "/client/clienthome",
-                params: {
-                  prefillTradeId: tradeId,
-                  prefillTradeName: businessName,
-                },
-              });
-            }}
+            onPress={() => setShowRequestSheet(true)}
           >
             <ThemedText style={styles.requestQuoteButtonText}>Request a Quote</ThemedText>
           </Pressable>
@@ -357,6 +371,15 @@ export default function TradeProfileScreen() {
         onClose={() => setPerformanceInfoVisible(false)}
         insets={insets}
       />
+
+      {/* Quote request bottom sheet — opens IN-PLACE on this screen so
+          there's no duplicate profile push. Closing zooms us back. */}
+      <RequestQuoteSheet
+        visible={showRequestSheet}
+        onClose={() => setShowRequestSheet(false)}
+        tradeId={tradeId}
+        tradeName={businessName}
+      />
     </ThemedView>
   );
 }
@@ -370,6 +393,7 @@ function TradeProfileCard({
   jobTitles,
   locationDisplay,
 }) {
+  const { styles, colors: c } = useStyles();
   return (
     <View style={styles.profileCard}>
       <View style={styles.cardColumns}>
@@ -440,7 +464,7 @@ function TradeProfileCard({
           {/* Location - City · X mi format */}
           <View style={styles.rightSectionLarge}>
             <View style={styles.locationRow}>
-              <Ionicons name="location" size={16} color={Colors.light.title} />
+              <Ionicons name="location" size={16} color={c.text} />
               <ThemedText style={styles.locationText} numberOfLines={1}>
                 {locationDisplay || "No location set"}
               </ThemedText>
@@ -454,6 +478,7 @@ function TradeProfileCard({
 
 // Verification Badge Component - No dots (SAME AS index.jsx)
 function VerificationBadge({ icon, label, status }) {
+  const { styles } = useStyles();
   const isVerified = status === "verified";
 
   return (
@@ -501,6 +526,7 @@ function formatRelativeTime(date) {
 
 // Reviews Section Component - Horizontal scrolling Airbnb style (SAME AS index.jsx)
 function ReviewsSection({ reviews, reviewCount, averageRating, businessName, onShowAll }) {
+  const { styles, colors: c } = useStyles();
   const hasReviews = reviews.length > 0;
 
   // State for full-screen photo viewer
@@ -630,7 +656,7 @@ function ReviewsSection({ reviews, reviewCount, averageRating, businessName, onS
         </>
       ) : (
         <View style={styles.noReviewsContainer}>
-          <Ionicons name="chatbubble-outline" size={32} color="#D1D5DB" />
+          <Ionicons name="chatbubble-outline" size={32} color={c.borderStrong} />
           <ThemedText style={styles.noReviewsMessage}>
             No reviews yet
           </ThemedText>
@@ -668,6 +694,7 @@ function ReviewsSection({ reviews, reviewCount, averageRating, businessName, onS
 
 // Performance Info Modal Component
 function PerformanceInfoModal({ visible, onClose, insets }) {
+  const { styles, colors: c } = useStyles();
   return (
     <Modal
       visible={visible}
@@ -683,7 +710,7 @@ function PerformanceInfoModal({ visible, onClose, insets }) {
           <View style={styles.perfInfoModalHeader}>
             <ThemedText style={styles.perfInfoModalTitle}>Performance Metrics</ThemedText>
             <Pressable onPress={onClose} hitSlop={10} style={styles.modalCloseBtn}>
-              <Ionicons name="close" size={20} color="#111827" />
+              <Ionicons name="close" size={20} color={c.text} />
             </Pressable>
           </View>
 
@@ -730,6 +757,7 @@ function PerformanceInfoModal({ visible, onClose, insets }) {
 
 // All Reviews Modal (Bottom Sheet Style)
 function AllReviewsModal({ visible, onClose, reviews, reviewCount, averageRating, insets }) {
+  const { styles, colors: c } = useStyles();
   // State for full-screen photo viewer
   const [photoViewer, setPhotoViewer] = useState({ open: false, images: [], index: 0 });
 
@@ -840,7 +868,7 @@ function AllReviewsModal({ visible, onClose, reviews, reviewCount, averageRating
                 hitSlop={10}
                 style={styles.modalCloseBtn}
               >
-                <Ionicons name="close" size={20} color="#111827" />
+                <Ionicons name="close" size={20} color={c.text} />
               </Pressable>
             </View>
 
@@ -886,10 +914,11 @@ function AllReviewsModal({ visible, onClose, reviews, reviewCount, averageRating
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c, dark) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // No hardcoded backgroundColor — ThemedView supplies it.
   },
   loadingContainer: {
     flex: 1,
@@ -903,17 +932,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 12,
-    backgroundColor: "#FFFFFF",
+  },
+  // Public-view: a small circular back button floating ABSOLUTELY over the
+  // scroll content. `top` is set inline (insets.top + 10). No row, no
+  // border line, no horizontal band — just the chevron.
+  publicBackBtn: {
+    position: "absolute",
+    left: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 20,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: Colors.light.title,
+    color: c.text,
   },
   headerTitleLarge: {
     fontSize: 28,
     fontWeight: "700",
-    color: Colors.light.title,
+    color: c.text,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -921,10 +963,10 @@ const styles = StyleSheet.create({
   },
   // Profile Card
   profileCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    borderColor: c.border,
     padding: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -942,7 +984,7 @@ const styles = StyleSheet.create({
   },
   verticalDivider: {
     width: 1,
-    backgroundColor: Colors.light.border,
+    backgroundColor: c.border,
   },
   cardRightColumn: {
     flex: 1,
@@ -960,14 +1002,14 @@ const styles = StyleSheet.create({
     borderRadius: 36,
   },
   avatarFallback: {
-    backgroundColor: Colors.light.secondaryBackground,
+    backgroundColor: c.elevate2,
     alignItems: "center",
     justifyContent: "center",
   },
   avatarInitials: {
     fontSize: 24,
     fontWeight: "600",
-    color: Colors.light.subtitle,
+    color: c.textMid,
   },
   // Name section
   nameSection: {
@@ -977,12 +1019,12 @@ const styles = StyleSheet.create({
   cardBusinessName: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.light.title,
+    color: c.text,
     textAlign: "center",
   },
   cardPersonalName: {
     fontSize: 13,
-    color: Colors.light.subtitle,
+    color: c.textMid,
     marginTop: 2,
     textAlign: "center",
   },
@@ -1004,14 +1046,14 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   badgeVerified: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    borderColor: c.border,
   },
   badgeNotVerified: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate2,
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: c.borderStrong,
     borderStyle: "dashed",
   },
   badgeCheckmark: {
@@ -1030,10 +1072,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   badgeLabelVerified: {
-    color: "#374151",
+    color: c.text,
   },
   badgeLabelNotVerified: {
-    color: "#9CA3AF",
+    color: c.textMuted,
   },
   // Right column sections
   rightSectionLarge: {
@@ -1043,18 +1085,18 @@ const styles = StyleSheet.create({
   },
   horizontalDivider: {
     height: 1,
-    backgroundColor: Colors.light.border,
+    backgroundColor: c.border,
   },
   // Job titles
   jobTitlesText: {
     fontSize: 14,
-    color: "#374151",
+    color: c.text,
     fontWeight: "500",
     lineHeight: 20,
   },
   emptyText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
+    color: c.textMid,
     fontStyle: "italic",
   },
   // Location
@@ -1065,7 +1107,7 @@ const styles = StyleSheet.create({
   },
   locationText: {
     fontSize: 14,
-    color: "#374151",
+    color: c.text,
     flex: 1,
   },
   // Performance Section - Horizontal 3-column layout
@@ -1101,22 +1143,22 @@ const styles = StyleSheet.create({
   performanceValueText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   performanceColLabel: {
     fontSize: 12,
-    color: Colors.light.subtitle,
+    color: c.textMid,
     textAlign: "center",
   },
   sectionDivider: {
     height: 1,
-    backgroundColor: Colors.light.border,
+    backgroundColor: c.border,
     marginTop: 16,
     marginBottom: 4,
   },
   // Performance Info Modal (80% height bottom sheet)
   perfInfoModalContent80: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     height: "80%",
@@ -1133,7 +1175,7 @@ const styles = StyleSheet.create({
   perfInfoModalTitle: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   perfInfoModalScrollContent: {
     flex: 1,
@@ -1152,16 +1194,16 @@ const styles = StyleSheet.create({
   perfInfoSectionTitle: {
     fontSize: 17,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   perfInfoSectionText: {
     fontSize: 15,
-    color: "#374151",
+    color: c.text,
     lineHeight: 22,
     marginBottom: 12,
   },
   perfInfoTipBox: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate2,
     borderRadius: 10,
     padding: 14,
     borderLeftWidth: 3,
@@ -1170,12 +1212,12 @@ const styles = StyleSheet.create({
   perfInfoTipTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
     marginBottom: 6,
   },
   perfInfoTipText: {
     fontSize: 14,
-    color: "#4B5563",
+    color: c.textMid,
     lineHeight: 20,
   },
   // Bio Section
@@ -1185,12 +1227,12 @@ const styles = StyleSheet.create({
   },
   bioText: {
     fontSize: 18,
-    color: "#374151",
+    color: c.text,
     lineHeight: 26,
   },
   bioDivider: {
     height: 1,
-    backgroundColor: Colors.light.border,
+    backgroundColor: c.border,
     marginTop: 20,
     marginHorizontal: 4,
   },
@@ -1204,7 +1246,7 @@ const styles = StyleSheet.create({
   reviewsSectionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: Colors.light.title,
+    color: c.text,
   },
   starsRow: {
     flexDirection: "row",
@@ -1216,12 +1258,12 @@ const styles = StyleSheet.create({
   // Review Card (Horizontal) - wider to fit 5 photos without scrolling
   reviewCard: {
     width: 340,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderRadius: 16,
     padding: 16,
     marginRight: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    borderColor: c.border,
   },
   reviewerRow: {
     flexDirection: "row",
@@ -1234,14 +1276,14 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   reviewerAvatarFallback: {
-    backgroundColor: "#E5E7EB",
+    backgroundColor: c.border,
     alignItems: "center",
     justifyContent: "center",
   },
   reviewerInitials: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#6B7280",
+    color: c.textMid,
   },
   reviewerInfo: {
     marginLeft: 10,
@@ -1250,11 +1292,11 @@ const styles = StyleSheet.create({
   reviewerName: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.light.title,
+    color: c.text,
   },
   reviewDate: {
     fontSize: 12,
-    color: "#9CA3AF",
+    color: c.textMuted,
     marginTop: 2,
   },
   reviewRatingRow: {
@@ -1262,7 +1304,7 @@ const styles = StyleSheet.create({
   },
   reviewContent: {
     fontSize: 14,
-    color: "#374151",
+    color: c.text,
     lineHeight: 20,
   },
   reviewPhotosRow: {
@@ -1282,32 +1324,32 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 24,
     marginTop: 16,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     borderRadius: 8,
     alignSelf: "center",
   },
   showMoreText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   // No Reviews State
   noReviewsContainer: {
     alignItems: "center",
     paddingVertical: 32,
     paddingHorizontal: 20,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate2,
     borderRadius: 16,
   },
   noReviewsMessage: {
     fontSize: 16,
     fontWeight: "500",
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 12,
   },
   noReviewsSubtext: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: c.textMuted,
     marginTop: 4,
     textAlign: "center",
   },
@@ -1331,7 +1373,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modalContent: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: c.elevate,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     height: "80%",
@@ -1340,7 +1382,7 @@ const styles = StyleSheet.create({
   modalHandle: {
     width: 36,
     height: 4,
-    backgroundColor: "#D1D5DB",
+    backgroundColor: c.borderStrong,
     borderRadius: 2,
     alignSelf: "center",
     marginBottom: 16,
@@ -1355,19 +1397,19 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#111827",
+    color: c.text,
   },
   modalCloseBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate2,
     alignItems: "center",
     justifyContent: "center",
   },
   modalDivider: {
     height: 1,
-    backgroundColor: Colors.light.border,
+    backgroundColor: c.border,
     marginHorizontal: 24,
   },
   fullReviewsList: {
@@ -1391,7 +1433,7 @@ const styles = StyleSheet.create({
   fullReviewerInitials: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#6B7280",
+    color: c.textMid,
   },
   fullReviewerInfo: {
     marginLeft: 12,
@@ -1400,7 +1442,7 @@ const styles = StyleSheet.create({
   fullReviewerName: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: c.text,
   },
   fullReviewMeta: {
     flexDirection: "row",
@@ -1409,15 +1451,15 @@ const styles = StyleSheet.create({
   },
   fullReviewMetaDot: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
   },
   fullReviewDate: {
     fontSize: 14,
-    color: "#6B7280",
+    color: c.textMid,
   },
   fullReviewContent: {
     fontSize: 16,
-    color: "#374151",
+    color: c.text,
     lineHeight: 24,
   },
   fullReviewPhotosRow: {
@@ -1432,7 +1474,7 @@ const styles = StyleSheet.create({
   },
   reviewSeparator: {
     height: 1,
-    backgroundColor: Colors.light.border,
+    backgroundColor: c.border,
   },
   // Image viewer styles
   viewerFooter: {
@@ -1466,4 +1508,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-});
+  });
+}
