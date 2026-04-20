@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from 'react';
 import { View, Modal, Pressable, StyleSheet, ScrollView } from 'react-native';
 import ThemedText from './ThemedText';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../hooks/useTheme';
+import { Colors } from '../constants/Colors';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -24,6 +26,9 @@ export default function CustomDateTimePicker({
   onCancel,
   minimumDate = new Date(),
 }) {
+  const { colors: c, dark } = useTheme();
+  const chevronColor = Colors.primary;
+  const selectedBg = Colors.primary;
   const [selectedDate, setSelectedDate] = useState(value || new Date());
   const [currentMonth, setCurrentMonth] = useState(value?.getMonth() || new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(value?.getFullYear() || new Date().getFullYear());
@@ -145,7 +150,7 @@ export default function CustomDateTimePicker({
           key={day}
           style={[
             styles.dayCell,
-            isSelected && styles.selectedDay,
+            isSelected && { backgroundColor: selectedBg, borderRadius: 999 },
             isPast && styles.disabledDay,
           ]}
           onPress={() => !isPast && handleDayPress(day)}
@@ -154,9 +159,10 @@ export default function CustomDateTimePicker({
           <ThemedText
             style={[
               styles.dayText,
-              isSelected && styles.selectedDayText,
-              isToday && !isSelected && styles.todayText,
-              isPast && styles.disabledDayText,
+              { color: c.text },
+              isSelected && { color: '#FFFFFF', fontWeight: '700' },
+              isToday && !isSelected && { color: chevronColor, fontWeight: '700' },
+              isPast && { color: c.textFaint },
             ]}
           >
             {day}
@@ -173,7 +179,7 @@ export default function CustomDateTimePicker({
       <View style={styles.timePickerContainer}>
         {/* Hours */}
         <View style={styles.timeColumn}>
-          <ThemedText style={styles.timeLabel}>Hour</ThemedText>
+          <ThemedText style={[styles.timeLabel, { color: c.textMuted }]}>Hour</ThemedText>
           <ScrollView
             ref={hourScrollRef}
             style={styles.timeScroll}
@@ -184,14 +190,15 @@ export default function CustomDateTimePicker({
                 key={hour}
                 style={[
                   styles.timeItem,
-                  selectedHour === hour && styles.selectedTimeItem,
+                  selectedHour === hour && { backgroundColor: selectedBg },
                 ]}
                 onPress={() => setSelectedHour(hour)}
               >
                 <ThemedText
                   style={[
                     styles.timeItemText,
-                    selectedHour === hour && styles.selectedTimeItemText,
+                    { color: c.text },
+                    selectedHour === hour && { color: '#FFFFFF', fontWeight: '700' },
                   ]}
                 >
                   {String(hour).padStart(2, '0')}
@@ -202,11 +209,11 @@ export default function CustomDateTimePicker({
         </View>
 
         {/* Separator */}
-        <ThemedText style={styles.timeSeparator}>:</ThemedText>
+        <ThemedText style={[styles.timeSeparator, { color: c.text }]}>:</ThemedText>
 
         {/* Minutes */}
         <View style={styles.timeColumn}>
-          <ThemedText style={styles.timeLabel}>Minute</ThemedText>
+          <ThemedText style={[styles.timeLabel, { color: c.textMuted }]}>Minute</ThemedText>
           <ScrollView
             ref={minuteScrollRef}
             style={styles.timeScroll}
@@ -217,14 +224,15 @@ export default function CustomDateTimePicker({
                 key={minute}
                 style={[
                   styles.timeItem,
-                  selectedMinute === minute && styles.selectedTimeItem,
+                  selectedMinute === minute && { backgroundColor: selectedBg },
                 ]}
                 onPress={() => setSelectedMinute(minute)}
               >
                 <ThemedText
                   style={[
                     styles.timeItemText,
-                    selectedMinute === minute && styles.selectedTimeItemText,
+                    { color: c.text },
+                    selectedMinute === minute && { color: '#FFFFFF', fontWeight: '700' },
                   ]}
                 >
                   {minute}
@@ -247,17 +255,17 @@ export default function CustomDateTimePicker({
       <View style={styles.overlay}>
         <Pressable style={styles.backdrop} onPress={onCancel} />
 
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: c.background }]}>
           {/* Header */}
-          <View style={styles.header}>
+          <View style={[styles.header, { borderBottomColor: c.divider }]}>
             <Pressable onPress={onCancel} hitSlop={8}>
-              <ThemedText style={styles.cancelText}>Cancel</ThemedText>
+              <ThemedText style={[styles.cancelText, { color: c.textMuted }]}>Cancel</ThemedText>
             </Pressable>
-            <ThemedText style={styles.title}>
+            <ThemedText style={[styles.title, { color: c.text }]}>
               {mode === 'date' ? 'Select Date' : 'Select Time'}
             </ThemedText>
             <Pressable onPress={handleConfirm} hitSlop={8}>
-              <ThemedText style={styles.doneText}>Done</ThemedText>
+              <ThemedText style={[styles.doneText, { color: chevronColor }]}>Done</ThemedText>
             </Pressable>
           </View>
 
@@ -266,13 +274,13 @@ export default function CustomDateTimePicker({
               {/* Month/Year Navigator */}
               <View style={styles.monthNav}>
                 <Pressable onPress={prevMonth} hitSlop={8} style={styles.navBtn}>
-                  <Ionicons name="chevron-back" size={24} color="#684477" />
+                  <Ionicons name="chevron-back" size={24} color={chevronColor} />
                 </Pressable>
-                <ThemedText style={styles.monthYearText}>
+                <ThemedText style={[styles.monthYearText, { color: c.text }]}>
                   {MONTHS[currentMonth]} {currentYear}
                 </ThemedText>
                 <Pressable onPress={nextMonth} hitSlop={8} style={styles.navBtn}>
-                  <Ionicons name="chevron-forward" size={24} color="#684477" />
+                  <Ionicons name="chevron-forward" size={24} color={chevronColor} />
                 </Pressable>
               </View>
 
@@ -280,7 +288,9 @@ export default function CustomDateTimePicker({
               <View style={styles.weekdayRow}>
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
                   <View key={day} style={styles.weekdayCell}>
-                    <ThemedText style={styles.weekdayText}>{day}</ThemedText>
+                    <ThemedText style={[styles.weekdayText, { color: c.textMuted }]}>
+                      {day}
+                    </ThemedText>
                   </View>
                 ))}
               </View>

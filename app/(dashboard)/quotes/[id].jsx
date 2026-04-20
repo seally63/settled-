@@ -1673,33 +1673,44 @@ export default function QuoteDetails() {
   if (userRole === 'trades') {
     return (
       <ThemedView style={styles.container}>
-        {/* Header */}
-        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-          <View style={styles.headerRow}>
-            <ThemedText style={styles.headerTitle}>Quote #{getQuoteShortId(Array.isArray(params.id) ? params.id[0] : params.id)}</ThemedText>
-            <Pressable
-              onPress={() => {
-                if (fromAppointments) {
-                  router.push('/appointments');
-                } else if (router.canGoBack?.()) {
-                  router.back();
-                } else {
-                  router.replace("/quotes");
-                }
-              }}
-              hitSlop={10}
-              style={styles.backButton}
-            >
-              <Ionicons name="close" size={28} color={c.textMid} />
-            </Pressable>
-          </View>
-        </View>
+        {/* Sticky chevron back (no Quote # header row). */}
+        <Pressable
+          onPress={() => {
+            if (fromAppointments) {
+              router.push('/appointments');
+            } else if (router.canGoBack?.()) {
+              router.back();
+            } else {
+              router.replace("/quotes");
+            }
+          }}
+          hitSlop={10}
+          style={[
+            styles.qoStickyChevron,
+            {
+              top: insets.top + 10,
+              backgroundColor: c.elevate,
+              borderColor: c.border,
+            },
+          ]}
+        >
+          <Ionicons name="chevron-back" size={18} color={c.text} />
+        </Pressable>
 
         <ScrollView
-          contentContainerStyle={styles.scrollContents}
+          contentContainerStyle={[
+            styles.scrollContents,
+            { paddingTop: insets.top + 56 },
+          ]}
           showsVerticalScrollIndicator={false}
         >
-          {/* Hero summary card - Client name, job, location, status, total, issued */}
+          {/* Legacy hero block wrapped out — the new Quote Breakdown
+              below carries the £ total, and the Client Request context
+              is no longer shown here (users reach this page from the
+              Client Request page's Recent Activity, so that info is a
+              tap away). User specifically asked for this section to be
+              removed entirely.                                      */}
+          {false && (
           <View style={styles.heroCard}>
             <View style={styles.heroTopRow}>
               <View style={{ flex: 1 }}>
@@ -1774,6 +1785,8 @@ export default function QuoteDetails() {
               )}
             </View>
           </View>
+          )}
+          {/* /legacy hero */}
 
           {/* Awaiting Completion Card - shown after hero, before sections */}
           {status === "awaiting_completion" && (
@@ -1839,280 +1852,338 @@ export default function QuoteDetails() {
           )}
 
 
-          {/* Section Divider */}
-          <View style={styles.sectionDivider} />
+          {/* Quote breakdown — rebuilt to mirror the builder's Preview
+              modal exactly: eyebrow + £ hero + indexed line rows
+              (name · detail · qty×unit · line total) + subtotal / VAT
+              / total totals. Not collapsible (can't edit a sent quote).
+              Uses the qo* styles defined below.                    */}
+          <View style={styles.qoQuoteBreakdownBlock}>
+            <View style={styles.qoEyebrowRow}>
+              <View style={[styles.qoEyebrowDot, { backgroundColor: "#7C5CFF" }]} />
+              <ThemedText
+                style={[styles.qoEyebrow, { color: c.textMuted }]}
+                numberOfLines={1}
+              >
+                {(() => {
+                  const shortId = getQuoteShortId(
+                    Array.isArray(params.id) ? params.id[0] : params.id
+                  );
+                  const name = displayName
+                    ? displayName.trim().split(/\s+/).slice(0, 2).join(" ")
+                    : null;
+                  return name
+                    ? `QUOTE #${shortId} FOR ${name.toUpperCase()}`
+                    : `QUOTE #${shortId}`;
+                })()}
+              </ThemedText>
+            </View>
 
-          {/* Quote breakdown section - Collapsible */}
-          <Pressable
-            style={styles.collapsibleHeader}
-            onPress={() => setQuoteBreakdownExpanded(!quoteBreakdownExpanded)}
-          >
-            <ThemedText style={styles.sectionHeaderText}>Quote breakdown</ThemedText>
-            <Ionicons
-              name={quoteBreakdownExpanded ? "chevron-up" : "chevron-down"}
-              size={20}
-              color={c.textMid}
-            />
-          </Pressable>
+            <View style={styles.qoTotalRow}>
+              <ThemedText style={[styles.qoTotalPound, { color: c.textMid }]}>£</ThemedText>
+              <ThemedText style={[styles.qoTotalNumber, { color: c.text }]}>
+                {Number(grandTotal || 0).toLocaleString("en-GB", {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0,
+                })}
+              </ThemedText>
+            </View>
+            <ThemedText style={[styles.qoTotalSubtitle, { color: c.textMuted }]}>
+              {items.length} item{items.length === 1 ? "" : "s"}
+              {includesVat ? " · incl. 20% VAT" : ""}
+            </ThemedText>
 
-          {quoteBreakdownExpanded && (
-          <View style={styles.card}>
-            {/* Meta information */}
-            {issuedAt && (
-              <View style={styles.requestDetailRow}>
-                <Ionicons name="calendar-outline" size={18} color={c.textMid} />
-                <View style={styles.requestDetailContent}>
-                  <ThemedText style={styles.requestDetailLabel}>Issued</ThemedText>
-                  <ThemedText style={styles.requestDetailValue}>
-                    {new Date(issuedAt).toLocaleDateString(undefined, {
-                      weekday: 'short',
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric'
-                    })}
-                  </ThemedText>
-                </View>
-              </View>
-            )}
-
-            {quote.valid_until && (
-              <View style={styles.requestDetailRow}>
-                <Ionicons name="time-outline" size={18} color={c.textMid} />
-                <View style={styles.requestDetailContent}>
-                  <ThemedText style={styles.requestDetailLabel}>Valid until</ThemedText>
-                  <ThemedText style={styles.requestDetailValue}>
-                    {new Date(quote.valid_until).toLocaleDateString(undefined, {
-                      weekday: 'short',
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric'
-                    })}
-                  </ThemedText>
-                </View>
-              </View>
-            )}
-
-            {/* Line items */}
-            {items.length > 0 ? (
-              <>
-                <View style={styles.divider} />
-                <ThemedText style={styles.breakdownSectionLabel}>Line items</ThemedText>
-                <Spacer size={12} />
-
-                {items.map((item, i) => {
-                  const qty = Number(item?.qty ?? 0);
-                  const price = Number(item?.unit_price ?? 0);
-                  const line = Number.isFinite(qty * price) ? formatNumber(qty * price) : "0.00";
+            <View style={styles.qoLedger}>
+              {items.length === 0 ? (
+                <ThemedText style={[styles.qoLedgerEmpty, { color: c.textMuted }]}>
+                  No items added to this quote.
+                </ThemedText>
+              ) : (
+                items.map((item, i) => {
+                  const qty = Number(item?.qty || 1);
+                  const price = Number(item?.unit_price || 0);
+                  const lineTotal = qty * price;
                   return (
-                    <View key={`li-${i}`} style={styles.lineItemRow}>
-                      <View style={styles.lineItemNumberBadge}>
-                        <ThemedText style={styles.lineItemNumberText}>{i + 1}</ThemedText>
+                    <View
+                      key={`li-${i}`}
+                      style={[
+                        styles.qoLine,
+                        { borderBottomColor: c.divider },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.qoLineIndex,
+                          { backgroundColor: c.elevate2 ?? c.elevate },
+                        ]}
+                      >
+                        <ThemedText
+                          style={[styles.qoLineIndexText, { color: c.textMid }]}
+                        >
+                          {i + 1}
+                        </ThemedText>
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <ThemedText style={styles.lineItemName}>
-                          {item?.name || "Item"}
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <ThemedText
+                          style={[styles.qoLineTitle, { color: c.text }]}
+                          numberOfLines={2}
+                        >
+                          {item?.name || "Untitled line"}
                         </ThemedText>
                         {!!item?.description && (
-                          <ThemedText style={styles.lineItemDescription}>
+                          <ThemedText
+                            style={[styles.qoLineDetail, { color: c.textMuted }]}
+                            numberOfLines={2}
+                          >
                             {item.description}
                           </ThemedText>
                         )}
-                        <ThemedText style={styles.lineItemMeta}>
-                          Qty: {qty} • £{formatNumber(price)} each
-                        </ThemedText>
+                        {qty > 1 && (
+                          <ThemedText
+                            style={[styles.qoLineQty, { color: c.textMuted }]}
+                          >
+                            {qty} × £{formatNumber(price)}
+                          </ThemedText>
+                        )}
                       </View>
-                      <ThemedText style={styles.lineItemTotal}>
-                        £{line}
+                      <ThemedText
+                        style={[styles.qoLineAmount, { color: c.text }]}
+                      >
+                        £{formatNumber(lineTotal)}
                       </ThemedText>
                     </View>
                   );
-                })}
-              </>
-            ) : (
-              <>
-                <View style={styles.divider} />
-                <ThemedText style={styles.breakdownSectionLabel}>Line items</ThemedText>
-                <Spacer size={12} />
-                <ThemedText variant="muted">No items added to this quote.</ThemedText>
-              </>
-            )}
+                })
+              )}
 
-            {/* Totals */}
-            <View style={[styles.divider, { marginTop: 12 }]} />
-            <ThemedText style={styles.breakdownSectionLabel}>Summary</ThemedText>
-            <Spacer size={12} />
-
-            {!!quote.subtotal && (
-              <View style={styles.totalRow}>
-                <ThemedText style={styles.totalLabel}>
-                  {includesVat ? "Subtotal (excl. VAT)" : "Subtotal"}
-                </ThemedText>
-                <ThemedText style={styles.totalValue}>
-                  £{formatNumber(quote.subtotal)}
-                </ThemedText>
-              </View>
-            )}
-
-            {!!quote.tax_total && (
-              <View style={styles.totalRow}>
-                <ThemedText style={styles.totalLabel}>VAT</ThemedText>
-                <ThemedText style={styles.totalValue}>
-                  £{formatNumber(quote.tax_total)}
-                </ThemedText>
-              </View>
-            )}
-
-            <View style={[styles.totalRow, styles.totalRowFinal]}>
-              <ThemedText style={styles.totalLabelFinal}>Total</ThemedText>
-              <ThemedText style={styles.totalValueFinal}>
-                £{formatNumber(grandTotal)}
-              </ThemedText>
-            </View>
-            {includesVat && (
-              <ThemedText style={styles.totalNote}>Includes VAT</ThemedText>
-            )}
-          </View>
-          )}
-
-          {/* Section Divider */}
-          <View style={styles.sectionDivider} />
-
-          {/* Client request - Collapsible (collapsed by default) */}
-          {request && (
-            <>
-              <Pressable
-                style={styles.collapsibleHeader}
-                onPress={() => setShowClientRequest(!showClientRequest)}
+              {/* Totals */}
+              {!!quote.subtotal && (
+                <View style={[styles.qoLine, styles.qoSummaryRow]}>
+                  <View style={{ flex: 1 }}>
+                    <ThemedText style={[styles.qoSummaryLabel, { color: c.textMuted }]}>
+                      Subtotal
+                    </ThemedText>
+                  </View>
+                  <ThemedText style={[styles.qoLineAmount, { color: c.text }]}>
+                    £{formatNumber(quote.subtotal)}
+                  </ThemedText>
+                </View>
+              )}
+              {!!quote.tax_total && (
+                <View style={[styles.qoLine, styles.qoSummaryRow]}>
+                  <View style={{ flex: 1 }}>
+                    <ThemedText style={[styles.qoSummaryLabel, { color: c.textMuted }]}>
+                      VAT (20%)
+                    </ThemedText>
+                  </View>
+                  <ThemedText style={[styles.qoLineAmount, { color: c.text }]}>
+                    £{formatNumber(quote.tax_total)}
+                  </ThemedText>
+                </View>
+              )}
+              <View
+                style={[
+                  styles.qoLine,
+                  styles.qoGrandRow,
+                  { borderTopColor: c.border },
+                ]}
               >
-                <ThemedText style={styles.sectionHeaderText}>Client request</ThemedText>
-                <Ionicons
-                  name={showClientRequest ? "chevron-up" : "chevron-down"}
-                  size={20}
-                  color={c.textMid}
-                />
-              </Pressable>
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={[styles.qoGrandLabel, { color: c.text }]}>
+                    Total
+                  </ThemedText>
+                </View>
+                <ThemedText style={[styles.qoGrandAmount, { color: c.text }]}>
+                  £{formatNumber(grandTotal)}
+                </ThemedText>
+              </View>
+            </View>
 
-              {showClientRequest && (
-                <View style={styles.card}>
-                  {/* Category */}
-                  {parsedDetails.category && (
-                    <View style={styles.requestDetailRow}>
-                      <Ionicons name="grid-outline" size={18} color={c.textMid} />
-                      <View style={styles.requestDetailContent}>
-                        <ThemedText style={styles.requestDetailLabel}>Category</ThemedText>
-                        <ThemedText style={styles.requestDetailValue}>{parsedDetails.category}</ThemedText>
-                      </View>
+            {/* Terms: Earliest start · Duration · Valid until · Deposit */}
+            {(quote.earliest_start ||
+              quote.duration_text ||
+              quote.estimated_duration_text ||
+              quote.valid_until ||
+              quote.deposit_percent != null) && (
+              <>
+                <ThemedText style={[styles.qoSectionLabel, { color: c.textMuted }]}>
+                  QUOTE TERMS
+                </ThemedText>
+                <View
+                  style={[
+                    styles.qoTermsCard,
+                    { backgroundColor: c.elevate, borderColor: c.border },
+                  ]}
+                >
+                  {quote.earliest_start && (
+                    <View style={styles.qoTermRow}>
+                      <ThemedText style={[styles.qoTermLabel, { color: c.textMid }]}>
+                        Earliest start
+                      </ThemedText>
+                      <ThemedText style={[styles.qoTermValue, { color: c.text }]}>
+                        {new Date(quote.earliest_start).toLocaleDateString(undefined, {
+                          day: "numeric",
+                          month: "long",
+                        })}
+                      </ThemedText>
                     </View>
                   )}
-
-                  {/* Service */}
-                  {parsedDetails.main && (
-                    <View style={styles.requestDetailRow}>
-                      <Ionicons name="construct-outline" size={18} color={c.textMid} />
-                      <View style={styles.requestDetailContent}>
-                        <ThemedText style={styles.requestDetailLabel}>Service</ThemedText>
-                        <ThemedText style={styles.requestDetailValue}>{parsedDetails.main}</ThemedText>
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Location */}
-                  {request?.postcode && (
-                    <View style={styles.requestDetailRow}>
-                      <Ionicons name="location-outline" size={18} color={c.textMid} />
-                      <View style={styles.requestDetailContent}>
-                        <ThemedText style={styles.requestDetailLabel}>Area</ThemedText>
-                        <ThemedText style={styles.requestDetailValue}>{request.postcode}</ThemedText>
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Property */}
-                  {(request.property_types?.name || parsedDetails.property) && (
-                    <View style={styles.requestDetailRow}>
-                      <Ionicons name="home-outline" size={18} color={c.textMid} />
-                      <View style={styles.requestDetailContent}>
-                        <ThemedText style={styles.requestDetailLabel}>Property</ThemedText>
-                        <ThemedText style={styles.requestDetailValue}>
-                          {request.property_types?.name || parsedDetails.property}
-                        </ThemedText>
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Timing */}
-                  {(request.timing_options?.name || parsedDetails.timing) && (
-                    <View style={styles.requestDetailRow}>
-                      <Ionicons name="time-outline" size={18} color={request.timing_options?.is_emergency ? "#EF4444" : "#6B7280"} />
-                      <View style={styles.requestDetailContent}>
-                        <ThemedText style={styles.requestDetailLabel}>Timing</ThemedText>
-                        <ThemedText style={[styles.requestDetailValue, request.timing_options?.is_emergency && { color: "#EF4444" }]}>
-                          {request.timing_options?.name || parsedDetails.timing}
-                        </ThemedText>
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Budget */}
-                  {(request.budget_band || parsedDetails.budget) && (
-                    <View style={styles.requestDetailRow}>
-                      <Ionicons name="cash-outline" size={18} color={c.textMid} />
-                      <View style={styles.requestDetailContent}>
-                        <ThemedText style={styles.requestDetailLabel}>Budget</ThemedText>
-                        <ThemedText style={styles.requestDetailValue}>
-                          {request.budget_band || parsedDetails.budget}
-                        </ThemedText>
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Description */}
-                  {parsedDetails.description && (
+                  {(quote.duration_text ||
+                    quote.estimated_duration_text ||
+                    quote.estimated_duration) && (
                     <>
-                      <View style={styles.divider} />
-                      <View style={styles.requestDetailRow}>
-                        <Ionicons name="document-text-outline" size={18} color={c.textMid} />
-                        <View style={styles.requestDetailContent}>
-                          <ThemedText style={styles.requestDetailLabel}>Details</ThemedText>
-                          <ThemedText style={styles.requestDetailValue}>{parsedDetails.description}</ThemedText>
-                        </View>
+                      <View style={[styles.qoTermsDivider, { backgroundColor: c.divider }]} />
+                      <View style={styles.qoTermRow}>
+                        <ThemedText style={[styles.qoTermLabel, { color: c.textMid }]}>
+                          Estimated duration
+                        </ThemedText>
+                        <ThemedText style={[styles.qoTermValue, { color: c.text }]}>
+                          {quote.duration_text ||
+                            quote.estimated_duration_text ||
+                            quote.estimated_duration}
+                        </ThemedText>
                       </View>
                     </>
                   )}
-
-                  {/* Photos */}
-                  {hasAttachments && (
+                  {quote.valid_until && (
                     <>
-                      <View style={styles.divider} />
-                      <View style={[styles.requestDetailRow, { marginBottom: 8 }]}>
-                        <Ionicons name="images-outline" size={18} color={c.textMid} />
-                        <View style={styles.requestDetailContent}>
-                          <ThemedText style={styles.requestDetailLabel}>
-                            Photos ({attachmentsCount})
-                          </ThemedText>
-                        </View>
+                      <View style={[styles.qoTermsDivider, { backgroundColor: c.divider }]} />
+                      <View style={styles.qoTermRow}>
+                        <ThemedText style={[styles.qoTermLabel, { color: c.textMid }]}>
+                          Valid until
+                        </ThemedText>
+                        <ThemedText style={[styles.qoTermValue, { color: c.text }]}>
+                          {new Date(quote.valid_until).toLocaleDateString(undefined, {
+                            day: "numeric",
+                            month: "long",
+                          })}
+                        </ThemedText>
                       </View>
-                      <View style={styles.gridWrap}>
-                        {attachments.map((url, i) => (
-                          <Pressable
-                            key={`${url}-${i}`}
-                            onPress={() => setViewer({ open: true, index: i })}
-                            style={styles.thumbCell}
-                            hitSlop={6}
-                          >
-                            <Image
-                              source={{ uri: url }}
-                              style={styles.thumbImg}
-                              resizeMode="cover"
-                            />
-                          </Pressable>
-                        ))}
+                    </>
+                  )}
+                  {quote.deposit_percent != null && (
+                    <>
+                      <View style={[styles.qoTermsDivider, { backgroundColor: c.divider }]} />
+                      <View style={styles.qoTermRow}>
+                        <ThemedText style={[styles.qoTermLabel, { color: c.textMid }]}>
+                          Deposit
+                        </ThemedText>
+                        <ThemedText style={[styles.qoTermValue, { color: c.text }]}>
+                          {Number(quote.deposit_percent)}% on acceptance
+                        </ThemedText>
                       </View>
                     </>
                   )}
                 </View>
+              </>
+            )}
+          </View>
+
+          {/* Client request section removed per redesign — users reach
+              this screen from the Client Request page itself, so we
+              don't re-render the request context here. Wrapped in a
+              dead-code guard for clean parity.                     */}
+          {false && request && (
+            <View style={styles.qoClientRequestBlock}>
+              <View style={styles.qoEyebrowRow}>
+                <View
+                  style={[styles.qoEyebrowDot, { backgroundColor: "#7C5CFF" }]}
+                />
+                <ThemedText style={[styles.qoEyebrow, { color: c.textMuted }]}>
+                  CLIENT REQUEST
+                </ThemedText>
+              </View>
+
+              <ThemedText style={[styles.qoHeroTitle, { color: c.text }]}>
+                {request?.service_types?.name ||
+                  parsedDetails.main ||
+                  parsedDetails.service ||
+                  parsedDetails.title ||
+                  "Request"}
+              </ThemedText>
+
+              <View style={styles.qoFactsRow}>
+                <View
+                  style={[
+                    styles.qoFactPill,
+                    { backgroundColor: c.elevate, borderColor: c.border },
+                  ]}
+                >
+                  <ThemedText style={[styles.qoFactLabel, { color: c.textMuted }]}>
+                    BUDGET
+                  </ThemedText>
+                  <ThemedText
+                    style={[styles.qoFactValue, { color: c.text }]}
+                    numberOfLines={2}
+                  >
+                    {request.budget_band || parsedDetails.budget || "—"}
+                  </ThemedText>
+                </View>
+                <View
+                  style={[
+                    styles.qoFactPill,
+                    { backgroundColor: c.elevate, borderColor: c.border },
+                  ]}
+                >
+                  <ThemedText style={[styles.qoFactLabel, { color: c.textMuted }]}>
+                    TIMING
+                  </ThemedText>
+                  <ThemedText
+                    style={[styles.qoFactValue, { color: c.text }]}
+                    numberOfLines={2}
+                  >
+                    {request.timing_options?.name || parsedDetails.timing || "—"}
+                  </ThemedText>
+                </View>
+              </View>
+
+              {(parsedDetails.description || parsedDetails.notes) && (
+                <>
+                  <ThemedText style={[styles.qoSectionLabel, { color: c.textMuted }]}>
+                    NOTES FROM CLIENT
+                  </ThemedText>
+                  <View
+                    style={[
+                      styles.qoNotesCard,
+                      { backgroundColor: c.elevate, borderColor: c.border },
+                    ]}
+                  >
+                    <ThemedText style={[styles.qoNotesText, { color: c.textMid }]}>
+                      {parsedDetails.description || parsedDetails.notes}
+                    </ThemedText>
+                  </View>
+                </>
               )}
-            </>
+
+              {hasAttachments && (
+                <>
+                  <ThemedText style={[styles.qoSectionLabel, { color: c.textMuted }]}>
+                    PHOTOS · {attachmentsCount}
+                  </ThemedText>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 0, gap: 8 }}
+                  >
+                    {attachments.map((url, i) => (
+                      <Pressable
+                        key={`${url}-${i}`}
+                        onPress={() => setViewer({ open: true, index: i })}
+                        style={[
+                          styles.qoPhotoThumb,
+                          { borderColor: c.border, backgroundColor: c.elevate },
+                        ]}
+                      >
+                        <Image
+                          source={{ uri: url }}
+                          style={{ width: "100%", height: "100%" }}
+                          resizeMode="cover"
+                        />
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </>
+              )}
+            </View>
           )}
 
           {/* Section Divider - only show if appointments section will be visible */}
@@ -2470,28 +2541,8 @@ export default function QuoteDetails() {
                 </Pressable>
               )}
 
-              {/* Message client button */}
-              <Pressable
-                style={styles.messageClientBtn}
-                onPress={() => {
-                  const reqId = quote?.request_id || quote?.requestId || request?.id;
-                  if (reqId) {
-                    router.push({
-                      pathname: "/(dashboard)/messages/[id]",
-                      params: {
-                        id: String(reqId),
-                        name: displayName || "",
-                        quoteId: quote?.id ? String(quote.id) : "",
-                        returnTo: `/quotes/${quote?.id}`,
-                      },
-                    });
-                  }
-                }}
-              >
-                <ThemedText style={styles.messageClientBtnText}>
-                  Message {displayName ? displayName.split(" ")[0] : "client"}
-                </ThemedText>
-              </Pressable>
+              {/* Message client button removed — Client Request page
+                  owns the message affordance now. */}
             </View>
           )}
 
@@ -3750,11 +3801,12 @@ function makeStyles(c, dark) {
     paddingTop: Platform.OS === "ios" ? 60 : 20,
   },
 
-  // Profile-style header (sticky)
+  // Transparent top row — no block/blob behind the title + close.
+  // Typography: Public Sans (headers) / DM Sans (body).
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: c.elevate,
+    backgroundColor: "transparent",
     zIndex: 10,
   },
   headerRow: {
@@ -3763,8 +3815,11 @@ function makeStyles(c, dark) {
     justifyContent: "space-between",
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: "700",
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 22,
+    letterSpacing: -0.4,
+    lineHeight: 28,
+    color: c.text,
   },
   backButton: {
     padding: 4,
@@ -5513,6 +5568,240 @@ function makeStyles(c, dark) {
     width: 64,
     height: 64,
     borderRadius: 8,
+  },
+
+  // -------- Quote Overview: sticky chevron + new blocks
+  qoStickyChevron: {
+    position: "absolute",
+    left: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 30,
+  },
+  // Inline accept/decline row at the bottom of the Quote Overview
+  // (client only) — replaces the old sticky bottom dock.
+  qoInlineActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 32,
+  },
+  qoActionGhost: {
+    width: 64,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  qoActionPrimary: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+  },
+  qoActionPrimaryText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    color: "#fff",
+    letterSpacing: -0.1,
+  },
+  // -------- Quote Overview: new Client Request + Quote Breakdown
+  // blocks. Same shape as the Client Request page + Quote Builder
+  // Preview modal. All typography on DM Sans / Public Sans.
+  qoClientRequestBlock: { marginBottom: 18 },
+  qoEyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  qoEyebrowDot: { width: 6, height: 6, borderRadius: 3 },
+  qoEyebrow: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  qoHeroTitle: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 30,
+    lineHeight: 36,
+    letterSpacing: -0.8,
+    marginTop: 4,
+  },
+  qoFactsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 20,
+  },
+  qoFactPill: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  qoFactLabel: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 10,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  qoFactValue: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 16,
+    letterSpacing: -0.3,
+    marginTop: 4,
+  },
+  qoSectionLabel: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 11,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  qoNotesCard: {
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  qoNotesText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  qoPhotoThumb: {
+    width: 120,
+    height: 120,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+
+  // Quote Breakdown block — mirrors builder Preview
+  qoQuoteBreakdownBlock: { marginTop: 12, marginBottom: 18 },
+  qoTotalRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 4,
+    marginTop: 8,
+  },
+  qoTotalPound: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 22,
+    lineHeight: 32,
+  },
+  qoTotalNumber: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 44,
+    lineHeight: 46,
+    letterSpacing: -1.5,
+  },
+  qoTotalSubtitle: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 12,
+    marginTop: 6,
+  },
+  qoLedger: { marginTop: 20 },
+  qoLedgerEmpty: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 14,
+    paddingVertical: 16,
+  },
+  qoLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    gap: 10,
+  },
+  qoLineIndex: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  qoLineIndexText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 11,
+  },
+  qoLineTitle: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    letterSpacing: -0.2,
+  },
+  qoLineDetail: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  qoLineQty: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  qoLineAmount: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    letterSpacing: -0.2,
+  },
+  qoSummaryRow: {
+    borderBottomWidth: 0,
+    paddingTop: 16,
+    paddingBottom: 2,
+  },
+  qoSummaryLabel: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+  },
+  qoGrandRow: {
+    borderBottomWidth: 0,
+    borderTopWidth: 1,
+    paddingTop: 10,
+  },
+  qoGrandLabel: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 15,
+  },
+  qoGrandAmount: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 17,
+    letterSpacing: -0.2,
+  },
+  qoTermsCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  qoTermRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    gap: 12,
+  },
+  qoTermLabel: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 14,
+    flex: 1,
+  },
+  qoTermValue: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 14,
+    letterSpacing: -0.1,
+    maxWidth: 200,
+  },
+  qoTermsDivider: {
+    height: 1,
+    marginLeft: 14,
   },
   });
 }

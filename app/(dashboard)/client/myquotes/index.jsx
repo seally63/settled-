@@ -973,8 +973,10 @@ export default function ClientProjects() {
       const isDirectRequest = group.isDirectRequest;
       const tradeName = group.preparingTrades[0]?.name || "Trade";
 
-      // V2: only direct requests exist. Subtitle = trade name preparing the quote.
-      const contextLine = tradeName ? `${tradeName} preparing quote` : "Preparing quote";
+      // Subtitle = just the trade's business name. The "preparing
+      // quote" phrase belongs in the right-column status line, not
+      // duplicated here.
+      const contextLine = tradeName || "Trade";
 
       // Check for existing request card and skip if already added
       const existingRequest = allProjects.find(
@@ -1712,7 +1714,12 @@ function buildClientRow(project) {
   // Stage → stripe colour + label
   const stageMeta = {
     POSTED:    { color: "#F4B740", label: "Awaiting quotes" },
-    QUOTES:    { color: "#7C5CFF", label: "Review quotes" },
+    // "Review quotes" is only right once at least one quote has a
+    // price. Before that (trade still preparing), the stage chip
+    // should read "Preparing".
+    QUOTES:    project.priceInfo
+      ? { color: "#7C5CFF", label: "Review quotes" }
+      : { color: "#3B82F6", label: "Preparing" },
     HIRED:     { color: "#3DCF89", label: "Scheduled" },
     DONE:      { color: "#3DCF89", label: "Completed" },
     EXPIRED:   { color: "#8A8A94", label: "Expired" },
@@ -1737,8 +1744,10 @@ function buildClientRow(project) {
       rightBot = "Direct request";
       break;
     case "QUOTES":
-      rightTop = project.priceInfo || "Quoted";
-      rightBot = project.statusText || "Quote ready";
+      // Without priceInfo there's no actual quote yet — trade is
+      // still preparing. Don't claim "Quoted".
+      rightTop = project.priceInfo || "Preparing";
+      rightBot = project.statusText || (project.priceInfo ? "Quote ready" : "Preparing your quote");
       break;
     case "HIRED":
       rightTop = project.priceInfo || "Hired";

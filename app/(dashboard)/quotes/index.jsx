@@ -579,19 +579,32 @@ export default function TradesmanProjects() {
 
       const quotedReqIds = new Set((quotes || []).map((q) => q.request_id));
 
+      // Filter out null / "null" / undefined — the string literal "null"
+      // slips in for old rows where request_id was persisted un-cast, and
+      // Postgres then rejects the whole `.in()` query with
+      // "invalid input syntax for type uuid: \"null\"" which nukes every
+      // downstream lookup.
+      const isValidUuid = (v) =>
+        typeof v === "string" && v !== "null" && /^[0-9a-f-]{36}$/i.test(v);
       const reqIds = Array.from(
         new Set([
           ...(targets || []).map((t) => t.request_id),
           ...(quotes || []).map((q) => q.request_id),
         ])
-      );
+      ).filter(isValidUuid);
 
-      // Fetch request docs — join service_types + service_categories so
-      // the card can show the real service + category names straight from
-      // FK joins instead of guessing via parseTitle(suggested_title).
+      // Fetch request docs. We join service_types + service_categories
+      // so the card can show real service + category names directly from
+      // the FK — then we also fetch those tables separately and stitch
+      // them in as a safety net (protects against any PostgREST relation
+      // disambiguation issues, and handles legacy rows where the FK was
+      // never set but the category can still be guessed from another
+      // request in the batch).
       let reqById = {};
+      let serviceTypesById = {};
+      let serviceCategoriesById = {};
       if (reqIds.length) {
-        const { data: reqs } = await supabase
+        const { data: reqs, error: reqErr } = await supabase
           .from("quote_requests")
           .select(`
             id,
@@ -603,23 +616,84 @@ export default function TradesmanProjects() {
             suggested_title,
             requester_id,
             service_type_id,
-            service_category_id,
-            service_types:service_type_id ( id, name ),
-            service_categories:service_category_id ( id, name )
+            category_id,
+            service_types (id, name),
+            service_categories (id, name)
           `)
           .in("id", reqIds);
+        if (reqErr) console.warn("[quotes/index] reqs fetch error:", reqErr.message);
         (reqs || []).forEach((r) => (reqById[r.id] = r));
+
+        // Safety-net lookups — in case the embedded join came back null.
+        const serviceTypeIds = [
+          ...new Set((reqs || []).map((r) => r.service_type_id).filter(Boolean)),
+        ];
+        const serviceCategoryIds = [
+          ...new Set((reqs || []).map((r) => r.category_id).filter(Boolean)),
+        ];
+        if (serviceTypeIds.length) {
+          const { data: sts } = await supabase
+            .from("service_types")
+            .select("id, name")
+            .in("id", serviceTypeIds);
+          (sts || []).forEach((s) => (serviceTypesById[s.id] = s.name));
+        }
+        if (serviceCategoryIds.length) {
+          const { data: scs } = await supabase
+            .from("service_categories")
+            .select("id, name")
+            .in("id", serviceCategoryIds);
+          (scs || []).forEach((s) => (serviceCategoriesById[s.id] = s.name));
+        }
       }
 
-      // Fetch client names
+      // Helper — pick the best name available: embedded join first, then
+      // separate-lookup map, then null.
+      const resolveServiceName = (r) =>
+        r?.service_types?.name ||
+        (r?.service_type_id ? serviceTypesById[r.service_type_id] : null) ||
+        null;
+      const resolveCategoryName = (r) =>
+        r?.service_categories?.name ||
+        (r?.category_id ? serviceCategoriesById[r.category_id] : null) ||
+        null;
+
+      // Fetch client names. Preload from profiles (the source of truth)
+      // up-front so even brand-new requests with no conversation yet show
+      // the real client name instead of falling back to "Client".
       let clientNameByRequestId = {};
       let clientContactByRequestId = {};
+
+      const requesterIdByRequestId = {};
+      reqIds.forEach((rid) => {
+        const rid2 = reqById[rid]?.requester_id;
+        if (isValidUuid(rid2)) requesterIdByRequestId[rid] = rid2;
+      });
+      const requesterIds = [...new Set(Object.values(requesterIdByRequestId))];
+      if (requesterIds.length) {
+        const { data: profRows, error: profErr } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", requesterIds);
+        if (profErr) {
+          console.warn("[quotes/index] profiles fetch failed:", profErr.message);
+        } else {
+          const nameById = {};
+          (profRows || []).forEach((p) => {
+            if (p.full_name) nameById[p.id] = p.full_name;
+          });
+          Object.entries(requesterIdByRequestId).forEach(([reqId, userId]) => {
+            if (nameById[userId]) clientNameByRequestId[reqId] = nameById[userId];
+          });
+        }
+      }
+
       const { data: convData } = await supabase.rpc("rpc_list_conversations", {
         p_limit: 100,
       });
       if (convData) {
         convData.forEach((conv) => {
-          if (conv.request_id && conv.other_party_name) {
+          if (conv.request_id && conv.other_party_name && !clientNameByRequestId[conv.request_id]) {
             clientNameByRequestId[conv.request_id] = conv.other_party_name;
           }
         });
@@ -783,11 +857,12 @@ export default function TradesmanProjects() {
             request_type: t.invited_by || "system",
             state: t.state,
             title: r?.suggested_title || "Project",
-            // Real service + category names straight from the FK joins so
-            // the card stops falling back to parseTitle when
-            // suggested_title is empty or differently-formatted.
-            serviceTypeName: r?.service_types?.name || null,
-            serviceCategoryName: r?.service_categories?.name || null,
+            // Real service + category names straight from the FK data
+            // (embedded join first, separate lookup as fallback) so the
+            // card stops using parseTitle when suggested_title is empty
+            // or differently-formatted.
+            serviceTypeName: resolveServiceName(r),
+            serviceCategoryName: resolveCategoryName(r),
             created_at: r?.created_at,
             budget_band: budgetBand,
             postcode: r?.postcode || null,
@@ -905,8 +980,8 @@ export default function TradesmanProjects() {
             issued_at: primaryQuote.issued_at ?? primaryQuote.created_at,
             valid_until: primaryQuote.valid_until,
             title: r?.suggested_title || "Project",
-            serviceTypeName: r?.service_types?.name || null,
-            serviceCategoryName: r?.service_categories?.name || null,
+            serviceTypeName: resolveServiceName(r),
+            serviceCategoryName: resolveCategoryName(r),
             request_type: t?.invited_by || "system",
             budget_band: r?.budget_band || null,
             postcode: r?.postcode || null,
@@ -1437,16 +1512,28 @@ export default function TradesmanProjects() {
         type: "quote",
         stage,
         stageIndex,
+        // Raw status (draft / sent / accepted / …) so the card render
+        // logic can distinguish them without inferring from labels.
+        status,
         progressPosition: getTradeProgressPosition(stage, subStatus),
         requestId: item.request_id,
         quoteId: item.acceptedQuoteId || item.id,
         title: item.title,
+        serviceTypeName: item.serviceTypeName || null,
+        serviceCategoryName: item.serviceCategoryName || null,
         requestType: item.request_type,
         contextLine,
         statusType,
         statusText,
         statusDetail,
-        quoteAmount: stage !== "REQUEST" && quoteAmount ? quoteAmount : null,
+        // Drafts have no meaningful "quote amount" to surface on the
+        // card — it's a work-in-progress number, not a client-facing
+        // figure. Suppressing it also keeps the pipeline strip honest.
+        quoteAmount: status === "draft"
+          ? null
+          : stage !== "REQUEST" && quoteAmount
+            ? quoteAmount
+            : null,
         quoteAmountLabel: item.hasAcceptedQuote ? "Accepted quote" : "Quote total",
         hasAcceptedQuote: item.hasAcceptedQuote,
         actions,
@@ -1558,6 +1645,11 @@ export default function TradesmanProjects() {
     let quotesOut = 0;
     let jobsInProgress = 0;
     for (const p of projects) {
+      // Drafts are work-in-progress and intentionally carry no
+      // quoteAmount — they never contribute to the pipeline strip or
+      // the quotesOut count. Same for accepted-without-quote rows
+      // (quoteAmount is null there already thanks to the push).
+      if (String(p.status || "").toLowerCase() === "draft") continue;
       const n = Number(p.quoteAmount) || 0;
       if (p.stage === "QUOTE") { pipeline += n; quotesOut += 1; }
       if (p.stage === "WORK")  { onJobs += n;  jobsInProgress += 1; }
@@ -1624,13 +1716,12 @@ export default function TradesmanProjects() {
                   <ProjectRow
                     {...row}
                     onPress={() => {
-                      if (project.hasAcceptedQuote && project.quoteId) {
-                        router.push(`/quotes/${project.quoteId}`);
-                      } else if (project.quoteId) {
-                        router.push(`/quotes/${project.quoteId}`);
-                      } else {
-                        router.push(`/quotes/request/${project.requestId}`);
-                      }
+                      // New rule: every project card routes to the
+                      // Client Request page regardless of quote status.
+                      // Quotes (draft, sent, accepted, etc.) are
+                      // surfaced inside Recent Activity on that page
+                      // and can be tapped to open directly.
+                      router.push(`/quotes/request/${project.requestId}`);
                     }}
                   />
                   {idx < visibleRows.length - 1 && (
@@ -1735,9 +1826,25 @@ function buildTradeRow(project, formatNum) {
   const fresh =
     project.stage === "REQUEST" && (project.requestAge === 0 || project.isFresh);
 
+  // Three mutually-exclusive sub-states inside the QUOTE stage:
+  //   · draft              — quote being worked on, not yet sent
+  //   · accepted-no-quote  — trade accepted the request, no quote yet
+  //   · quote sent         — quote actually delivered to the client
+  // Previously ALL three shared the same "Quote sent / Sent" label.
+  const quoteStatus = String(project.status || "").toLowerCase();
+  const isDraft = project.stage === "QUOTE" && quoteStatus === "draft";
+  const isAcceptedWithoutQuote =
+    project.stage === "QUOTE" &&
+    !isDraft &&
+    (project.type === "accepted" || !project.quoteAmount);
+
   const stageMeta = {
     REQUEST:   { color: "#F4B740", label: "Needs quote" },
-    QUOTE:     { color: "#7C5CFF", label: "Quote sent" },
+    QUOTE:     isDraft
+      ? { color: "#F4B740", label: "Quote drafted" }
+      : isAcceptedWithoutQuote
+      ? { color: "#5BB3FF", label: "Accepted — draft a quote" }
+      : { color: "#7C5CFF", label: "Quote sent" },
     WORK:      { color: "#5BB3FF", label: "In progress" },
     COMPLETED: { color: "#3DCF89", label: "Completed" },
     EXPIRED:   { color: "#8A8A94", label: "Expired" },
@@ -1760,7 +1867,10 @@ function buildTradeRow(project, formatNum) {
           : null);
       break;
     case "QUOTE":
-      rightTop = amt || "Sent";
+      // Drafts never show a £ value — it isn't client-facing yet.
+      rightTop = isDraft
+        ? "Drafted"
+        : amt || (isAcceptedWithoutQuote ? "Accepted" : "Sent");
       rightBot = project.statusDetail || project.statusText || null;
       break;
     case "WORK":

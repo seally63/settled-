@@ -8,6 +8,7 @@ import {
   Alert,
   Image,
   Dimensions,
+  Modal,
 } from "react-native";
 import ImageViewing from "react-native-image-viewing";
 import { useEffect, useMemo, useState, useCallback } from "react";
@@ -19,12 +20,277 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ThemedView from "../../../../../components/ThemedView";
 import ThemedText from "../../../../../components/ThemedText";
 import Spacer from "../../../../../components/Spacer";
-import { RequestDetailSkeleton } from "../../../../../components/Skeleton";
 import { Colors } from "../../../../../constants/Colors";
 import { useUser } from "../../../../../hooks/useUser";
+import { useTheme } from "../../../../../hooks/useTheme";
 import { supabase } from "../../../../../lib/supabase";
 import { listRequestImagePaths, getSignedUrls } from "../../../../../lib/api/attachments";
 const SCREEN_WIDTH = Dimensions.get("window").width;
+
+// Client Request page shell — mirrors the trade-side Client Request
+// screen exactly (same chrome, hero, pills, recent-activity card) so
+// the two POVs feel consistent. The only difference: the client sees
+// the TRADE they're enquiring with (not their own info).
+const clientReqStyles = StyleSheet.create({
+  stickyChevron: {
+    position: "absolute",
+    left: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 30,
+  },
+  /* hero block */
+  eyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 20,
+  },
+  eyebrowDot: { width: 6, height: 6, borderRadius: 3 },
+  eyebrow: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  pageTitle: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 30,
+    lineHeight: 36,
+    letterSpacing: -0.8,
+    paddingHorizontal: 20,
+    marginTop: 10,
+  },
+  /* trade row (avatar · business · message icon) */
+  tradeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingHorizontal: 20,
+    marginTop: 20,
+  },
+  tradeAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tradeInitials: { fontFamily: "PublicSans_700Bold", fontSize: 15 },
+  tradeName: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    letterSpacing: -0.1,
+  },
+  tradeMeta: { fontSize: 12, fontFamily: "DMSans_400Regular", marginTop: 2 },
+  tradeMsgBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  /* facts (budget · timing) */
+  factsRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    marginTop: 28,
+  },
+  // Full-width "Job description" container — same visual family as
+  // factPill (14 radius, 1px border, elevate background).
+  descRow: {
+    paddingHorizontal: 16,
+    marginTop: 28,
+  },
+  descPill: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  descLabel: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 10,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  descValue: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  factPill: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  factLabel: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 10,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  factValue: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 16,
+    letterSpacing: -0.3,
+    marginTop: 4,
+  },
+  /* section labels */
+  sectionLabel: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 11,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    paddingHorizontal: 20,
+    marginTop: 32,
+    marginBottom: 8,
+  },
+  /* notes card */
+  notesCard: {
+    marginHorizontal: 20,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  notesText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  /* photos */
+  photoThumb: {
+    width: 120,
+    height: 120,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  /* activity card (merged appointments + quotes) */
+  activityCard: {
+    marginHorizontal: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  activityEmpty: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+  },
+  activityEmptyText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+  },
+  activityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  activityIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activityTitle: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 14,
+    letterSpacing: -0.2,
+  },
+  activityMeta: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  activityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  activityBadgeText: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 10.5,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  activityDivider: { height: 1, marginLeft: 62 },
+  /* sheet */
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+  },
+  sheetCard: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 10,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 14,
+  },
+  sheetTitle: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 18,
+    letterSpacing: -0.3,
+    paddingHorizontal: 4,
+  },
+  sheetSubtitle: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+    marginTop: 4,
+    paddingHorizontal: 4,
+  },
+  sheetActions: { flexDirection: "row", gap: 10, marginTop: 18 },
+  sheetGhost: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  sheetGhostText: { fontFamily: "PublicSans_600SemiBold", fontSize: 15 },
+  sheetPrimary: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  sheetPrimaryText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    color: "#fff",
+  },
+});
 
 // Helper to get last 4 characters of quote ID for display
 // This ensures both trade and client see the same quote identifier
@@ -114,6 +380,7 @@ function Chip({ children, tone = "muted", icon }) {
 export default function ClientRequestDetails() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const { colors: c, dark } = useTheme();
   const { user } = useUser();
   const insets = useSafeAreaInsets();
 
@@ -136,6 +403,7 @@ export default function ClientRequestDetails() {
   const [quotes, setQuotes] = useState([]);
 
   const [viewer, setViewer] = useState({ open: false, index: 0 });
+  const [activitySheet, setActivitySheet] = useState(null);
 
   const closeViewer = useCallback(() => {
     setViewer((v) => ({ ...v, open: false }));
@@ -526,40 +794,470 @@ export default function ClientRequestDetails() {
   const hasAttachments = attachments.length > 0;
 
   return (
-    <ThemedView style={styles.container}>
-      {/* Header - "Your Request" title with close button */}
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <View style={styles.headerRow}>
-          <ThemedText style={styles.headerTitle}>Your Request</ThemedText>
-          <Pressable
-            onPress={() => router.dismiss(2)}
-            hitSlop={10}
-            style={styles.closeButton}
-          >
-            <Ionicons name="close" size={28} color="#6B7280" />
-          </Pressable>
-        </View>
-      </View>
+    <ThemedView style={[styles.container, { backgroundColor: c.background }]}>
+      {/* Sticky chevron-back — matches the trade Client Request page
+          layout exactly. Same position, same icon btn styling.     */}
+      <Pressable
+        onPress={() =>
+          router.canGoBack?.() ? router.back() : router.replace("/myquotes")
+        }
+        hitSlop={10}
+        style={[
+          clientReqStyles.stickyChevron,
+          {
+            top: insets.top + 10,
+            backgroundColor: c.elevate,
+            borderColor: c.border,
+          },
+        ]}
+      >
+        <Ionicons name="chevron-back" size={18} color={c.text} />
+      </Pressable>
 
-      {loading ? (
-        <RequestDetailSkeleton paddingTop={0} />
-      ) : err ? (
-        <>
-          <Spacer />
-          <ThemedText style={{ textAlign: "center", color: "#EF4444" }}>Error: {err}</ThemedText>
-        </>
+      {err ? (
+        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }}>
+          <ThemedText style={{ color: "#EF4444" }}>Error: {err}</ThemedText>
+        </View>
       ) : !req ? (
-        <>
-          <Spacer />
-          <ThemedText style={{ textAlign: "center" }}>Request not found.</ThemedText>
-        </>
+        // No skeleton — sticky chevron is up on top already, so the
+        // user can tap back instantly while data loads.
+        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }} />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 140 }}
-          contentInsetAdjustmentBehavior="always"
+          contentContainerStyle={{
+            paddingTop: insets.top + 56,
+            paddingBottom: 140,
+          }}
+          contentInsetAdjustmentBehavior="never"
           keyboardShouldPersistTaps="handled"
         >
+          {/* Eyebrow — status pill reflecting what's happening on the
+              request. Dot colour derived from state.               */}
+          {(() => {
+            const hasAccepted = quotes.some(
+              (q) => String(q.status || "").toLowerCase() === "accepted"
+            );
+            const hasSent = quotes.some(
+              (q) => String(q.status || "").toLowerCase() === "sent"
+            );
+            const isPreparing = targetTrade && !hasSent && !hasAccepted;
+            const eyebrowText = hasAccepted
+              ? "QUOTE ACCEPTED"
+              : hasSent
+              ? "QUOTE RECEIVED"
+              : isPreparing
+              ? "PREPARING QUOTE"
+              : "ACTIVE REQUEST";
+            const eyebrowDot = hasAccepted
+              ? Colors.status.accepted
+              : hasSent
+              ? Colors.status.quoted
+              : isPreparing
+              ? Colors.status.scheduled
+              : Colors.status.pending;
+            return (
+              <View style={clientReqStyles.eyebrowRow}>
+                <View style={[clientReqStyles.eyebrowDot, { backgroundColor: eyebrowDot }]} />
+                <ThemedText style={[clientReqStyles.eyebrow, { color: c.textMuted }]}>
+                  {eyebrowText}
+                </ThemedText>
+              </View>
+            );
+          })()}
+
+          {/* Big title — the job they're requesting, matches the trade
+              page's hero title size/letterspacing.                  */}
+          <ThemedText style={[clientReqStyles.pageTitle, { color: c.text }]}>
+            {req?.service_types?.name || parsed.service || parsed.main || parsed.title || "Your Request"}
+          </ThemedText>
+
+          {/* Trade row — the business they're enquiring with (the
+              client's equivalent of the trade page's "client" row,
+              inverted). Shows the trade's initials/name/location and a
+              message icon at the far right.                        */}
+          {(() => {
+            const tradeBusiness = targetTrade?.business_name || targetTrade?.full_name;
+            const initials = tradeBusiness
+              ? tradeBusiness
+                  .trim()
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((s) => s[0]?.toUpperCase() || "")
+                  .join("") || "T"
+              : "T";
+            return tradeBusiness ? (
+              <View style={clientReqStyles.tradeRow}>
+                <View
+                  style={[
+                    clientReqStyles.tradeAvatar,
+                    { backgroundColor: Colors.primaryTint },
+                  ]}
+                >
+                  <ThemedText
+                    style={[clientReqStyles.tradeInitials, { color: Colors.primary }]}
+                  >
+                    {initials}
+                  </ThemedText>
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <ThemedText
+                    style={[clientReqStyles.tradeName, { color: c.text }]}
+                    numberOfLines={1}
+                  >
+                    {tradeBusiness}
+                  </ThemedText>
+                  <ThemedText
+                    style={[clientReqStyles.tradeMeta, { color: c.textMuted }]}
+                    numberOfLines={1}
+                  >
+                    Verified trade · {req?.postcode ? String(req.postcode).split(" ")[0] : "Local"}
+                  </ThemedText>
+                </View>
+                <Pressable
+                  onPress={() => {
+                    router.push({
+                      pathname: "/(dashboard)/messages/[id]",
+                      params: {
+                        id: String(id),
+                        name: tradeBusiness,
+                        returnTo: `/myquotes/request/${id}`,
+                      },
+                    });
+                  }}
+                  hitSlop={10}
+                  style={({ pressed }) => [
+                    clientReqStyles.tradeMsgBtn,
+                    { backgroundColor: c.elevate, borderColor: c.border },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                  accessibilityLabel="Message trade"
+                >
+                  <Ionicons name="chatbubble-outline" size={16} color={c.text} />
+                </Pressable>
+              </View>
+            ) : null;
+          })()}
+
+          {/* Job description — same visual treatment as Budget /
+              Timing pills below: label inside a bordered container.
+              Always rendered with a placeholder when empty.         */}
+          <View style={clientReqStyles.descRow}>
+            <View
+              style={[
+                clientReqStyles.descPill,
+                { backgroundColor: c.elevate, borderColor: c.border },
+              ]}
+            >
+              <ThemedText
+                style={[clientReqStyles.descLabel, { color: c.textMuted }]}
+              >
+                JOB DESCRIPTION
+              </ThemedText>
+              <ThemedText
+                style={[
+                  clientReqStyles.descValue,
+                  {
+                    color:
+                      parsed.description || parsed.notes ? c.text : c.textMuted,
+                    fontStyle:
+                      parsed.description || parsed.notes ? "normal" : "italic",
+                  },
+                ]}
+              >
+                {parsed.description ||
+                  parsed.notes ||
+                  "You didn't add a description — you can message the trade for extra detail."}
+              </ThemedText>
+            </View>
+          </View>
+
+          {/* Facts pills — Budget + Timing. Two-line value so long
+              strings don't truncate. Matches the trade page exactly. */}
+          <View style={clientReqStyles.factsRow}>
+            <View
+              style={[
+                clientReqStyles.factPill,
+                { backgroundColor: c.elevate, borderColor: c.border },
+              ]}
+            >
+              <ThemedText style={[clientReqStyles.factLabel, { color: c.textMuted }]}>
+                BUDGET
+              </ThemedText>
+              <ThemedText
+                style={[clientReqStyles.factValue, { color: c.text }]}
+                numberOfLines={2}
+              >
+                {req?.budget_band || parsed.budget || "—"}
+              </ThemedText>
+            </View>
+            <View
+              style={[
+                clientReqStyles.factPill,
+                { backgroundColor: c.elevate, borderColor: c.border },
+              ]}
+            >
+              <ThemedText style={[clientReqStyles.factLabel, { color: c.textMuted }]}>
+                TIMING
+              </ThemedText>
+              <ThemedText
+                style={[clientReqStyles.factValue, { color: c.text }]}
+                numberOfLines={2}
+              >
+                {req?.timing_options?.name || parsed.timing || "—"}
+              </ThemedText>
+            </View>
+          </View>
+
+          {/* Photos — horizontal scroll of thumbnails, tap to zoom. */}
+          {hasAttachments && (
+            <>
+              <ThemedText style={[clientReqStyles.sectionLabel, { color: c.textMuted }]}>
+                PHOTOS · {attachmentsCount}
+              </ThemedText>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
+              >
+                {attachments.map((url, i) => (
+                  <Pressable
+                    key={`${url}-${i}`}
+                    onPress={() => setViewer({ open: true, index: i })}
+                    style={[
+                      clientReqStyles.photoThumb,
+                      { borderColor: c.border, backgroundColor: c.elevate },
+                    ]}
+                  >
+                    <Image
+                      source={{ uri: url }}
+                      style={{ width: "100%", height: "100%" }}
+                      resizeMode="cover"
+                    />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </>
+          )}
+
+          {/* Recent Activity — merged appointments + quotes (no drafts,
+              clients never see drafts). Newest first, tappable →
+              bottom sheet with context-aware actions.              */}
+          <ThemedText style={[clientReqStyles.sectionLabel, { color: c.textMuted }]}>
+            RECENT ACTIVITY
+          </ThemedText>
+          {(() => {
+            const visibleQuotes = quotes.filter(
+              (q) => String(q.status || "").toLowerCase() !== "draft"
+            );
+            const items = [
+              ...appointments.map((a) => ({
+                kind: "appointment",
+                id: a.id,
+                ts: new Date(a.scheduled_at || a.created_at || 0).getTime(),
+                data: a,
+              })),
+              ...visibleQuotes.map((q) => ({
+                kind: "quote",
+                id: q.id,
+                ts: new Date(q.created_at || q.issued_at || 0).getTime(),
+                data: q,
+              })),
+            ].sort((a, b) => b.ts - a.ts);
+
+            return (
+              <View
+                style={[
+                  clientReqStyles.activityCard,
+                  { backgroundColor: c.elevate, borderColor: c.border },
+                ]}
+              >
+                {items.length === 0 ? (
+                  <View style={clientReqStyles.activityEmpty}>
+                    <Ionicons name="time-outline" size={18} color={c.textMuted} />
+                    <ThemedText
+                      style={[clientReqStyles.activityEmptyText, { color: c.textMuted }]}
+                    >
+                      No activity yet — the trade will be in touch.
+                    </ThemedText>
+                  </View>
+                ) : (
+                  items.map((it, i) => (
+                    <View key={`${it.kind}-${it.id}`}>
+                      {i > 0 && (
+                        <View
+                          style={[
+                            clientReqStyles.activityDivider,
+                            { backgroundColor: c.divider },
+                          ]}
+                        />
+                      )}
+                      {(() => {
+                        if (it.kind === "appointment") {
+                          const scheduled = new Date(it.data.scheduled_at);
+                          const dateStr = scheduled.toLocaleDateString(undefined, {
+                            weekday: "short",
+                            day: "numeric",
+                            month: "short",
+                          });
+                          const timeStr = scheduled.toLocaleTimeString(undefined, {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          });
+                          const statusTone =
+                            it.data.status === "confirmed"
+                              ? Colors.status.scheduled
+                              : it.data.status === "proposed"
+                              ? Colors.status.pending
+                              : Colors.status.declined;
+                          const label =
+                            it.data.status === "confirmed"
+                              ? "Confirmed"
+                              : it.data.status === "proposed"
+                              ? "Review"
+                              : "Cancelled";
+                          return (
+                            <Pressable
+                              onPress={() => setActivitySheet(it)}
+                              style={({ pressed }) => [
+                                clientReqStyles.activityRow,
+                                pressed && { opacity: 0.7 },
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  clientReqStyles.activityIcon,
+                                  { backgroundColor: c.elevate2 ?? c.background },
+                                ]}
+                              >
+                                <Ionicons name="calendar-outline" size={18} color={c.text} />
+                              </View>
+                              <View style={{ flex: 1, minWidth: 0 }}>
+                                <ThemedText
+                                  style={[clientReqStyles.activityTitle, { color: c.text }]}
+                                  numberOfLines={1}
+                                >
+                                  {it.data.title || "Appointment"}
+                                </ThemedText>
+                                <ThemedText
+                                  style={[clientReqStyles.activityMeta, { color: c.textMuted }]}
+                                  numberOfLines={1}
+                                >
+                                  {dateStr} · {timeStr}
+                                </ThemedText>
+                              </View>
+                              <View
+                                style={[
+                                  clientReqStyles.activityBadge,
+                                  {
+                                    backgroundColor: statusTone + "22",
+                                    borderColor: statusTone,
+                                  },
+                                ]}
+                              >
+                                <ThemedText
+                                  style={[
+                                    clientReqStyles.activityBadgeText,
+                                    { color: statusTone },
+                                  ]}
+                                >
+                                  {label}
+                                </ThemedText>
+                              </View>
+                            </Pressable>
+                          );
+                        }
+                        // quote
+                        const qs = String(it.data.status || "").toLowerCase();
+                        const tone =
+                          qs === "accepted"
+                            ? Colors.status.accepted
+                            : qs === "sent"
+                            ? Colors.status.quoted
+                            : Colors.status.declined;
+                        const label =
+                          qs === "accepted"
+                            ? "Accepted"
+                            : qs === "sent"
+                            ? "Review"
+                            : qs.charAt(0).toUpperCase() + qs.slice(1);
+                        const total = it.data.grand_total != null
+                          ? `£${Number(it.data.grand_total).toFixed(0)}`
+                          : "£—";
+                        return (
+                          <Pressable
+                            onPress={() => {
+                              // Quote cards open the Quote Overview
+                              // directly — no bottom sheet.
+                              router.push({
+                                pathname: "/(dashboard)/myquotes/[id]",
+                                params: {
+                                  id: String(it.data.id),
+                                  returnTo: `/myquotes/request/${id}`,
+                                },
+                              });
+                            }}
+                            style={({ pressed }) => [
+                              clientReqStyles.activityRow,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                clientReqStyles.activityIcon,
+                                { backgroundColor: c.elevate2 ?? c.background },
+                              ]}
+                            >
+                              <Ionicons name="document-text-outline" size={18} color={c.text} />
+                            </View>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <ThemedText
+                                style={[clientReqStyles.activityTitle, { color: c.text }]}
+                                numberOfLines={1}
+                              >
+                                {(() => {
+                                  const biz =
+                                    targetTrade?.business_name ||
+                                    targetTrade?.full_name ||
+                                    null;
+                                  const shortId = getQuoteShortId(it.data.id);
+                                  return biz
+                                    ? `Quote #${shortId} from ${biz}`
+                                    : `Quote #${shortId}`;
+                                })()}
+                              </ThemedText>
+                            </View>
+                            <View
+                              style={[
+                                clientReqStyles.activityBadge,
+                                {
+                                  backgroundColor: tone + "22",
+                                  borderColor: tone,
+                                },
+                              ]}
+                            >
+                              <ThemedText
+                                style={[clientReqStyles.activityBadgeText, { color: tone }]}
+                              >
+                                {label}
+                              </ThemedText>
+                            </View>
+                          </Pressable>
+                        );
+                      })()}
+                    </View>
+                  ))
+                )}
+              </View>
+            );
+          })()}
+
+          <View style={{ height: 40 }} />
+          {/* Legacy sections intentionally removed — content moved into
+              the hero + facts pills + notes + photos + Recent Activity
+              blocks above.                                           */}
+          {false && <>
           {/* Appointments Section - always shown */}
           <View style={styles.sectionHeaderRow}>
             <ThemedText style={styles.sectionHeaderTitle}>Appointments</ThemedText>
@@ -929,9 +1627,155 @@ export default function ClientRequestDetails() {
               </View>
             </View>
           )}
+          </>}
+          {/* /legacy */}
 
         </ScrollView>
       )}
+
+      {/* Activity bottom sheet (appointments + quotes) */}
+      <Modal
+        visible={!!activitySheet}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActivitySheet(null)}
+      >
+        <Pressable
+          style={clientReqStyles.sheetBackdrop}
+          onPress={() => setActivitySheet(null)}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation?.()}
+            style={[
+              clientReqStyles.sheetCard,
+              {
+                backgroundColor: c.background,
+                borderColor: c.border,
+                paddingBottom: insets.bottom + 18,
+              },
+            ]}
+          >
+            <View
+              style={[
+                clientReqStyles.sheetHandle,
+                { backgroundColor: c.borderStrong },
+              ]}
+            />
+            {activitySheet?.kind === "appointment" && activitySheet.data && (
+              <>
+                <ThemedText style={[clientReqStyles.sheetTitle, { color: c.text }]}>
+                  {activitySheet.data.title || "Appointment"}
+                </ThemedText>
+                <ThemedText
+                  style={[clientReqStyles.sheetSubtitle, { color: c.textMuted }]}
+                >
+                  {new Date(activitySheet.data.scheduled_at).toLocaleString(undefined, {
+                    weekday: "long",
+                    day: "numeric",
+                    month: "long",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </ThemedText>
+                {activitySheet.data.status === "proposed" ? (
+                  <View style={clientReqStyles.sheetActions}>
+                    <Pressable
+                      onPress={async () => {
+                        const appt = activitySheet.data;
+                        setActivitySheet(null);
+                        await handleDeclineAppointment(appt.id);
+                      }}
+                      style={({ pressed }) => [
+                        clientReqStyles.sheetGhost,
+                        { backgroundColor: c.elevate, borderColor: c.border },
+                        pressed && { opacity: 0.75 },
+                      ]}
+                    >
+                      <Ionicons
+                        name="close-circle-outline"
+                        size={18}
+                        color={Colors.status.declined}
+                      />
+                      <ThemedText
+                        style={[
+                          clientReqStyles.sheetGhostText,
+                          { color: Colors.status.declined },
+                        ]}
+                      >
+                        Decline
+                      </ThemedText>
+                    </Pressable>
+                    <Pressable
+                      onPress={async () => {
+                        const appt = activitySheet.data;
+                        setActivitySheet(null);
+                        await handleConfirmAppointment(appt.id);
+                      }}
+                      style={({ pressed }) => [
+                        clientReqStyles.sheetPrimary,
+                        { backgroundColor: Colors.primary },
+                        pressed && { opacity: 0.85 },
+                      ]}
+                    >
+                      <Ionicons name="checkmark" size={18} color="#fff" />
+                      <ThemedText style={clientReqStyles.sheetPrimaryText}>Confirm</ThemedText>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={clientReqStyles.sheetActions}>
+                    <Pressable
+                      onPress={() => setActivitySheet(null)}
+                      style={({ pressed }) => [
+                        clientReqStyles.sheetGhost,
+                        { backgroundColor: c.elevate, borderColor: c.border },
+                        pressed && { opacity: 0.75 },
+                      ]}
+                    >
+                      <ThemedText style={[clientReqStyles.sheetGhostText, { color: c.text }]}>
+                        Close
+                      </ThemedText>
+                    </Pressable>
+                  </View>
+                )}
+              </>
+            )}
+            {activitySheet?.kind === "quote" && activitySheet.data && (
+              <>
+                <ThemedText style={[clientReqStyles.sheetTitle, { color: c.text }]}>
+                  Quote #{getQuoteShortId(activitySheet.data.id)}
+                </ThemedText>
+                <ThemedText style={[clientReqStyles.sheetSubtitle, { color: c.textMuted }]}>
+                  £{Number(activitySheet.data.grand_total || 0).toFixed(2)} ·{" "}
+                  {(() => {
+                    const s = String(activitySheet.data.status || "").toLowerCase();
+                    return s.charAt(0).toUpperCase() + s.slice(1);
+                  })()}
+                </ThemedText>
+                <View style={clientReqStyles.sheetActions}>
+                  <Pressable
+                    onPress={() => {
+                      const q = activitySheet.data;
+                      setActivitySheet(null);
+                      router.push({
+                        pathname: "/(dashboard)/myquotes/[id]",
+                        params: { id: String(q.id), returnTo: `/myquotes/request/${id}` },
+                      });
+                    }}
+                    style={({ pressed }) => [
+                      clientReqStyles.sheetPrimary,
+                      { backgroundColor: Colors.primary },
+                      pressed && { opacity: 0.85 },
+                    ]}
+                  >
+                    <Ionicons name="eye-outline" size={18} color="#fff" />
+                    <ThemedText style={clientReqStyles.sheetPrimaryText}>View quote</ThemedText>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Image viewer with zoom, swipe and drag-to-dismiss */}
       <ImageViewing

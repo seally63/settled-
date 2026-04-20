@@ -10,7 +10,7 @@ import {
   FlatList,
   Dimensions,
 } from "react-native";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -36,23 +36,25 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 // Static layout for the redesigned trade-reviews-request screen.
 // Colours are applied inline against the active theme palette.
 const trvStyles = StyleSheet.create({
-  floatBack: {
+  // Sticky chevron — floats top-left, always visible as you scroll.
+  // Sizing matches the builder's iconBtn for visual uniformity across
+  // the three screens (request detail · builder · schedule).
+  stickyChevron: {
     position: "absolute",
-    left: 16,
+    left: 20,
     width: 36,
     height: 36,
     borderRadius: 18,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 20,
+    zIndex: 30,
   },
   eyebrowRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 20,
-    marginTop: 4,
   },
   eyebrowDot: { width: 6, height: 6, borderRadius: 3 },
   eyebrow: {
@@ -61,41 +63,68 @@ const trvStyles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
+  // Bumped size + line height for the hero title — more breathing room
+  // between it and the client row below.
   title: {
     fontFamily: "PublicSans_700Bold",
-    fontSize: 28,
-    letterSpacing: -0.7,
-    lineHeight: 32,
+    fontSize: 30,
+    letterSpacing: -0.8,
+    lineHeight: 36,
     paddingHorizontal: 20,
-    marginTop: 8,
+    marginTop: 10,
   },
   clientRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 14,
     paddingHorizontal: 20,
-    marginTop: 14,
+    marginTop: 20,
   },
   clientAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: "center",
     justifyContent: "center",
   },
-  clientInitials: { fontFamily: "PublicSans_700Bold", fontSize: 13 },
+  clientInitials: { fontFamily: "PublicSans_700Bold", fontSize: 15 },
   clientName: {
     fontFamily: "PublicSans_600SemiBold",
-    fontSize: 14,
+    fontSize: 15,
     letterSpacing: -0.1,
   },
-  clientMeta: { fontSize: 11.5, fontFamily: "DMSans_400Regular", marginTop: 2 },
+  clientMeta: { fontSize: 12, fontFamily: "DMSans_400Regular", marginTop: 2 },
   distanceText: { fontSize: 12, fontFamily: "PublicSans_600SemiBold" },
   factsRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
     paddingHorizontal: 16,
-    marginTop: 20,
+    marginTop: 28,
+  },
+  // Full-width "Job description" container — same visual treatment as
+  // factPill (14 radius, 1px border, elevate background) so it reads
+  // as part of the same family as BUDGET / TIMING.
+  descRow: {
+    paddingHorizontal: 16,
+    marginTop: 28,
+  },
+  descPill: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  descLabel: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 10,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  descValue: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 4,
   },
   factPill: {
     flex: 1,
@@ -122,8 +151,8 @@ const trvStyles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: "uppercase",
     paddingHorizontal: 20,
-    marginTop: 22,
-    marginBottom: 4,
+    marginTop: 32,
+    marginBottom: 8,
   },
   sectionCard: {
     marginHorizontal: 16,
@@ -165,6 +194,125 @@ const trvStyles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     overflow: "hidden",
+  },
+  clientMsgBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  activityCard: {
+    marginHorizontal: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  activityEmpty: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+  },
+  activityEmptyText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+  },
+  activityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  activityIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activityTitle: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 14,
+    letterSpacing: -0.2,
+  },
+  activityMeta: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  activityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  activityBadgeText: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 10.5,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  activityDivider: { height: 1, marginLeft: 62 },
+
+  // Inline Accept/Decline row for the open state — equal flex, same
+  // height, no bar behind them.
+  inlineOpenActions: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    marginTop: 32,
+  },
+  openBtnGhost: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  openBtnGhostText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    letterSpacing: -0.1,
+  },
+  openBtnPrimary: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  openBtnPrimaryText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    color: "#FFFFFF",
+    letterSpacing: -0.1,
+  },
+  fabWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 40,
+  },
+  fab: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 16,
+    shadowOpacity: 0.2,
+    elevation: 10,
   },
   dock: {
     position: "absolute",
@@ -366,6 +514,462 @@ function QuoteStatusBadge({ status }) {
     </View>
   );
 }
+
+/* ───────── Phase 11.1 — Recent Activity (trade-side) ───────── */
+
+// Helper — last 4 chars of a UUID for the "#EE57" style quote id.
+function quoteShortId(id) {
+  const s = String(id || "");
+  return s.slice(-4).toUpperCase() || "0000";
+}
+
+// Interleaved appointments + quotes, newest first, tappable.
+function RecentActivitySection({ styles, c, appointments, quotes, onActivityPress, clientName }) {
+  const items = [
+    ...((appointments || []).map((a) => ({
+      kind: "appointment",
+      id: a.id,
+      ts: new Date(a.scheduled_at || a.created_at || 0).getTime(),
+      data: a,
+    }))),
+    ...((quotes || []).map((q) => ({
+      kind: "quote",
+      id: q.id,
+      ts: new Date(q.created_at || q.issued_at || 0).getTime(),
+      data: q,
+    }))),
+  ].sort((a, b) => b.ts - a.ts);
+
+  return (
+    <>
+      <ThemedText style={[styles.sectionLabel, { color: c.textMuted }]}>
+        RECENT ACTIVITY
+      </ThemedText>
+      <View
+        style={[
+          styles.activityCard,
+          { backgroundColor: c.elevate, borderColor: c.border },
+        ]}
+      >
+        {items.length === 0 ? (
+          <View style={styles.activityEmpty}>
+            <Ionicons name="time-outline" size={18} color={c.textMuted} />
+            <ThemedText style={[styles.activityEmptyText, { color: c.textMuted }]}>
+              No activity yet — tap + to schedule or quote.
+            </ThemedText>
+          </View>
+        ) : (
+          items.map((it, i) => (
+            <View key={`${it.kind}-${it.id}`}>
+              {i > 0 && (
+                <View style={[styles.activityDivider, { backgroundColor: c.divider }]} />
+              )}
+              <ActivityRow
+                styles={styles}
+                c={c}
+                item={it}
+                onPress={() => onActivityPress(it)}
+                clientName={clientName}
+              />
+            </View>
+          ))
+        )}
+      </View>
+    </>
+  );
+}
+
+function ActivityRow({ styles, c, item, onPress, clientName }) {
+  const { kind, data } = item;
+  if (kind === "appointment") {
+    const scheduled = new Date(data.scheduled_at);
+    const dateStr = scheduled.toLocaleDateString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+    const timeStr = scheduled.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const statusTone =
+      data.status === "confirmed"
+        ? Colors.status.scheduled
+        : data.status === "proposed"
+        ? Colors.status.pending
+        : Colors.status.declined;
+    return (
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [styles.activityRow, pressed && { opacity: 0.7 }]}
+        accessibilityRole="button"
+      >
+        <View style={[styles.activityIcon, { backgroundColor: c.elevate2 }]}>
+          <Ionicons name="calendar-outline" size={18} color={c.text} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <ThemedText style={[styles.activityTitle, { color: c.text }]} numberOfLines={1}>
+            {data.title || "Appointment"}
+          </ThemedText>
+          <ThemedText style={[styles.activityMeta, { color: c.textMuted }]} numberOfLines={1}>
+            {dateStr} · {timeStr}
+          </ThemedText>
+        </View>
+        <View style={[styles.activityBadge, { backgroundColor: statusTone + "22", borderColor: statusTone }]}>
+          <ThemedText style={[styles.activityBadgeText, { color: statusTone }]}>
+            {data.status === "confirmed"
+              ? "Confirmed"
+              : data.status === "proposed"
+              ? "Awaiting"
+              : "Cancelled"}
+          </ThemedText>
+        </View>
+      </Pressable>
+    );
+  }
+  // quote
+  const s = (data.status || "").toLowerCase();
+  const tone =
+    s === "accepted"
+      ? Colors.status.accepted
+      : s === "sent"
+      ? Colors.status.quoted
+      : s === "draft"
+      ? Colors.status.pending
+      : Colors.status.declined;
+  const label =
+    s === "accepted"
+      ? "Accepted"
+      : s === "sent"
+      ? "Sent"
+      : s === "draft"
+      ? "Draft"
+      : s.charAt(0).toUpperCase() + s.slice(1);
+  const clientFirst = clientName ? clientName.trim().split(/\s+/)[0] : null;
+  const title = clientFirst
+    ? `Quote #${quoteShortId(data.id)} for ${clientFirst}`
+    : `Quote #${quoteShortId(data.id)}`;
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.activityRow, pressed && { opacity: 0.7 }]}
+      accessibilityRole="button"
+    >
+      <View style={[styles.activityIcon, { backgroundColor: c.elevate2 }]}>
+        <Ionicons name="document-text-outline" size={18} color={c.text} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <ThemedText style={[styles.activityTitle, { color: c.text }]} numberOfLines={1}>
+          {title}
+        </ThemedText>
+      </View>
+      <View style={[styles.activityBadge, { backgroundColor: tone + "22", borderColor: tone }]}>
+        <ThemedText style={[styles.activityBadgeText, { color: tone }]}>{label}</ThemedText>
+      </View>
+    </Pressable>
+  );
+}
+
+function RecentActivityBottomSheet({
+  insets,
+  c,
+  activity,
+  onClose,
+  onReschedule,
+  onCancelAppt,
+  onOpenQuote,
+}) {
+  const visible = !!activity;
+  const kind = activity?.kind;
+  const data = activity?.data;
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={sheetStyles.backdrop} onPress={onClose}>
+        <Pressable
+          onPress={(e) => e.stopPropagation?.()}
+          style={[
+            sheetStyles.card,
+            {
+              backgroundColor: c.background,
+              borderColor: c.border,
+              paddingBottom: insets.bottom + 18,
+            },
+          ]}
+        >
+          <View style={[sheetStyles.handle, { backgroundColor: c.borderStrong }]} />
+          {kind === "appointment" && data ? (
+            <>
+              <ThemedText style={[sheetStyles.title, { color: c.text }]}>
+                {data.title || "Appointment"}
+              </ThemedText>
+              <ThemedText style={[sheetStyles.subtitle, { color: c.textMuted }]}>
+                {new Date(data.scheduled_at).toLocaleString(undefined, {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </ThemedText>
+              {data.location ? (
+                <ThemedText style={[sheetStyles.meta, { color: c.textMid }]}>
+                  Location: {data.location}
+                </ThemedText>
+              ) : null}
+              <View style={sheetStyles.actions}>
+                <Pressable
+                  onPress={() => onReschedule(data)}
+                  style={({ pressed }) => [
+                    sheetStyles.actionGhost,
+                    { backgroundColor: c.elevate, borderColor: c.border },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Ionicons name="calendar-outline" size={18} color={c.text} />
+                  <ThemedText style={[sheetStyles.actionGhostText, { color: c.text }]}>
+                    Reschedule
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  onPress={() => onCancelAppt(data)}
+                  style={({ pressed }) => [
+                    sheetStyles.actionGhost,
+                    { backgroundColor: c.elevate, borderColor: c.border },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Ionicons name="close-circle-outline" size={18} color={Colors.status.declined} />
+                  <ThemedText
+                    style={[sheetStyles.actionGhostText, { color: Colors.status.declined }]}
+                  >
+                    Cancel
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </>
+          ) : kind === "quote" && data ? (
+            <>
+              <ThemedText style={[sheetStyles.title, { color: c.text }]}>
+                {data.project_title || "Quote"}
+              </ThemedText>
+              <ThemedText style={[sheetStyles.subtitle, { color: c.textMuted }]}>
+                £{Number(data.grand_total || 0).toFixed(2)} ·{" "}
+                {(data.status || "draft").charAt(0).toUpperCase() + (data.status || "draft").slice(1)}
+              </ThemedText>
+              <View style={sheetStyles.actions}>
+                <Pressable
+                  onPress={() => onOpenQuote(data)}
+                  style={({ pressed }) => [
+                    sheetStyles.actionPrimary,
+                    { backgroundColor: Colors.primary },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Ionicons
+                    name={
+                      (data.status || "").toLowerCase() === "draft"
+                        ? "create-outline"
+                        : "eye-outline"
+                    }
+                    size={18}
+                    color="#fff"
+                  />
+                  <ThemedText style={sheetStyles.actionPrimaryText}>
+                    {(data.status || "").toLowerCase() === "draft" ? "Continue draft" : "Open quote"}
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </>
+          ) : null}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function CreateActionSheet({ insets, c, visible, onClose, onCreateQuote, onCreateAppointment }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={sheetStyles.backdrop} onPress={onClose}>
+        <Pressable
+          onPress={(e) => e.stopPropagation?.()}
+          style={[
+            sheetStyles.card,
+            {
+              backgroundColor: c.background,
+              borderColor: c.border,
+              paddingBottom: insets.bottom + 18,
+            },
+          ]}
+        >
+          <View style={[sheetStyles.handle, { backgroundColor: c.borderStrong }]} />
+          <ThemedText style={[sheetStyles.title, { color: c.text }]}>What would you like to add?</ThemedText>
+          <Pressable
+            onPress={onCreateQuote}
+            style={({ pressed }) => [
+              sheetStyles.row,
+              pressed && { backgroundColor: c.elevate },
+            ]}
+          >
+            <View style={[sheetStyles.rowIcon, { backgroundColor: Colors.primaryTint }]}>
+              <Ionicons name="document-text-outline" size={22} color={Colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <ThemedText style={[sheetStyles.rowTitle, { color: c.text }]}>Create quote</ThemedText>
+              <ThemedText style={[sheetStyles.rowSub, { color: c.textMuted }]}>
+                Build a quote with line items — send or save as draft
+              </ThemedText>
+            </View>
+          </Pressable>
+          <Pressable
+            onPress={onCreateAppointment}
+            style={({ pressed }) => [
+              sheetStyles.row,
+              pressed && { backgroundColor: c.elevate },
+            ]}
+          >
+            <View style={[sheetStyles.rowIcon, { backgroundColor: Colors.primaryTint }]}>
+              <Ionicons name="calendar-outline" size={22} color={Colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <ThemedText style={[sheetStyles.rowTitle, { color: c.text }]}>Create appointment</ThemedText>
+              <ThemedText style={[sheetStyles.rowSub, { color: c.textMuted }]}>
+                Schedule a survey visit or kick-off meeting
+              </ThemedText>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function FABCreate({ insets, c, onPress }) {
+  // Same y-offset rule as the floating tab bar (bar is hidden here so
+  // the FAB owns the slot). isDevice is false on the simulator and the
+  // simulator needs extra clearance from the home-indicator gesture.
+  const Device = require("expo-device");
+  const isSimulator = Device.isDevice === false;
+  const bottom = isSimulator ? 130 : Math.max(insets.bottom + 46, 80);
+  return (
+    <View
+      pointerEvents="box-none"
+      style={[trvStyles.fabWrap, { bottom }]}
+    >
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          trvStyles.fab,
+          { backgroundColor: Colors.primary },
+          pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
+        ]}
+        hitSlop={10}
+        accessibilityLabel="Create quote or appointment"
+      >
+        <Ionicons name="add" size={26} color="#fff" />
+      </Pressable>
+    </View>
+  );
+}
+
+const sheetStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+  },
+  card: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 10,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+  },
+  handle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 14,
+  },
+  title: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 18,
+    letterSpacing: -0.3,
+    paddingHorizontal: 4,
+  },
+  subtitle: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+    marginTop: 4,
+    paddingHorizontal: 4,
+  },
+  meta: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+    marginTop: 6,
+    paddingHorizontal: 4,
+  },
+  actions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 18,
+  },
+  actionGhost: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  actionGhostText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+  },
+  actionPrimary: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  actionPrimaryText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    color: "#fff",
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    marginTop: 8,
+  },
+  rowIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rowTitle: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    letterSpacing: -0.2,
+  },
+  rowSub: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 12,
+    marginTop: 2,
+  },
+});
 
 // Quotes section component for Client Request page
 function QuotesSection({ quotes, hasQuotes, canCreateQuote, router, requestId, derivedTitleForCreate, clientName }) {
@@ -828,6 +1432,10 @@ export default function RequestDetails() {
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  // Latches after the first successful fetch so focus-refresh doesn't
+  // flash the skeleton. Ref instead of state so the latest value is
+  // always visible inside the memoised `load` callback.
+  const hasLoadedOnceRef = useRef(false);
 
   const [req, setReq] = useState(null); // quote_requests row
   const [tgt, setTgt] = useState(null); // request_targets row for this trade (optional)
@@ -842,6 +1450,10 @@ export default function RequestDetails() {
 
   // Full-screen viewer state: open + current index
   const [viewer, setViewer] = useState({ open: false, index: 0 });
+
+  // Recent Activity bottom-sheet + FAB + create-action sheet (claimed only)
+  const [activitySheet, setActivitySheet] = useState(null); // activity item or null
+  const [createSheetOpen, setCreateSheetOpen] = useState(false);
 
   const closeViewer = useCallback(() => {
     setViewer((v) => ({ ...v, open: false }));
@@ -886,7 +1498,12 @@ export default function RequestDetails() {
 
   const load = useCallback(async () => {
     if (!user?.id || !id) return;
-    setLoading(true);
+    // Only show the full-screen skeleton on the first fetch. Subsequent
+    // focus re-enters (e.g. returning from Create Quote or Create
+    // Appointment) refresh silently in the background — the previous
+    // content stays on screen, so the transition doesn't feel slowed
+    // down by a skeleton flash.
+    if (!hasLoadedOnceRef.current) setLoading(true);
     setErr(null);
     try {
       const myId = user.id;
@@ -1034,6 +1651,7 @@ export default function RequestDetails() {
       setAttachments([]);
       setAttachmentsCount(0);
     } finally {
+      hasLoadedOnceRef.current = true;
       setLoading(false);
     }
   }, [user?.id, id, loadAttachments]);
@@ -1272,14 +1890,17 @@ export default function RequestDetails() {
 
   return (
     <ThemedView style={styles.container}>
-      {/* Floating chevron back — no horizontal header band. */}
+      {/* Sticky chevron back — sits on top at all times (only this
+          screen has a sticky back; the builder + schedule pages have
+          their chevron inline with the scroll content). Matches the
+          iconBtn style used on the builder for visual uniformity. */}
       <Pressable
         onPress={() =>
           router.canGoBack?.() ? router.back() : router.replace("/quotes")
         }
         hitSlop={10}
         style={[
-          trvStyles.floatBack,
+          trvStyles.stickyChevron,
           {
             top: insets.top + 10,
             backgroundColor: c.elevate,
@@ -1287,30 +1908,38 @@ export default function RequestDetails() {
           },
         ]}
       >
-        <Ionicons name="chevron-back" size={20} color={c.text} />
+        <Ionicons name="chevron-back" size={18} color={c.text} />
       </Pressable>
 
-      {loading ? (
-        <RequestDetailSkeleton paddingTop={insets.top + 60} />
-      ) : err ? (
+      {err ? (
         <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }}>
           <ThemedText>Error: {err}</ThemedText>
         </View>
       ) : !req ? (
-        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }}>
-          <ThemedText>Request not found.</ThemedText>
-        </View>
+        // No skeleton — the sticky chevron is already on top so the user
+        // can navigate back instantly. Initial fetch is fast enough that
+        // an empty screen for the few ms is cleaner than a loader flash.
+        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }} />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{
-            paddingTop: insets.top + 60,
-            paddingBottom: insets.bottom + 200,
+            // Leaves room for the sticky chevron (insets.top + 10 + 36)
+            // plus a small gap before the eyebrow.
+            paddingTop: insets.top + 56,
+            // Extra bottom room so the FAB (~60px circle + 80-130px
+            // bottom offset) doesn't cover the last content row.
+            paddingBottom: insets.bottom + 220,
           }}
-          contentInsetAdjustmentBehavior="always"
+          // `never` — we already reserve the safe-area-top ourselves via
+          // paddingTop above. With the default/"always" behaviour iOS
+          // silently added another insets.top worth of inset on top of
+          // our manual value, producing a ~175px empty band between the
+          // floating chevron and the eyebrow.
+          contentInsetAdjustmentBehavior="never"
           keyboardShouldPersistTaps="handled"
         >
-          {/* Eyebrow */}
+          {/* Eyebrow — tight below the sticky chevron */}
           <View style={trvStyles.eyebrowRow}>
             <View style={[trvStyles.eyebrowDot, { backgroundColor: eyebrowDot }]} />
             <ThemedText style={[trvStyles.eyebrow, { color: c.textMuted }]}>
@@ -1323,7 +1952,7 @@ export default function RequestDetails() {
             {reqTitle}
           </ThemedText>
 
-          {/* Client row */}
+          {/* Client row — avatar · name/location · message button at far right */}
           <View style={trvStyles.clientRow}>
             <View style={[trvStyles.clientAvatar, { backgroundColor: Colors.primaryTint }]}>
               <ThemedText style={[trvStyles.clientInitials, { color: Colors.primary }]}>
@@ -1349,95 +1978,82 @@ export default function RequestDetails() {
                 {distanceMiles}
               </ThemedText>
             ) : null}
+            {status === "claimed" && (
+              <Pressable
+                onPress={() => {
+                  router.push({
+                    pathname: "/(dashboard)/messages/[id]",
+                    params: {
+                      id: String(id),
+                      name: clientName || "",
+                      returnTo: `/(dashboard)/quotes/request/${id}`,
+                    },
+                  });
+                }}
+                hitSlop={10}
+                style={({ pressed }) => [
+                  trvStyles.clientMsgBtn,
+                  { backgroundColor: c.elevate, borderColor: c.border },
+                  pressed && { opacity: 0.7 },
+                ]}
+                accessibilityLabel="Message client"
+              >
+                <Ionicons name="chatbubble-outline" size={16} color={c.text} />
+              </Pressable>
+            )}
           </View>
 
-          {/* Three quick-fact pills */}
+          {/* Job description — same visual treatment as the Budget /
+              Timing fact pills: label inside a bordered container with
+              matching radius + padding. Always rendered with a
+              placeholder when empty.                               */}
+          <View style={trvStyles.descRow}>
+            <View
+              style={[
+                trvStyles.descPill,
+                { backgroundColor: c.elevate, borderColor: c.border },
+              ]}
+            >
+              <ThemedText style={[trvStyles.descLabel, { color: c.textMuted }]}>
+                JOB DESCRIPTION
+              </ThemedText>
+              <ThemedText
+                style={[
+                  trvStyles.descValue,
+                  {
+                    color:
+                      parsed.description || parsed.notes
+                        ? c.text
+                        : c.textMuted,
+                    fontStyle:
+                      parsed.description || parsed.notes ? "normal" : "italic",
+                  },
+                ]}
+              >
+                {parsed.description ||
+                  parsed.notes ||
+                  "No description provided — the client didn't add one."}
+              </ThemedText>
+            </View>
+          </View>
+
+          {/* Two quick-fact pills (ITEMS removed — always 1, not useful).
+              TIMING allows 2 lines so long strings like
+              "As soon as availability allows" don't truncate. */}
           <View style={trvStyles.factsRow}>
             <View style={[trvStyles.factPill, { backgroundColor: c.elevate, borderColor: c.border }]}>
               <ThemedText style={[trvStyles.factLabel, { color: c.textMuted }]}>BUDGET</ThemedText>
-              <ThemedText style={[trvStyles.factValue, { color: c.text }]} numberOfLines={1}>
+              <ThemedText style={[trvStyles.factValue, { color: c.text }]} numberOfLines={2}>
                 {budgetText}
               </ThemedText>
             </View>
             <View style={[trvStyles.factPill, { backgroundColor: c.elevate, borderColor: c.border }]}>
               <ThemedText style={[trvStyles.factLabel, { color: c.textMuted }]}>TIMING</ThemedText>
-              <ThemedText style={[trvStyles.factValue, { color: c.text }]} numberOfLines={1}>
+              <ThemedText style={[trvStyles.factValue, { color: c.text }]} numberOfLines={2}>
                 {timingText}
               </ThemedText>
             </View>
-            <View style={[trvStyles.factPill, { backgroundColor: c.elevate, borderColor: c.border }]}>
-              <ThemedText style={[trvStyles.factLabel, { color: c.textMuted }]}>ITEMS</ThemedText>
-              <ThemedText style={[trvStyles.factValue, { color: c.text }]}>
-                {itemsCount}
-              </ThemedText>
-            </View>
           </View>
-
-          {/* Scope */}
-          <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>SCOPE</ThemedText>
-          <View
-            style={[
-              trvStyles.sectionCard,
-              { backgroundColor: c.elevate, borderColor: c.border },
-            ]}
-          >
-            {scopeItems.length === 0 ? (
-              <View style={trvStyles.scopeRow}>
-                <View style={[trvStyles.scopeIconBox, { backgroundColor: c.elevate2 }]}>
-                  <Ionicons name="construct-outline" size={18} color={c.text} />
-                </View>
-                <ThemedText style={[trvStyles.scopeTitle, { color: c.text }]}>
-                  No scope items provided
-                </ThemedText>
-              </View>
-            ) : (
-              scopeItems.map((s, i) => (
-                <View key={i}>
-                  {i > 0 && <View style={[trvStyles.scopeDivider, { backgroundColor: c.divider }]} />}
-                  <View style={trvStyles.scopeRow}>
-                    <View style={[trvStyles.scopeIconBox, { backgroundColor: c.elevate2 }]}>
-                      <Ionicons name="construct-outline" size={18} color={c.text} />
-                    </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <ThemedText
-                        style={[trvStyles.scopeTitle, { color: c.text }]}
-                        numberOfLines={1}
-                      >
-                        {s.title}
-                      </ThemedText>
-                      {!!s.sub && (
-                        <ThemedText
-                          style={[trvStyles.scopeSub, { color: c.textMuted }]}
-                          numberOfLines={1}
-                        >
-                          {s.sub}
-                        </ThemedText>
-                      )}
-                    </View>
-                  </View>
-                </View>
-              ))
-            )}
-          </View>
-
-          {/* Notes from client */}
-          {(parsed.description || parsed.notes) && (
-            <>
-              <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>
-                NOTES FROM CLIENT
-              </ThemedText>
-              <View
-                style={[
-                  trvStyles.notesCard,
-                  { backgroundColor: c.elevate, borderColor: c.border },
-                ]}
-              >
-                <ThemedText style={[trvStyles.notesText, { color: c.textMid }]}>
-                  {parsed.description || parsed.notes}
-                </ThemedText>
-              </View>
-            </>
-          )}
 
           {/* Photos */}
           {hasAttachments && (
@@ -1500,84 +2116,45 @@ export default function RequestDetails() {
             </View>
           )}
 
-          {/* Appointments (when claimed) */}
+          {/* Recent Activity (when claimed) — interleaved appointments +
+              quotes, newest first. Tap a card to open a bottom-sheet with
+              details and actions. */}
           {status === "claimed" && (
             <>
-              <View style={styles.sectionHeaderRow}>
-                <ThemedText style={styles.sectionHeaderTitle}>Appointments</ThemedText>
-                <Pressable
-                  onPress={() => {
-                    router.push({
-                      pathname: "/quotes/schedule",
-                      params: {
-                        requestId: String(id || ""),
-                        title: encodeURIComponent(derivedTitleForCreate),
-                        clientName: encodeURIComponent(clientName || ""),
-                        postcode: encodeURIComponent(req?.postcode || ""),
-                      },
-                    });
-                  }}
-                  style={styles.sectionHeaderBtn}
-                  hitSlop={6}
-                >
-                  <Ionicons name="add" size={16} color={Colors.primary} />
-                  <ThemedText style={styles.sectionHeaderBtnText}>Add</ThemedText>
-                </Pressable>
-              </View>
-              <View style={[styles.card, { marginTop: 8 }]}>
-                {appointments.length === 0 ? (
-                  <ThemedText style={styles.emptyStateText}>No appointments scheduled</ThemedText>
-                ) : (
-                  appointments.map((appt, idx) => {
-                    const scheduledDate = new Date(appt.scheduled_at);
-                    const isProposed = appt.status === "proposed";
-                    const isConfirmed = appt.status === "confirmed";
-                    return (
-                      <View key={appt.id}>
-                        <View style={styles.appointmentListItem}>
-                          <Ionicons name="calendar" size={20} color={c.textMid} />
-                          <View style={{ flex: 1 }}>
-                            <ThemedText style={styles.appointmentListTitle}>
-                              {appt.title || "Survey visit"}
-                            </ThemedText>
-                            <ThemedText style={styles.appointmentListDateTime}>
-                              {scheduledDate.toLocaleDateString(undefined, {
-                                weekday: "short",
-                                day: "numeric",
-                                month: "short",
-                              })}
-                              , {scheduledDate.toLocaleTimeString(undefined, {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </ThemedText>
-                          </View>
-                          <View style={[
-                            styles.appointmentListBadge,
-                            { backgroundColor: isConfirmed ? "#D1FAE5" : isProposed ? "#FEF3C7" : "#FEE2E2" },
-                          ]}>
-                            <ThemedText style={[
-                              styles.appointmentListBadgeText,
-                              { color: isConfirmed ? "#10B981" : isProposed ? "#F59E0B" : "#EF4444" },
-                            ]}>
-                              {isConfirmed ? "Confirmed" : isProposed ? "Awaiting" : "Declined"}
-                            </ThemedText>
-                          </View>
-                        </View>
-                        {idx < appointments.length - 1 && <View style={styles.appointmentListDivider} />}
-                      </View>
-                    );
-                  })
-                )}
-              </View>
-              <QuotesSection
+              <RecentActivitySection
+                styles={trvStyles}
+                c={c}
+                appointments={appointments}
                 quotes={quotes}
-                hasQuotes={hasQuotes}
-                canCreateQuote={canCreateQuote}
-                router={router}
-                requestId={id}
-                derivedTitleForCreate={derivedTitleForCreate}
                 clientName={clientName}
+                onActivityPress={(activity) => {
+                  // Quote cards always open directly (no bottom sheet):
+                  //  · draft       → builder for continued editing
+                  //  · sent / etc. → Quote Overview page
+                  // Appointments still use the sheet for confirm /
+                  // reschedule / cancel actions.
+                  if (activity?.kind === "quote") {
+                    const qs = String(activity?.data?.status || "").toLowerCase();
+                    if (qs === "draft") {
+                      router.push({
+                        pathname: "/quotes/create",
+                        params: {
+                          requestId: String(id),
+                          quoteId: String(activity.data.id),
+                          title: encodeURIComponent(derivedTitleForCreate),
+                          clientName: encodeURIComponent(clientName || ""),
+                        },
+                      });
+                    } else {
+                      router.push({
+                        pathname: "/quotes/[id]",
+                        params: { id: String(activity.data.id) },
+                      });
+                    }
+                    return;
+                  }
+                  setActivitySheet(activity);
+                }}
               />
             </>
           )}
@@ -1597,89 +2174,133 @@ export default function RequestDetails() {
             </View>
           )}
 
-        </ScrollView>
-      )}
-
-      {/* Pinned bottom dock — action buttons depend on the request state.
-          OPEN: Decline + Accept (so the trade can take it on or pass).
-          CLAIMED: Chat icon + Draft quote (matches design).            */}
-      {!loading && req && (status === "open" || status === "claimed") && (
-        <View
-          style={[
-            trvStyles.dock,
-            {
-              backgroundColor: c.background,
-              borderTopColor: c.border,
-            },
-          ]}
-        >
-          {status === "open" ? (
-            <>
+          {/* OPEN state — Decline + Accept rendered inline as the last
+              content of the scroll view. Equal-size buttons side-by-side,
+              no background bar behind them. */}
+          {status === "open" && (
+            <View style={trvStyles.inlineOpenActions}>
               <Pressable
                 onPress={onDecline}
                 style={({ pressed }) => [
-                  trvStyles.dockGhostBtn,
-                  { backgroundColor: c.elevate2, borderColor: c.border },
-                  pressed && { opacity: 0.7 },
+                  trvStyles.openBtnGhost,
+                  { backgroundColor: c.elevate, borderColor: c.borderStrong },
+                  pressed && { opacity: 0.75 },
                 ]}
+                accessibilityRole="button"
               >
-                <ThemedText style={[trvStyles.dockGhostText, { color: c.textMid }]}>
+                <ThemedText style={[trvStyles.openBtnGhostText, { color: c.text }]}>
                   {tgt?.outside_service_area ? "Too far" : "Decline"}
                 </ThemedText>
               </Pressable>
               <Pressable
                 onPress={onAccept}
                 style={({ pressed }) => [
-                  trvStyles.dockPrimaryBtn,
+                  trvStyles.openBtnPrimary,
                   pressed && { opacity: 0.85 },
                 ]}
+                accessibilityRole="button"
               >
-                <Ionicons name="checkmark" size={18} color="#FFFFFF" />
-                <ThemedText style={trvStyles.dockPrimaryText}>
-                  {tgt?.outside_service_area ? "Accept anyway" : "Accept request"}
+                <Ionicons name="checkmark" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <ThemedText style={trvStyles.openBtnPrimaryText}>
+                  {tgt?.outside_service_area ? "Accept anyway" : "Accept"}
                 </ThemedText>
               </Pressable>
-            </>
-          ) : (
-            <>
-              <Pressable
-                onPress={() => {
-                  router.push({
-                    pathname: "/(dashboard)/messages/[id]",
-                    params: { id: String(id), name: clientName || "" },
-                  });
-                }}
-                style={({ pressed }) => [
-                  trvStyles.dockSquareBtn,
-                  { backgroundColor: c.elevate2, borderColor: c.border },
-                  pressed && { opacity: 0.7 },
-                ]}
-              >
-                <Ionicons name="chatbubble-outline" size={20} color={c.text} />
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  router.push({
-                    pathname: "/quotes/create",
-                    params: {
-                      requestId: String(id),
-                      title: encodeURIComponent(derivedTitleForCreate),
-                      clientName: encodeURIComponent(clientName || ""),
-                    },
-                  });
-                }}
-                style={({ pressed }) => [
-                  trvStyles.dockPrimaryBtn,
-                  pressed && { opacity: 0.85 },
-                ]}
-              >
-                <Ionicons name="create-outline" size={18} color="#FFFFFF" />
-                <ThemedText style={trvStyles.dockPrimaryText}>Draft quote</ThemedText>
-              </Pressable>
-            </>
+            </View>
           )}
-        </View>
+
+        </ScrollView>
       )}
+
+      {/* Floating + action button — claimed state only. Purple, same
+          bottom offset as the floating tab bar so it feels uniform, but
+          the tab bar is hidden on this screen so the FAB owns the slot.
+          Tap → bottom sheet offering "Create quote" or "Create
+          appointment".                                             */}
+      {!loading && req && status === "claimed" && (
+        <FABCreate
+          insets={insets}
+          c={c}
+          onPress={() => setCreateSheetOpen(true)}
+        />
+      )}
+
+      <RecentActivityBottomSheet
+        insets={insets}
+        c={c}
+        activity={activitySheet}
+        onClose={() => setActivitySheet(null)}
+        onReschedule={(appt) => {
+          setActivitySheet(null);
+          router.push({
+            pathname: "/quotes/schedule",
+            params: {
+              requestId: String(id || ""),
+              appointmentId: String(appt.id),
+              title: encodeURIComponent(derivedTitleForCreate),
+              clientName: encodeURIComponent(clientName || ""),
+              postcode: encodeURIComponent(req?.postcode || ""),
+            },
+          });
+        }}
+        onCancelAppt={async (appt) => {
+          try {
+            await supabase
+              .from("appointments")
+              .update({ status: "cancelled" })
+              .eq("id", appt.id);
+            setActivitySheet(null);
+            load();
+          } catch (e) {
+            Alert.alert("Cancel failed", e?.message || "Could not cancel.");
+          }
+        }}
+        onOpenQuote={(q) => {
+          setActivitySheet(null);
+          if ((q.status || "").toLowerCase() === "draft") {
+            router.push({
+              pathname: "/quotes/create",
+              params: {
+                requestId: String(id),
+                quoteId: String(q.id),
+                title: encodeURIComponent(derivedTitleForCreate),
+                clientName: encodeURIComponent(clientName || ""),
+              },
+            });
+          } else {
+            router.push({ pathname: "/quotes/[id]", params: { id: String(q.id) } });
+          }
+        }}
+      />
+
+      <CreateActionSheet
+        insets={insets}
+        c={c}
+        visible={createSheetOpen}
+        onClose={() => setCreateSheetOpen(false)}
+        onCreateQuote={() => {
+          setCreateSheetOpen(false);
+          router.push({
+            pathname: "/quotes/create",
+            params: {
+              requestId: String(id),
+              title: encodeURIComponent(derivedTitleForCreate),
+              clientName: encodeURIComponent(clientName || ""),
+            },
+          });
+        }}
+        onCreateAppointment={() => {
+          setCreateSheetOpen(false);
+          router.push({
+            pathname: "/quotes/schedule",
+            params: {
+              requestId: String(id || ""),
+              title: encodeURIComponent(derivedTitleForCreate),
+              clientName: encodeURIComponent(clientName || ""),
+              postcode: encodeURIComponent(req?.postcode || ""),
+            },
+          });
+        }}
+      />
 
       {/* Image preview modal – zoom + swipe + pull-down-to-dismiss */}
       {viewer.open && hasAttachments && (

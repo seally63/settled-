@@ -25,7 +25,7 @@ import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import CustomDateTimePicker from "../../../components/CustomDateTimePicker";
 import { Colors } from "../../../constants/Colors";
-import { FontFamily, Radius } from "../../../constants/Typography";
+import { FontFamily, Radius, TypeVariants } from "../../../constants/Typography";
 
 const PRIMARY = Colors.primary;
 const INPUT_ACCESSORY_ID = "schedule-keyboard-accessory";
@@ -91,10 +91,20 @@ export default function ScheduleAppointment() {
   // Client info from request
   const [clientName, setClientName] = useState(clientNameParam || "");
   const [jobTitle, setJobTitle] = useState(titleParam ? decodeURIComponent(titleParam) : "");
+  const [serviceTypeName, setServiceTypeName] = useState("");
+  const [serviceCategoryName, setServiceCategoryName] = useState("");
+  const [suggestedTitle, setSuggestedTitle] = useState(
+    titleParam ? decodeURIComponent(titleParam) : ""
+  );
   const [location, setLocation] = useState(postcodeParam || "");
   const [loadingData, setLoadingData] = useState(true);
 
-  // Load request details if we have a requestId
+  // Load request details if we have a requestId. Uses the same robust
+  // pattern as the quote builder: plain embedded joins on service_types
+  // / service_categories, separate safety-net lookups, and a
+  // profiles.full_name fallback keyed on requester_id. This fixes the
+  // "APPOINTMENT FOR CLIENT · PROJECT" fallback that the earlier
+  // version hit whenever the RPCs returned nothing.
   useEffect(() => {
     if (!requestId) {
       setLoadingData(false);
@@ -105,43 +115,86 @@ export default function ScheduleAppointment() {
       try {
         setLoadingData(true);
 
-        // Get request details
-        const { data: reqData, error: reqError } = await supabase
+        const { data: reqData } = await supabase
           .from("quote_requests")
-          .select("suggested_title, postcode, requester_id, details")
+          .select(`
+            id,
+            postcode,
+            requester_id,
+            suggested_title,
+            service_type_id,
+            category_id,
+            service_types (id, name),
+            service_categories (id, name)
+          `)
           .eq("id", requestId)
           .maybeSingle();
 
-        if (reqData) {
-          if (reqData.suggested_title) {
-            setJobTitle(reqData.suggested_title);
-          } else if (titleParam) {
-            setJobTitle(decodeURIComponent(titleParam));
-          }
+        let svcName = reqData?.service_types?.name || null;
+        let catName = reqData?.service_categories?.name || null;
 
-          if (reqData.postcode) {
-            setLocation(reqData.postcode);
-          }
+        if (!svcName && reqData?.service_type_id) {
+          try {
+            const { data: st } = await supabase
+              .from("service_types")
+              .select("name")
+              .eq("id", reqData.service_type_id)
+              .maybeSingle();
+            if (st?.name) svcName = st.name;
+          } catch {}
+        }
+        if (!catName && reqData?.category_id) {
+          try {
+            const { data: sc } = await supabase
+              .from("service_categories")
+              .select("name")
+              .eq("id", reqData.category_id)
+              .maybeSingle();
+            if (sc?.name) catName = sc.name;
+          } catch {}
         }
 
-        // Get client name using privacy-aware RPC (works with RLS)
-        const { data: contactData } = await supabase.rpc("rpc_get_client_contact_for_request", {
-          p_request_id: requestId,
-        });
-        if (contactData?.name_display) {
-          setClientName(contactData.name_display);
-        } else if (contactData?.name) {
-          setClientName(contactData.name);
-        } else {
-          // Fallback: try rpc_list_conversations
-          const { data: convData } = await supabase.rpc("rpc_list_conversations", { p_limit: 100 });
-          if (convData) {
-            const conv = convData.find((c) => c.request_id === requestId);
-            if (conv?.other_party_name) {
-              setClientName(conv.other_party_name);
-            }
-          }
+        if (reqData?.suggested_title) {
+          setJobTitle(reqData.suggested_title);
+          setSuggestedTitle(reqData.suggested_title);
+        } else if (titleParam) {
+          setJobTitle(decodeURIComponent(titleParam));
         }
+        if (reqData?.postcode) setLocation(reqData.postcode);
+        if (svcName) setServiceTypeName(svcName);
+        if (catName) setServiceCategoryName(catName);
+
+        // Client name: RPC → conversations → profiles (source of truth)
+        let resolvedName = null;
+        try {
+          const { data: contactData } = await supabase.rpc(
+            "rpc_get_client_contact_for_request",
+            { p_request_id: requestId }
+          );
+          resolvedName =
+            contactData?.name_display || contactData?.name || null;
+        } catch {}
+        if (!resolvedName) {
+          try {
+            const { data: convData } = await supabase.rpc(
+              "rpc_list_conversations",
+              { p_limit: 100 }
+            );
+            const conv = (convData || []).find((c) => c.request_id === requestId);
+            resolvedName = conv?.other_party_name || null;
+          } catch {}
+        }
+        if (!resolvedName && reqData?.requester_id) {
+          try {
+            const { data: prof } = await supabase
+              .from("profiles")
+              .select("full_name")
+              .eq("id", reqData.requester_id)
+              .maybeSingle();
+            resolvedName = prof?.full_name || null;
+          } catch {}
+        }
+        if (resolvedName) setClientName(resolvedName);
       } catch (e) {
         console.warn("[SCHEDULE] Failed to load request details:", e);
       } finally {
@@ -371,69 +424,61 @@ export default function ScheduleAppointment() {
         })
       : "Add time";
 
-  const avatarInitials = getInitials(clientName);
-  const displayTitle = jobTitle || "Job";
+  // Eyebrow is just "APPOINTMENT FOR {CLIENT NAME}" — the big title
+  // below already carries the specific service name, no need to
+  // duplicate it on the eyebrow line.
+  const specificService = (() => {
+    if (serviceTypeName) return serviceTypeName;
+    if (suggestedTitle && suggestedTitle.includes(" - ")) {
+      const parts = suggestedTitle.split(" - ").map((s) => s.trim());
+      if (parts.length >= 2) return parts.slice(1).join(" - ");
+    }
+    if (suggestedTitle) return suggestedTitle;
+    if (serviceCategoryName) return serviceCategoryName;
+    return "Project";
+  })();
+  const eyebrow = `APPOINTMENT FOR ${(clientName || "CLIENT").toUpperCase()}`;
   const displayLocation = location || "Location not specified";
 
   return (
-    <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => {
-            if (busy) return;
-            if (router.canGoBack?.()) {
-              router.back();
-            } else {
-              router.replace("/quotes");
-            }
-          }}
-          hitSlop={8}
-          disabled={busy}
-        >
-          <Ionicons name="close" size={24} color="#374151" />
-        </Pressable>
-        <ThemedText style={styles.headerTitle}>Schedule appointment</ThemedText>
-        <View style={{ width: 24 }} />
-      </View>
-
+    <ThemedView style={styles.container}>
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top + 10 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero card */}
-        <View style={styles.heroCard}>
-          {loadingData ? (
-            <View style={styles.heroAvatarFallback}>
-              <ActivityIndicator size="small" color={c.textMid} />
-            </View>
-          ) : (
-            <View style={styles.heroAvatarFallback}>
-              <ThemedText style={styles.heroAvatarInitials}>
-                {avatarInitials}
-              </ThemedText>
-            </View>
-          )}
-
-          <View style={{ flex: 1 }}>
-            {loadingData ? (
-              <>
-                <View style={styles.heroTitlePlaceholder} />
-                <View style={styles.heroSubtitlePlaceholder} />
-              </>
-            ) : (
-              <>
-                <ThemedText style={styles.heroTitle} numberOfLines={2}>
-                  {displayTitle}
-                </ThemedText>
-                {clientName ? (
-                  <ThemedText style={styles.heroSubtitle}>
-                    {clientName}
-                  </ThemedText>
-                ) : null}
-              </>
-            )}
-          </View>
+        {/* Inline chrome — transparent chevron back, scrolls with the
+            content (matches the quote builder). No header row, no block
+            background behind it.                                     */}
+        <View style={styles.inlineChrome}>
+          <Pressable
+            onPress={() => {
+              if (busy) return;
+              if (router.canGoBack?.()) {
+                router.back();
+              } else {
+                router.replace("/quotes");
+              }
+            }}
+            hitSlop={10}
+            disabled={busy}
+            style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.6 }]}
+            accessibilityLabel="Back"
+          >
+            <Ionicons name="chevron-back" size={18} color={c.text} />
+          </Pressable>
+          <View style={{ flex: 1 }} />
+        </View>
+        {/* Hero — builder-style eyebrow + big title, no card/box.      */}
+        <View style={styles.hero}>
+          <ThemedText style={styles.eyebrow} numberOfLines={2}>
+            {eyebrow}
+          </ThemedText>
+          <ThemedText style={styles.heroTitle} numberOfLines={2}>
+            {specificService}
+          </ThemedText>
         </View>
 
         {/* What type of visit? */}
@@ -595,71 +640,47 @@ function makeStyles(c, dark) {
     flex: 1,
     backgroundColor: c.background,
   },
-  header: {
+  // Transparent inline chrome row — paddingHorizontal: 4 here because
+  // scrollContent already carries 16px, so the chevron lands at 20px
+  // from the left edge (matching the quote builder + request page).
+  inlineChrome: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 4,
+    paddingBottom: 14,
+    gap: 10,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-  },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 40,
-  },
-  heroCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-    borderRadius: 16,
+  iconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: c.elevate,
-    marginBottom: 16,
-    shadowColor: "#0F172A",
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  heroAvatarFallback: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 12,
-    backgroundColor: "#E5E7EB",
+    borderWidth: 1,
+    borderColor: c.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  heroAvatarInitials: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#4B5563",
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 40,
+  },
+  // Builder-style hero — flat eyebrow + big title, no card.
+  hero: {
+    paddingHorizontal: 4, // scrollContent already has 16 horizontal
+    marginBottom: 24,
+  },
+  eyebrow: {
+    ...TypeVariants.eyebrow,
+    color: c.textMuted,
+    letterSpacing: 0.8,
+    marginBottom: 8,
   },
   heroTitle: {
-    fontSize: 16,
-    fontWeight: "600",
+    fontFamily: FontFamily.headerBold,
+    fontSize: 28,
+    lineHeight: 32,
+    letterSpacing: -0.6,
     color: c.text,
-  },
-  heroSubtitle: {
-    fontSize: 13,
-    color: c.textMid,
-    marginTop: 2,
-  },
-  heroTitlePlaceholder: {
-    width: 140,
-    height: 18,
-    borderRadius: 4,
-    backgroundColor: "#E5E7EB",
-  },
-  heroSubtitlePlaceholder: {
-    width: 100,
-    height: 14,
-    borderRadius: 4,
-    backgroundColor: c.elevate2,
-    marginTop: 6,
   },
   card: {
     borderRadius: 16,
@@ -670,18 +691,20 @@ function makeStyles(c, dark) {
     borderColor: c.border,
   },
   fieldLabel: {
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 13,
-    fontWeight: "500",
     marginBottom: 6,
     color: c.textMid,
   },
   input: {
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: c.borderStrong,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 15,
+    color: c.text,
     backgroundColor: c.elevate,
   },
   detailRow: {
@@ -695,18 +718,20 @@ function makeStyles(c, dark) {
     paddingRight: 12,
   },
   detailLabel: {
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 13,
-    fontWeight: "500",
     color: c.textMid,
     marginBottom: 2,
   },
   detailValue: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 14,
     color: c.text,
+    letterSpacing: -0.1,
   },
   detailDivider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#E5E7EB",
+    backgroundColor: c.divider,
   },
   detailPill: {
     paddingHorizontal: 14,
@@ -715,8 +740,8 @@ function makeStyles(c, dark) {
     backgroundColor: c.elevate2,
   },
   detailPillText: {
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 13,
-    fontWeight: "500",
     color: c.textMid,
   },
   primaryBtn: {
@@ -727,15 +752,18 @@ function makeStyles(c, dark) {
     backgroundColor: PRIMARY,
   },
   primaryBtnText: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 16,
-    fontWeight: "600",
     color: "#FFFFFF",
+    letterSpacing: -0.1,
   },
-  // Section label
+  // Section label — builder uses small uppercase eyebrow. Matching
+  // here so the typography feels consistent across the flow.
   sectionLabel: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: c.textMid,
+    ...TypeVariants.eyebrow,
+    color: c.textMuted,
+    letterSpacing: 1,
+    marginTop: 8,
     marginBottom: 12,
   },
   // Type selector cards
@@ -755,7 +783,7 @@ function makeStyles(c, dark) {
   },
   typeCardSelected: {
     borderColor: PRIMARY,
-    backgroundColor: "#FAF5FF",
+    backgroundColor: dark ? "rgba(124,92,255,0.18)" : "#FAF5FF",
   },
   typeCardContent: {
     flexDirection: "row",
@@ -766,20 +794,21 @@ function makeStyles(c, dark) {
     marginRight: 12,
   },
   typeCardLabel: {
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 15,
     color: c.textMid,
-    fontWeight: "500",
   },
   typeCardLabelSelected: {
+    fontFamily: FontFamily.headerSemibold,
     color: PRIMARY,
-    fontWeight: "600",
+    letterSpacing: -0.1,
   },
   typeCardRadio: {
     width: 22,
     height: 22,
     borderRadius: 11,
     borderWidth: 2,
-    borderColor: "#D1D5DB",
+    borderColor: c.borderStrong,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -795,11 +824,13 @@ function makeStyles(c, dark) {
   // Note input
   noteInput: {
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: c.borderStrong,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 15,
+    color: c.text,
     backgroundColor: c.elevate,
     minHeight: 80,
   },
@@ -807,11 +838,11 @@ function makeStyles(c, dark) {
   keyboardAccessory: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F1F5F9",
+    backgroundColor: c.elevate2,
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#CBD5E1",
+    borderTopColor: c.border,
   },
   keyboardDoneBtn: {
     paddingHorizontal: 12,
@@ -820,8 +851,8 @@ function makeStyles(c, dark) {
     backgroundColor: PRIMARY,
   },
   keyboardDoneText: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 14,
-    fontWeight: "600",
     color: "#FFFFFF",
   },
   });
