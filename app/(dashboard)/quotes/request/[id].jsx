@@ -10,7 +10,7 @@ import {
   FlatList,
   Dimensions,
 } from "react-native";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -1363,6 +1363,10 @@ export default function RequestDetails() {
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  // Latches after the first successful fetch so focus-refresh doesn't
+  // flash the skeleton. Ref instead of state so the latest value is
+  // always visible inside the memoised `load` callback.
+  const hasLoadedOnceRef = useRef(false);
 
   const [req, setReq] = useState(null); // quote_requests row
   const [tgt, setTgt] = useState(null); // request_targets row for this trade (optional)
@@ -1425,7 +1429,12 @@ export default function RequestDetails() {
 
   const load = useCallback(async () => {
     if (!user?.id || !id) return;
-    setLoading(true);
+    // Only show the full-screen skeleton on the first fetch. Subsequent
+    // focus re-enters (e.g. returning from Create Quote or Create
+    // Appointment) refresh silently in the background — the previous
+    // content stays on screen, so the transition doesn't feel slowed
+    // down by a skeleton flash.
+    if (!hasLoadedOnceRef.current) setLoading(true);
     setErr(null);
     try {
       const myId = user.id;
@@ -1573,6 +1582,7 @@ export default function RequestDetails() {
       setAttachments([]);
       setAttachmentsCount(0);
     } finally {
+      hasLoadedOnceRef.current = true;
       setLoading(false);
     }
   }, [user?.id, id, loadAttachments]);
