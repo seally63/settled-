@@ -385,8 +385,20 @@ export default function Create() {
       const payload = buildPayload("sent");
       if (isEditing && quoteId) await updateQuote(quoteId, payload);
       else await createQuote(payload);
-      if (requestId) router.replace(`/quotes/request/${requestId}`);
-      else router.replace("/quotes");
+      // Prefer router.back() — same pattern as handleSaveDraft. The
+      // stack is typically
+      //   Projects → Request → (FAB or Continue draft) → Create
+      // so `back()` pops the builder and returns to the ORIGINAL
+      // Request page instead of router.replace-ing in a duplicate
+      // copy of it (which was causing the "tap back goes to the old
+      // Request screen" bug).
+      if (router.canGoBack?.()) {
+        router.back();
+      } else if (requestId) {
+        router.replace(`/quotes/request/${requestId}`);
+      } else {
+        router.replace("/quotes");
+      }
     } catch (e) {
       Alert.alert("Send failed", e?.message || "Could not send quote.");
     } finally {

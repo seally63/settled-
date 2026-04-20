@@ -101,6 +101,31 @@ const trvStyles = StyleSheet.create({
     paddingHorizontal: 16,
     marginTop: 28,
   },
+  // Full-width "Job description" container — same visual treatment as
+  // factPill (14 radius, 1px border, elevate background) so it reads
+  // as part of the same family as BUDGET / TIMING.
+  descRow: {
+    paddingHorizontal: 16,
+    marginTop: 28,
+  },
+  descPill: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  descLabel: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 10,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  descValue: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 4,
+  },
   factPill: {
     flex: 1,
     paddingVertical: 12,
@@ -492,8 +517,14 @@ function QuoteStatusBadge({ status }) {
 
 /* ───────── Phase 11.1 — Recent Activity (trade-side) ───────── */
 
+// Helper — last 4 chars of a UUID for the "#EE57" style quote id.
+function quoteShortId(id) {
+  const s = String(id || "");
+  return s.slice(-4).toUpperCase() || "0000";
+}
+
 // Interleaved appointments + quotes, newest first, tappable.
-function RecentActivitySection({ styles, c, appointments, quotes, onActivityPress }) {
+function RecentActivitySection({ styles, c, appointments, quotes, onActivityPress, clientName }) {
   const items = [
     ...((appointments || []).map((a) => ({
       kind: "appointment",
@@ -538,6 +569,7 @@ function RecentActivitySection({ styles, c, appointments, quotes, onActivityPres
                 c={c}
                 item={it}
                 onPress={() => onActivityPress(it)}
+                clientName={clientName}
               />
             </View>
           ))
@@ -547,7 +579,7 @@ function RecentActivitySection({ styles, c, appointments, quotes, onActivityPres
   );
 }
 
-function ActivityRow({ styles, c, item, onPress }) {
+function ActivityRow({ styles, c, item, onPress, clientName }) {
   const { kind, data } = item;
   if (kind === "appointment") {
     const scheduled = new Date(data.scheduled_at);
@@ -613,7 +645,10 @@ function ActivityRow({ styles, c, item, onPress }) {
       : s === "draft"
       ? "Draft"
       : s.charAt(0).toUpperCase() + s.slice(1);
-  const total = data.grand_total != null ? `£${Number(data.grand_total).toFixed(0)}` : "£—";
+  const clientFirst = clientName ? clientName.trim().split(/\s+/)[0] : null;
+  const title = clientFirst
+    ? `Quote #${quoteShortId(data.id)} for ${clientFirst}`
+    : `Quote #${quoteShortId(data.id)}`;
   return (
     <Pressable
       onPress={onPress}
@@ -625,10 +660,7 @@ function ActivityRow({ styles, c, item, onPress }) {
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <ThemedText style={[styles.activityTitle, { color: c.text }]} numberOfLines={1}>
-          {data.project_title || "Quote"}
-        </ThemedText>
-        <ThemedText style={[styles.activityMeta, { color: c.textMuted }]} numberOfLines={1}>
-          {total}
+          {title}
         </ThemedText>
       </View>
       <View style={[styles.activityBadge, { backgroundColor: tone + "22", borderColor: tone }]}>
@@ -1971,6 +2003,40 @@ export default function RequestDetails() {
             )}
           </View>
 
+          {/* Job description — same visual treatment as the Budget /
+              Timing fact pills: label inside a bordered container with
+              matching radius + padding. Always rendered with a
+              placeholder when empty.                               */}
+          <View style={trvStyles.descRow}>
+            <View
+              style={[
+                trvStyles.descPill,
+                { backgroundColor: c.elevate, borderColor: c.border },
+              ]}
+            >
+              <ThemedText style={[trvStyles.descLabel, { color: c.textMuted }]}>
+                JOB DESCRIPTION
+              </ThemedText>
+              <ThemedText
+                style={[
+                  trvStyles.descValue,
+                  {
+                    color:
+                      parsed.description || parsed.notes
+                        ? c.text
+                        : c.textMuted,
+                    fontStyle:
+                      parsed.description || parsed.notes ? "normal" : "italic",
+                  },
+                ]}
+              >
+                {parsed.description ||
+                  parsed.notes ||
+                  "No description provided — the client didn't add one."}
+              </ThemedText>
+            </View>
+          </View>
+
           {/* Two quick-fact pills (ITEMS removed — always 1, not useful).
               TIMING allows 2 lines so long strings like
               "As soon as availability allows" don't truncate. */}
@@ -1988,28 +2054,6 @@ export default function RequestDetails() {
               </ThemedText>
             </View>
           </View>
-
-          {/* Scope section removed — it always showed 1 item (the service
-              itself) so it duplicated the big title + category pills. */}
-
-          {/* Notes from client */}
-          {(parsed.description || parsed.notes) && (
-            <>
-              <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>
-                NOTES FROM CLIENT
-              </ThemedText>
-              <View
-                style={[
-                  trvStyles.notesCard,
-                  { backgroundColor: c.elevate, borderColor: c.border },
-                ]}
-              >
-                <ThemedText style={[trvStyles.notesText, { color: c.textMid }]}>
-                  {parsed.description || parsed.notes}
-                </ThemedText>
-              </View>
-            </>
-          )}
 
           {/* Photos */}
           {hasAttachments && (
@@ -2082,7 +2126,35 @@ export default function RequestDetails() {
                 c={c}
                 appointments={appointments}
                 quotes={quotes}
-                onActivityPress={(activity) => setActivitySheet(activity)}
+                clientName={clientName}
+                onActivityPress={(activity) => {
+                  // Quote cards always open directly (no bottom sheet):
+                  //  · draft       → builder for continued editing
+                  //  · sent / etc. → Quote Overview page
+                  // Appointments still use the sheet for confirm /
+                  // reschedule / cancel actions.
+                  if (activity?.kind === "quote") {
+                    const qs = String(activity?.data?.status || "").toLowerCase();
+                    if (qs === "draft") {
+                      router.push({
+                        pathname: "/quotes/create",
+                        params: {
+                          requestId: String(id),
+                          quoteId: String(activity.data.id),
+                          title: encodeURIComponent(derivedTitleForCreate),
+                          clientName: encodeURIComponent(clientName || ""),
+                        },
+                      });
+                    } else {
+                      router.push({
+                        pathname: "/quotes/[id]",
+                        params: { id: String(activity.data.id) },
+                      });
+                    }
+                    return;
+                  }
+                  setActivitySheet(activity);
+                }}
               />
             </>
           )}

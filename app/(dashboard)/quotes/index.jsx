@@ -1512,16 +1512,28 @@ export default function TradesmanProjects() {
         type: "quote",
         stage,
         stageIndex,
+        // Raw status (draft / sent / accepted / …) so the card render
+        // logic can distinguish them without inferring from labels.
+        status,
         progressPosition: getTradeProgressPosition(stage, subStatus),
         requestId: item.request_id,
         quoteId: item.acceptedQuoteId || item.id,
         title: item.title,
+        serviceTypeName: item.serviceTypeName || null,
+        serviceCategoryName: item.serviceCategoryName || null,
         requestType: item.request_type,
         contextLine,
         statusType,
         statusText,
         statusDetail,
-        quoteAmount: stage !== "REQUEST" && quoteAmount ? quoteAmount : null,
+        // Drafts have no meaningful "quote amount" to surface on the
+        // card — it's a work-in-progress number, not a client-facing
+        // figure. Suppressing it also keeps the pipeline strip honest.
+        quoteAmount: status === "draft"
+          ? null
+          : stage !== "REQUEST" && quoteAmount
+            ? quoteAmount
+            : null,
         quoteAmountLabel: item.hasAcceptedQuote ? "Accepted quote" : "Quote total",
         hasAcceptedQuote: item.hasAcceptedQuote,
         actions,
@@ -1633,6 +1645,11 @@ export default function TradesmanProjects() {
     let quotesOut = 0;
     let jobsInProgress = 0;
     for (const p of projects) {
+      // Drafts are work-in-progress and intentionally carry no
+      // quoteAmount — they never contribute to the pipeline strip or
+      // the quotesOut count. Same for accepted-without-quote rows
+      // (quoteAmount is null there already thanks to the push).
+      if (String(p.status || "").toLowerCase() === "draft") continue;
       const n = Number(p.quoteAmount) || 0;
       if (p.stage === "QUOTE") { pipeline += n; quotesOut += 1; }
       if (p.stage === "WORK")  { onJobs += n;  jobsInProgress += 1; }
@@ -1699,27 +1716,12 @@ export default function TradesmanProjects() {
                   <ProjectRow
                     {...row}
                     onPress={() => {
-                      // Route rules:
-                      //  · accepted / sent quote → Quote Overview
-                      //  · draft quote           → Client Request page
-                      //    (the draft is surfaced inside Recent Activity
-                      //    there — the overview screen is for
-                      //    actually-sent quotes only)
-                      //  · no quote yet           → Client Request page
-                      const status = String(project.status || "").toLowerCase();
-                      const isDraft = status === "draft";
-                      const isSentLike =
-                        status === "sent" ||
-                        status === "accepted" ||
-                        status === "awaiting_completion" ||
-                        status === "issue_reported" ||
-                        status === "issue_resolved_pending" ||
-                        status === "completed";
-                      if (project.quoteId && !isDraft && isSentLike) {
-                        router.push(`/quotes/${project.quoteId}`);
-                      } else {
-                        router.push(`/quotes/request/${project.requestId}`);
-                      }
+                      // New rule: every project card routes to the
+                      // Client Request page regardless of quote status.
+                      // Quotes (draft, sent, accepted, etc.) are
+                      // surfaced inside Recent Activity on that page
+                      // and can be tapped to open directly.
+                      router.push(`/quotes/request/${project.requestId}`);
                     }}
                   />
                   {idx < visibleRows.length - 1 && (
@@ -1839,7 +1841,7 @@ function buildTradeRow(project, formatNum) {
   const stageMeta = {
     REQUEST:   { color: "#F4B740", label: "Needs quote" },
     QUOTE:     isDraft
-      ? { color: "#F4B740", label: "Draft saved" }
+      ? { color: "#F4B740", label: "Quote drafted" }
       : isAcceptedWithoutQuote
       ? { color: "#5BB3FF", label: "Accepted — draft a quote" }
       : { color: "#7C5CFF", label: "Quote sent" },
@@ -1865,8 +1867,9 @@ function buildTradeRow(project, formatNum) {
           : null);
       break;
     case "QUOTE":
+      // Drafts never show a £ value — it isn't client-facing yet.
       rightTop = isDraft
-        ? amt || "Draft"
+        ? "Drafted"
         : amt || (isAcceptedWithoutQuote ? "Accepted" : "Sent");
       rightBot = project.statusDetail || project.statusText || null;
       break;
