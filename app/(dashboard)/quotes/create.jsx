@@ -399,8 +399,19 @@ export default function Create() {
       const payload = buildPayload("draft");
       if (isEditing && quoteId) await updateQuote(quoteId, payload);
       else await createQuote(payload);
-      if (requestId) router.replace(`/quotes/request/${requestId}`);
-      else router.replace("/quotes");
+      // Prefer router.back() — the stack is usually
+      //   Projects → Request → (FAB) → Create
+      // so `back()` pops the builder and returns to the request page
+      // using the reverse of the fade animation the builder entered
+      // with. No slide_from_right. If there's no back stack (deep
+      // link), fall back to `replace` onto the request page.
+      if (router.canGoBack?.()) {
+        router.back();
+      } else if (requestId) {
+        router.replace(`/quotes/request/${requestId}`);
+      } else {
+        router.replace("/quotes");
+      }
     } catch (e) {
       Alert.alert("Save failed", e?.message || "Could not save draft.");
     }

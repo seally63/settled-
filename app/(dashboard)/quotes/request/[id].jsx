@@ -233,6 +233,43 @@ const trvStyles = StyleSheet.create({
     textTransform: "uppercase",
   },
   activityDivider: { height: 1, marginLeft: 62 },
+
+  // Inline Accept/Decline row for the open state — equal flex, same
+  // height, no bar behind them.
+  inlineOpenActions: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    marginTop: 32,
+  },
+  openBtnGhost: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  openBtnGhostText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    letterSpacing: -0.1,
+  },
+  openBtnPrimary: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  openBtnPrimaryText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    color: "#FFFFFF",
+    letterSpacing: -0.1,
+  },
   fabWrap: {
     position: "absolute",
     left: 0,
@@ -1842,16 +1879,15 @@ export default function RequestDetails() {
         <Ionicons name="chevron-back" size={18} color={c.text} />
       </Pressable>
 
-      {loading ? (
-        <RequestDetailSkeleton paddingTop={insets.top + 60} />
-      ) : err ? (
+      {err ? (
         <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }}>
           <ThemedText>Error: {err}</ThemedText>
         </View>
       ) : !req ? (
-        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }}>
-          <ThemedText>Request not found.</ThemedText>
-        </View>
+        // No skeleton — the sticky chevron is already on top so the user
+        // can navigate back instantly. Initial fetch is fast enough that
+        // an empty screen for the few ms is cleaner than a loader flash.
+        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }} />
       ) : (
         <ScrollView
           style={{ flex: 1 }}
@@ -2066,44 +2102,41 @@ export default function RequestDetails() {
             </View>
           )}
 
-        </ScrollView>
-      )}
+          {/* OPEN state — Decline + Accept rendered inline as the last
+              content of the scroll view. Equal-size buttons side-by-side,
+              no background bar behind them. */}
+          {status === "open" && (
+            <View style={trvStyles.inlineOpenActions}>
+              <Pressable
+                onPress={onDecline}
+                style={({ pressed }) => [
+                  trvStyles.openBtnGhost,
+                  { backgroundColor: c.elevate, borderColor: c.borderStrong },
+                  pressed && { opacity: 0.75 },
+                ]}
+                accessibilityRole="button"
+              >
+                <ThemedText style={[trvStyles.openBtnGhostText, { color: c.text }]}>
+                  {tgt?.outside_service_area ? "Too far" : "Decline"}
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={onAccept}
+                style={({ pressed }) => [
+                  trvStyles.openBtnPrimary,
+                  pressed && { opacity: 0.85 },
+                ]}
+                accessibilityRole="button"
+              >
+                <Ionicons name="checkmark" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <ThemedText style={trvStyles.openBtnPrimaryText}>
+                  {tgt?.outside_service_area ? "Accept anyway" : "Accept"}
+                </ThemedText>
+              </Pressable>
+            </View>
+          )}
 
-      {/* OPEN state dock: Decline + Accept. CLAIMED state uses a FAB
-          instead (see below) — the draft+message dock was blocking
-          content and was removed in Phase 11.1.                     */}
-      {!loading && req && status === "open" && (
-        <View
-          style={[
-            trvStyles.dock,
-            { backgroundColor: c.background, borderTopColor: c.border },
-          ]}
-        >
-          <Pressable
-            onPress={onDecline}
-            style={({ pressed }) => [
-              trvStyles.dockGhostBtn,
-              { backgroundColor: c.elevate2, borderColor: c.border },
-              pressed && { opacity: 0.7 },
-            ]}
-          >
-            <ThemedText style={[trvStyles.dockGhostText, { color: c.textMid }]}>
-              {tgt?.outside_service_area ? "Too far" : "Decline"}
-            </ThemedText>
-          </Pressable>
-          <Pressable
-            onPress={onAccept}
-            style={({ pressed }) => [
-              trvStyles.dockPrimaryBtn,
-              pressed && { opacity: 0.85 },
-            ]}
-          >
-            <Ionicons name="checkmark" size={18} color="#FFFFFF" />
-            <ThemedText style={trvStyles.dockPrimaryText}>
-              {tgt?.outside_service_area ? "Accept anyway" : "Accept request"}
-            </ThemedText>
-          </Pressable>
-        </View>
+        </ScrollView>
       )}
 
       {/* Floating + action button — claimed state only. Purple, same

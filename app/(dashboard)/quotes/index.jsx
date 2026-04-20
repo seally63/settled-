@@ -1699,9 +1699,23 @@ export default function TradesmanProjects() {
                   <ProjectRow
                     {...row}
                     onPress={() => {
-                      if (project.hasAcceptedQuote && project.quoteId) {
-                        router.push(`/quotes/${project.quoteId}`);
-                      } else if (project.quoteId) {
+                      // Route rules:
+                      //  · accepted / sent quote → Quote Overview
+                      //  · draft quote           → Client Request page
+                      //    (the draft is surfaced inside Recent Activity
+                      //    there — the overview screen is for
+                      //    actually-sent quotes only)
+                      //  · no quote yet           → Client Request page
+                      const status = String(project.status || "").toLowerCase();
+                      const isDraft = status === "draft";
+                      const isSentLike =
+                        status === "sent" ||
+                        status === "accepted" ||
+                        status === "awaiting_completion" ||
+                        status === "issue_reported" ||
+                        status === "issue_resolved_pending" ||
+                        status === "completed";
+                      if (project.quoteId && !isDraft && isSentLike) {
                         router.push(`/quotes/${project.quoteId}`);
                       } else {
                         router.push(`/quotes/request/${project.requestId}`);
