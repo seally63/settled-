@@ -70,10 +70,15 @@ export function QuotesProvider({ children }) {
       const isSent = data?.status === 'sent'
       const now = new Date().toISOString()
 
+      // Phase 11 — quote terms. A trade-picked custom valid-until date
+      // overrides the auto-7-days-on-send default.
+      const validUntil = data?.valid_until_override
+        ? data.valid_until_override
+        : (isSent ? getValidUntilDate() : null)
+
       const payload = {
 
         request_id: data?.request_id ?? null, // <-- ensure it's sent to the DB
-        // NEW
         project_title: data?.project_title ?? null,
 
         // text fields
@@ -86,10 +91,14 @@ export function QuotesProvider({ children }) {
         // meta
         status: data?.status || 'draft',
         currency: data?.currency || 'GBP',
-        // Set valid_until to 7 days from now when sending, otherwise null
-        valid_until: isSent ? getValidUntilDate() : null,
-        // Set issued_at when sending
+        valid_until: validUntil,
         issued_at: isSent ? now : null,
+
+        // Phase 11 — quote terms (flat columns added by Phase 11 migration)
+        earliest_start: data?.earliest_start ?? null,
+        duration_text: data?.duration_text ?? null,
+        valid_until_override: data?.valid_until_override ?? null,
+        deposit_percent: data?.deposit_percent ?? null,
 
         // structured arrays
         measurements: Array.isArray(data?.measurements) ? data.measurements : [],
@@ -103,9 +112,6 @@ export function QuotesProvider({ children }) {
         // ownership: set BOTH so policies work with either schema
         trade_id: data?.trade_id ?? user?.id ?? null,
         userId:   data?.userId   ?? user?.id ?? null,
-
-       // linkage to the request (lets quote_events policy match via request->requester)
-        request_id: data?.request_id ?? null,
       }
 
       const { data: inserted, error } = await supabase
@@ -134,12 +140,22 @@ export function QuotesProvider({ children }) {
       const isSent = data?.status === 'sent'
       const now = new Date().toISOString()
 
+      // Phase 11 — custom valid-until overrides auto-7-day default on send.
+      const validUntil = data?.valid_until_override
+        ? data.valid_until_override
+        : (isSent ? getValidUntilDate() : undefined)
+
       const payload = {
         project_title: data?.project_title ?? null,
         comments: data?.comments ?? null,
         status: data?.status || 'draft',
-        // Set valid_until to 7 days from now when sending, otherwise keep as-is
-        ...(isSent && { valid_until: getValidUntilDate(), issued_at: now }),
+        ...(validUntil !== undefined && { valid_until: validUntil }),
+        ...(isSent && { issued_at: now }),
+        // Phase 11 — quote terms
+        earliest_start: data?.earliest_start ?? null,
+        duration_text: data?.duration_text ?? null,
+        valid_until_override: data?.valid_until_override ?? null,
+        deposit_percent: data?.deposit_percent ?? null,
         measurements: Array.isArray(data?.measurements) ? data.measurements : [],
         line_items: items,
         subtotal,

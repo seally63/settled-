@@ -69,19 +69,17 @@ import {
   defaultCategoryIcon,
   defaultServiceTypeIcon,
 } from "../../assets/icons";
+import {
+  getBudgetOptionsForProfile,
+  getTimingOptionsForProfile,
+  getJobProfileForServiceType,
+  DEFAULT_JOB_PROFILE,
+} from "../../lib/config/jobProfiles";
 
-// Budget options — values must match the CHECK constraint on
-// quote_requests.budget_band.
-const BUDGET_OPTIONS = [
-  { id: "under_250", label: "Under £250", value: "<£250" },
-  { id: "250_500", label: "£250 - £500", value: "£250–£500" },
-  { id: "500_1000", label: "£500 - £1,000", value: "£500–£1k" },
-  { id: "1000_3000", label: "£1,000 - £3,000", value: "£1k–£3k" },
-  { id: "3000_7500", label: "£3,000 - £7,500", value: "£3k–£7.5k" },
-  { id: "7500_15000", label: "£7,500 - £15,000", value: "£7.5k–£15k" },
-  { id: "over_15000", label: "£15,000+", value: ">£15k" },
-  { id: "not_sure", label: "I'm not sure yet", value: null },
-];
+// Flat fallback budget list used only when a service type has no
+// job_profile set (shouldn't happen with current seed data, but gives
+// the UI something to render instead of an empty list).
+const FALLBACK_BUDGET_OPTIONS = getBudgetOptionsForProfile(DEFAULT_JOB_PROFILE);
 
 export default function RequestQuoteSheet({
   visible,
@@ -157,6 +155,14 @@ export default function RequestQuoteSheet({
       loadServiceTypes(selectedCategory.id);
     }
   }, [selectedCategory?.id]);
+
+  // Reset downstream selections when the service type changes — the
+  // budget + timing option lists swap based on its job_profile, so keeping
+  // a stale selection (e.g. £15k on a tap-leak) would be nonsense.
+  useEffect(() => {
+    setSelectedBudget(null);
+    setSelectedTiming(null);
+  }, [selectedServiceType?.id]);
 
   // ─── Init upload session when modal opens ───────────────
   useEffect(() => {
@@ -633,7 +639,12 @@ export default function RequestQuoteSheet({
                 <View style={wizStyles.field}>
                   <ThemedText style={[wizStyles.fieldLabel, { color: c.text }]}>Budget</ThemedText>
                   <View style={{ gap: 8 }}>
-                    {BUDGET_OPTIONS.map((option) => {
+                    {(selectedServiceType
+                      ? getBudgetOptionsForProfile(
+                          getJobProfileForServiceType(selectedServiceType)
+                        )
+                      : FALLBACK_BUDGET_OPTIONS
+                    ).map((option) => {
                       const on = selectedBudget?.id === option.id;
                       return (
                         <Pressable
@@ -660,7 +671,12 @@ export default function RequestQuoteSheet({
                     When do you need this done?
                   </ThemedText>
                   <View style={{ gap: 8 }}>
-                    {timingOptions.map((opt) => {
+                    {(selectedServiceType
+                      ? getTimingOptionsForProfile(
+                          getJobProfileForServiceType(selectedServiceType)
+                        )
+                      : timingOptions
+                    ).map((opt) => {
                       const on = selectedTiming?.id === opt.id;
                       return (
                         <Pressable

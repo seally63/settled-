@@ -629,14 +629,14 @@ function makeStyles(c, dark) {
     height: 48,
     borderRadius: 24,
     marginRight: 12,
-    backgroundColor: "#E5E7EB",
+    backgroundColor: c.elevate2,
     alignItems: "center",
     justifyContent: "center",
   },
   heroAvatarInitials: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#4B5563",
+    color: c.textMid,
   },
   heroTitle: {
     fontSize: 16,
@@ -652,7 +652,7 @@ function makeStyles(c, dark) {
     width: 140,
     height: 18,
     borderRadius: 4,
-    backgroundColor: "#E5E7EB",
+    backgroundColor: c.elevate2,
   },
   heroSubtitlePlaceholder: {
     width: 100,
@@ -677,11 +677,12 @@ function makeStyles(c, dark) {
   },
   input: {
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: c.borderStrong,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
+    color: c.text,
     backgroundColor: c.elevate,
   },
   detailRow: {
@@ -706,7 +707,7 @@ function makeStyles(c, dark) {
   },
   detailDivider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#E5E7EB",
+    backgroundColor: c.divider,
   },
   detailPill: {
     paddingHorizontal: 14,
@@ -755,7 +756,7 @@ function makeStyles(c, dark) {
   },
   typeCardSelected: {
     borderColor: PRIMARY,
-    backgroundColor: "#FAF5FF",
+    backgroundColor: dark ? "rgba(124,92,255,0.18)" : "#FAF5FF",
   },
   typeCardContent: {
     flexDirection: "row",
@@ -779,7 +780,7 @@ function makeStyles(c, dark) {
     height: 22,
     borderRadius: 11,
     borderWidth: 2,
-    borderColor: "#D1D5DB",
+    borderColor: c.borderStrong,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -795,11 +796,12 @@ function makeStyles(c, dark) {
   // Note input
   noteInput: {
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: c.borderStrong,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
+    color: c.text,
     backgroundColor: c.elevate,
     minHeight: 80,
   },
@@ -807,11 +809,11 @@ function makeStyles(c, dark) {
   keyboardAccessory: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F1F5F9",
+    backgroundColor: c.elevate2,
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#CBD5E1",
+    borderTopColor: c.border,
   },
   keyboardDoneBtn: {
     paddingHorizontal: 12,
