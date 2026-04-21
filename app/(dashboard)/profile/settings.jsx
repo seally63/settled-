@@ -1,11 +1,16 @@
 // app/(dashboard)/profile/settings.jsx
-// Settings page - accessed via burger menu from Profile page
+// Settings — the burger-menu destination from the Profile tab.
+//
+// Dark-mode aware, typography tokens, pill-container grouping with
+// eyebrow labels — same redesign language used on the Profile tab.
+// Keeps every existing row, verification banners, theme switcher,
+// and sign-out path intact.
+
 import { useEffect, useState, useCallback } from "react";
 import {
   StyleSheet,
   View,
   ScrollView,
-  ActivityIndicator,
   Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,6 +23,7 @@ import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
+import { FontFamily } from "../../../constants/Typography";
 
 import { useUser } from "../../../hooks/useUser";
 import { useTheme } from "../../../hooks/useTheme";
@@ -27,6 +33,8 @@ import { getMyVerificationStatus } from "../../../lib/api/verification";
 import { isCurrentUserAdmin } from "../../../lib/api/admin";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
+const PRIMARY = Colors.primary;
+
 function normalizeRole(r) {
   if (r == null) return null;
   const s = String(r).trim().toLowerCase();
@@ -35,12 +43,37 @@ function normalizeRole(r) {
   return s;
 }
 
+function verificationStatusText(status) {
+  switch (status) {
+    case "verified": return "Verified";
+    case "under_review":
+    case "pending_review": return "Under review";
+    case "submitted": return "Submitted";
+    case "rejected": return "Rejected";
+    case "expired": return "Expired";
+    case "expiring_soon": return "Expiring soon";
+    default: return "Not started";
+  }
+}
+
+function verificationStatusIcon(status, c) {
+  switch (status) {
+    case "verified": return { name: "checkmark-circle", color: "#10B981" };
+    case "under_review":
+    case "pending_review":
+    case "submitted": return { name: "time-outline", color: "#3B82F6" };
+    case "rejected":
+    case "expired": return { name: "alert-circle", color: "#DC2626" };
+    case "expiring_soon": return { name: "warning", color: "#D97706" };
+    default: return { name: "ellipse-outline", color: c.textMuted };
+  }
+}
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, authChecked } = useUser();
-  const { mode: themeMode, setMode: setThemeMode } = useTheme();
-  // Settings is a deep page (chevron-back) — hide the floating tab bar.
+  const { colors: c, dark, mode: themeMode, setMode: setThemeMode } = useTheme();
   useHideTabBar();
 
   const [role, setRole] = useState(null);
@@ -50,7 +83,6 @@ export default function SettingsScreen() {
   const [loadingData, setLoadingData] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Determine role
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -70,22 +102,15 @@ export default function SettingsScreen() {
     return () => { alive = false; };
   }, [user?.id, authChecked]);
 
-  // Load profile data and verification status
   const loadProfile = useCallback(async () => {
     if (!user?.id) return;
     try {
       setLoadingData(true);
-
-      // Load profile, verification status, and admin status in parallel
       const [me, verificationData, adminStatus] = await Promise.all([
         getMyProfile(),
-        getMyVerificationStatus().catch(e => {
-          console.log("Error loading verification status:", e);
-          return null;
-        }),
+        getMyVerificationStatus().catch(() => null),
         isCurrentUserAdmin().catch(() => false),
       ]);
-
       setProfile(me || null);
       setVerification(verificationData || {
         photo_id_status: "not_started",
@@ -99,17 +124,13 @@ export default function SettingsScreen() {
     }
   }, [user?.id]);
 
-  // Initial load
   useEffect(() => {
     if (role) loadProfile();
   }, [user?.id, role, loadProfile]);
 
-  // Reload when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      if (role && user?.id) {
-        loadProfile();
-      }
+      if (role && user?.id) loadProfile();
     }, [role, user?.id, loadProfile])
   );
 
@@ -128,303 +149,205 @@ export default function SettingsScreen() {
 
   const isTrades = role === "trades";
 
-  // Verification status (from real API data)
   const verificationData = verification || {
     photo_id_status: "not_started",
     insurance_status: "not_started",
     credentials_status: "not_started",
   };
-
-  // Map to shorter names for easier access
   const verificationStatus = {
     photo_id: verificationData.photo_id_status || "not_started",
     insurance: verificationData.insurance_status || "not_started",
     credentials: verificationData.credentials_status || "not_started",
   };
-
   const verificationCount = [
     verificationStatus.photo_id === "verified",
     verificationStatus.insurance === "verified",
     verificationStatus.credentials === "verified",
   ].filter(Boolean).length;
-
   const isFullyVerified = verificationCount === 3;
-  const hasActionNeeded = verificationStatus.insurance === "expired" ||
+  const hasActionNeeded =
+    verificationStatus.insurance === "expired" ||
     verificationStatus.photo_id === "rejected" ||
     verificationStatus.insurance === "rejected" ||
     verificationStatus.credentials === "rejected";
   const isExpiringSoon = verificationStatus.insurance === "expiring_soon";
-
-  // Check if any verification is under review
   const hasUnderReview = [
     verificationStatus.photo_id,
     verificationStatus.insurance,
     verificationStatus.credentials,
-  ].some(s => s === "under_review" || s === "pending_review");
+  ].some((s) => s === "under_review" || s === "pending_review");
 
-  // Determine banner state
-  const getBannerState = () => {
+  const bannerState = (() => {
     if (hasActionNeeded) return "action";
     if (isExpiringSoon) return "expiring";
     if (isFullyVerified) return "complete";
     if (hasUnderReview && verificationCount < 3) return "review";
     if (verificationCount < 3) return "incomplete";
     return null;
-  };
+  })();
 
-  const bannerState = getBannerState();
-
-  // Get display data
   const displayName = profile?.full_name || user?.email || "User";
   const businessName = profile?.business_name;
   const email = profile?.email || user?.email;
   const phone = profile?.phone;
-
   const appVersion = Constants.expoConfig?.version || "1.0.0";
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
       <ThemedStatusBar />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
-        </Pressable>
-        <ThemedText style={styles.headerTitle}>Settings</ThemedText>
-        <View style={{ width: 24 }} />
-      </View>
-
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Verification Banners for Trades */}
-        {isTrades && bannerState === "incomplete" && (
-          <View style={styles.incompleteBanner}>
-            <Ionicons name="warning" size={20} color="#F59E0B" />
-            <View style={styles.bannerContent}>
-              <ThemedText style={styles.incompleteBannerTitle}>Complete verification</ThemedText>
-              <ThemedText style={styles.bannerText}>
-                {verificationCount === 0
-                  ? "Verify your details to start receiving quote requests from customers."
-                  : `${3 - verificationCount} more step${3 - verificationCount !== 1 ? "s" : ""} to start receiving quotes.`}
-              </ThemedText>
-              <View style={styles.progressBar}>
-                <View style={[styles.progressFillAmber, { width: `${(verificationCount / 3) * 100}%` }]} />
-              </View>
-              <ThemedText style={styles.progressText}>{verificationCount} of 3 complete</ThemedText>
-            </View>
-          </View>
+        {/* Inline chevron — scrolls with the content. Same treatment
+            as the Client Request page. Free-standing, no row chrome
+            behind it.                                               */}
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={10}
+          style={({ pressed }) => [
+            styles.chevronBtn,
+            { backgroundColor: c.elevate, borderColor: c.border },
+            pressed && { opacity: 0.7 },
+          ]}
+          accessibilityLabel="Back"
+        >
+          <Ionicons name="chevron-back" size={18} color={c.text} />
+        </Pressable>
+
+        {/* Standalone big title — same size / weight / position as
+            Profile / Projects / Home.                              */}
+        <View style={styles.titleBlock}>
+          <ThemedText style={[styles.pageTitle, { color: c.text }]}>
+            Settings
+          </ThemedText>
+        </View>
+
+        {/* Verification banners (trades only) */}
+        {isTrades && bannerState && (
+          <VerificationBanner
+            state={bannerState}
+            c={c}
+            verificationCount={verificationCount}
+            verificationStatus={verificationStatus}
+            onUpdatePress={() => router.push("/profile/insurance")}
+          />
         )}
 
-        {/* Under Review Banner */}
-        {isTrades && bannerState === "review" && (
-          <View style={styles.reviewBanner}>
-            <Ionicons name="time-outline" size={20} color="#3B82F6" />
-            <View style={styles.bannerContent}>
-              <ThemedText style={styles.reviewBannerTitle}>Under review</ThemedText>
-              <ThemedText style={styles.bannerText}>
-                We're checking your documents. This usually takes 1-2 business days.
-              </ThemedText>
-            </View>
-          </View>
-        )}
-
-        {/* Complete Banner */}
-        {isTrades && bannerState === "complete" && (
-          <View style={styles.completeBanner}>
-            <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-            <View style={styles.bannerContent}>
-              <ThemedText style={styles.completeBannerTitle}>Verification complete</ThemedText>
-              <ThemedText style={styles.bannerText}>
-                You're all set! Clients can now find you and request quotes.
-              </ThemedText>
-              <View style={styles.progressBar}>
-                <View style={[styles.progressFillGreen, { width: "100%" }]} />
-              </View>
-              <ThemedText style={styles.progressText}>3 of 3 complete</ThemedText>
-            </View>
-          </View>
-        )}
-
-        {/* Expiring Soon Banner */}
-        {isTrades && bannerState === "expiring" && (
-          <View style={styles.expiringBanner}>
-            <Ionicons name="warning" size={20} color="#F59E0B" />
-            <View style={styles.bannerContent}>
-              <ThemedText style={styles.expiringBannerTitle}>Insurance expiring soon</ThemedText>
-              <ThemedText style={styles.bannerText}>
-                Your insurance is expiring soon. Upload your renewal to continue receiving quotes.
-              </ThemedText>
-              <Pressable
-                style={styles.updateButton}
-                onPress={() => router.push("/profile/insurance")}
-              >
-                <ThemedText style={styles.updateButtonText}>Update now</ThemedText>
-              </Pressable>
-            </View>
-          </View>
-        )}
-
-        {/* Action Needed Banner (Expired/Rejected) */}
-        {isTrades && bannerState === "action" && (
-          <View style={styles.actionBanner}>
-            <Ionicons name="warning" size={20} color="#DC2626" />
-            <View style={styles.bannerContent}>
-              <ThemedText style={styles.actionBannerTitle}>Action required</ThemedText>
-              <ThemedText style={styles.bannerText}>
-                {verificationStatus.insurance === "expired"
-                  ? "Your insurance has expired. Upload a new certificate to continue receiving quotes."
-                  : "There's an issue with your verification. Please check and resubmit."}
-              </ThemedText>
-              <Pressable
-                style={styles.updateButton}
-                onPress={() => router.push("/profile/insurance")}
-              >
-                <ThemedText style={styles.updateButtonText}>Update now</ThemedText>
-              </Pressable>
-            </View>
-          </View>
-        )}
-
-        {/* Verification Section (Trades only) */}
         {isTrades && (
-          <>
-            <ThemedText style={styles.sectionLabel}>VERIFICATION</ThemedText>
-            <View style={styles.sectionCard}>
-              <SettingsRow
-                icon="person-outline"
-                label="Photo ID"
-                value={getVerificationStatusText(verificationStatus.photo_id)}
-                statusIcon={getVerificationStatusIcon(verificationStatus.photo_id)}
-                onPress={() => router.push("/profile/photo-id")}
-              />
-              <View style={styles.divider} />
-              <SettingsRow
-                icon="shield-outline"
-                label="Insurance"
-                value={getVerificationStatusText(verificationStatus.insurance)}
-                statusIcon={getVerificationStatusIcon(verificationStatus.insurance)}
-                onPress={() => router.push("/profile/insurance")}
-              />
-              <View style={styles.divider} />
-              <SettingsRow
-                icon="ribbon-outline"
-                label="Credentials"
-                value={getVerificationStatusText(verificationStatus.credentials)}
-                statusIcon={getVerificationStatusIcon(verificationStatus.credentials)}
-                onPress={() => router.push("/profile/credentials")}
-              />
-            </View>
-          </>
+          <Section c={c} eyebrow="VERIFICATION">
+            <SettingsRow
+              c={c}
+              icon="person-outline"
+              label="Photo ID"
+              value={verificationStatusText(verificationStatus.photo_id)}
+              statusIcon={verificationStatusIcon(verificationStatus.photo_id, c)}
+              onPress={() => router.push("/profile/photo-id")}
+            />
+            <RowDivider c={c} />
+            <SettingsRow
+              c={c}
+              icon="shield-outline"
+              label="Insurance"
+              value={verificationStatusText(verificationStatus.insurance)}
+              statusIcon={verificationStatusIcon(verificationStatus.insurance, c)}
+              onPress={() => router.push("/profile/insurance")}
+            />
+            <RowDivider c={c} />
+            <SettingsRow
+              c={c}
+              icon="ribbon-outline"
+              label="Credentials"
+              value={verificationStatusText(verificationStatus.credentials)}
+              statusIcon={verificationStatusIcon(verificationStatus.credentials, c)}
+              onPress={() => router.push("/profile/credentials")}
+            />
+          </Section>
         )}
 
-        {/* Personal Details Section (Trades) */}
-        {isTrades && (
-          <>
-            <ThemedText style={styles.sectionLabel}>PERSONAL DETAILS</ThemedText>
-            <View style={styles.sectionCard}>
+        <Section c={c} eyebrow="PERSONAL DETAILS">
+          <SettingsRow
+            c={c}
+            icon="person-outline"
+            label="Name"
+            value={displayName}
+            locked
+          />
+          <RowDivider c={c} />
+          <SettingsRow
+            c={c}
+            icon="mail-outline"
+            label="Email"
+            value={email || "Not added"}
+            onPress={() => router.push("/profile/change-email")}
+          />
+          <RowDivider c={c} />
+          <SettingsRow
+            c={c}
+            icon="call-outline"
+            label="Phone"
+            value={phone || "Not added"}
+            onPress={() => router.push("/profile/change-phone")}
+          />
+          {!isTrades && (
+            <>
+              <RowDivider c={c} />
               <SettingsRow
-                icon="person-outline"
-                label="Name"
-                value={displayName}
-                locked={true}
-              />
-              <View style={styles.divider} />
-              <SettingsRow
-                icon="mail-outline"
-                label="Email"
-                value={email || "Not added"}
-                onPress={() => router.push("/profile/change-email")}
-              />
-              <View style={styles.divider} />
-              <SettingsRow
-                icon="call-outline"
-                label="Phone"
-                value={phone || "Not added"}
-                onPress={() => router.push("/profile/change-phone")}
-              />
-            </View>
-          </>
-        )}
-
-        {/* Business Section (Trades only) */}
-        {isTrades && (
-          <>
-            <ThemedText style={styles.sectionLabel}>BUSINESS</ThemedText>
-            <View style={styles.sectionCard}>
-              <SettingsRow
-                icon="briefcase-outline"
-                label="Business info"
-                value={businessName || "Not set up"}
-                onPress={() => router.push("/profile/business")}
-              />
-              <View style={styles.divider} />
-              <SettingsRow
-                icon="location-outline"
-                label="Service areas"
-                value={profile?.base_postcode || "Not set up"}
-                onPress={() => router.push("/profile/service-areas")}
-              />
-            </View>
-          </>
-        )}
-
-        {/* Personal Details Section (Client) */}
-        {!isTrades && (
-          <>
-            <ThemedText style={styles.sectionLabel}>PERSONAL DETAILS</ThemedText>
-            <View style={styles.sectionCard}>
-              <SettingsRow
-                icon="person-outline"
-                label="Name"
-                value={displayName}
-                locked={true}
-              />
-              <View style={styles.divider} />
-              <SettingsRow
-                icon="mail-outline"
-                label="Email"
-                value={email || "Not added"}
-                onPress={() => router.push("/profile/change-email")}
-              />
-              <View style={styles.divider} />
-              <SettingsRow
-                icon="call-outline"
-                label="Phone"
-                value={phone || "Not added"}
-                onPress={() => router.push("/profile/change-phone")}
-              />
-              <View style={styles.divider} />
-              <SettingsRow
+                c={c}
                 icon="home-outline"
                 label="Address"
                 value={profile?.address?.line1 || "Not added"}
                 onPress={() => router.push("/profile/address")}
               />
-            </View>
-          </>
+            </>
+          )}
+        </Section>
+
+        {isTrades && (
+          <Section c={c} eyebrow="BUSINESS">
+            <SettingsRow
+              c={c}
+              icon="briefcase-outline"
+              label="Business info"
+              value={businessName || "Not set up"}
+              onPress={() => router.push("/profile/business")}
+            />
+            <RowDivider c={c} />
+            <SettingsRow
+              c={c}
+              icon="location-outline"
+              label="Service areas"
+              value={profile?.base_postcode || "Not set up"}
+              onPress={() => router.push("/profile/service-areas")}
+            />
+          </Section>
         )}
 
-        {/* Appearance Section */}
-        <ThemedText style={styles.sectionLabel}>APPEARANCE</ThemedText>
-        <View style={styles.sectionCard}>
+        <Section c={c} eyebrow="APPEARANCE">
           <View style={styles.rowContainer}>
             <View style={styles.rowLeft}>
-              <Ionicons name="contrast-outline" size={20} color={Colors.light.subtitle} />
-              <View style={styles.rowTextContainer}>
-                <ThemedText style={styles.rowLabel}>Theme</ThemedText>
-                <ThemedText style={styles.rowValue}>
+              <View style={[
+                styles.rowIconWrap,
+                { backgroundColor: c.elevate, borderColor: c.border },
+              ]}>
+                <Ionicons name="contrast-outline" size={16} color={c.textMid} />
+              </View>
+              <View style={styles.rowTextCol}>
+                <ThemedText style={[styles.rowLabel, { color: c.text }]}>Theme</ThemedText>
+                <ThemedText style={[styles.rowValue, { color: c.textMid }]}>
                   {themeMode === "system" ? "Match device" : themeMode === "dark" ? "Dark" : "Light"}
                 </ThemedText>
               </View>
             </View>
-            <View style={styles.themeSeg}>
+            <View style={[
+              styles.themeSeg,
+              { backgroundColor: c.elevate, borderColor: c.border },
+            ]}>
               {[
-                { key: "light",  label: "Light"  },
-                { key: "dark",   label: "Dark"   },
-                { key: "system", label: "Auto"   },
+                { key: "light",  label: "Light" },
+                { key: "dark",   label: "Dark"  },
+                { key: "system", label: "Auto"  },
               ].map((opt) => {
                 const on = themeMode === opt.key;
                 return (
@@ -433,13 +356,13 @@ export default function SettingsScreen() {
                     onPress={() => setThemeMode(opt.key)}
                     style={[
                       styles.themeSegBtn,
-                      on && styles.themeSegBtnActive,
+                      on && { backgroundColor: c.text },
                     ]}
                   >
                     <ThemedText
                       style={[
                         styles.themeSegLabel,
-                        on && styles.themeSegLabelActive,
+                        { color: on ? c.background : c.textMid },
                       ]}
                     >
                       {opt.label}
@@ -449,54 +372,59 @@ export default function SettingsScreen() {
               })}
             </View>
           </View>
-        </View>
+        </Section>
 
-        {/* Account Section */}
-        <ThemedText style={styles.sectionLabel}>ACCOUNT</ThemedText>
-        <View style={styles.sectionCard}>
+        <Section c={c} eyebrow="ACCOUNT">
           {isAdmin && (
             <>
               <SettingsRow
+                c={c}
                 icon="shield-checkmark-outline"
                 label="Admin"
                 onPress={() => router.push("/(admin)/reviews")}
               />
-              <View style={styles.divider} />
+              <RowDivider c={c} />
             </>
           )}
           {__DEV__ && (
             <>
               <SettingsRow
+                c={c}
                 icon="code-slash-outline"
-                label="Developer Settings"
-                value="Environment & Debug"
+                label="Developer settings"
+                value="Environment & debug"
                 onPress={() => router.push("/profile/developer-settings")}
               />
-              <View style={styles.divider} />
+              <RowDivider c={c} />
             </>
           )}
           <SettingsRow
+            c={c}
             icon="notifications-outline"
             label="Notifications"
             onPress={() => router.push("/profile/notifications")}
           />
-          <View style={styles.divider} />
+          <RowDivider c={c} />
           <SettingsRow
+            c={c}
             icon="help-circle-outline"
             label="Help & support"
             onPress={() => router.push("/profile/help")}
           />
-          <View style={styles.divider} />
+          <RowDivider c={c} />
           <SettingsRow
+            c={c}
             icon="log-out-outline"
             label="Sign out"
             onPress={onSignOut}
+            destructive
           />
-        </View>
+        </Section>
 
-        {/* App Version */}
-        <View style={styles.versionContainer}>
-          <ThemedText style={styles.versionText}>App version {appVersion}</ThemedText>
+        <View style={[styles.versionContainer, { borderTopColor: c.border }]}>
+          <ThemedText style={[styles.versionText, { color: c.textMuted }]}>
+            App version {appVersion}
+          </ThemedText>
         </View>
 
         <Spacer height={insets.bottom + 180} />
@@ -505,46 +433,57 @@ export default function SettingsScreen() {
   );
 }
 
-// Helper functions for verification status
-function getVerificationStatusText(status) {
-  switch (status) {
-    case "verified": return "Verified";
-    case "under_review":
-    case "pending_review": return "Under review";
-    case "submitted": return "Submitted";
-    case "rejected": return "Rejected";
-    case "expired": return "Expired";
-    case "expiring_soon": return "Expiring soon";
-    default: return "Not started";
-  }
+// ======================================================================
+// Sub-components
+// ======================================================================
+
+function Section({ c, eyebrow, children }) {
+  return (
+    <>
+      <ThemedText style={[styles.sectionEyebrow, { color: c.textMuted }]}>
+        {eyebrow}
+      </ThemedText>
+      <View style={[
+        styles.sectionCard,
+        { backgroundColor: c.elevate2, borderColor: c.borderStrong },
+      ]}>
+        {children}
+      </View>
+    </>
+  );
 }
 
-function getVerificationStatusIcon(status) {
-  switch (status) {
-    case "verified": return { name: "checkmark-circle", color: Colors.success };
-    case "under_review":
-    case "pending_review":
-    case "submitted": return { name: "time-outline", color: "#3B82F6" };
-    case "rejected":
-    case "expired": return { name: "warning", color: "#DC2626" };
-    case "expiring_soon": return { name: "warning", color: "#D97706" };
-    default: return { name: "ellipse-outline", color: Colors.light.subtitle };
-  }
+function RowDivider({ c }) {
+  return <View style={[styles.rowDivider, { backgroundColor: c.border }]} />;
 }
 
-// Settings Row Component
-function SettingsRow({ icon, label, value, onPress, locked, statusIcon }) {
+function SettingsRow({ c, icon, label, value, onPress, locked, statusIcon, destructive }) {
+  const labelColor = destructive ? "#DC2626" : c.text;
   const content = (
     <View style={styles.rowContainer}>
       <View style={styles.rowLeft}>
-        <Ionicons name={icon} size={20} color={Colors.light.subtitle} />
-        <View style={styles.rowTextContainer}>
-          <ThemedText style={styles.rowLabel}>{label}</ThemedText>
-          {value && (
+        <View style={[
+          styles.rowIconWrap,
+          {
+            backgroundColor: destructive ? "#FEE2E2" : c.elevate,
+            borderColor: destructive ? "#FCA5A5" : c.border,
+          },
+        ]}>
+          <Ionicons
+            name={icon}
+            size={16}
+            color={destructive ? "#DC2626" : c.textMid}
+          />
+        </View>
+        <View style={styles.rowTextCol}>
+          <ThemedText style={[styles.rowLabel, { color: labelColor }]}>
+            {label}
+          </ThemedText>
+          {!!value && (
             <ThemedText
               style={[
                 styles.rowValue,
-                statusIcon?.color && { color: statusIcon.color },
+                { color: statusIcon?.color || c.textMid },
               ]}
               numberOfLines={1}
             >
@@ -555,12 +494,17 @@ function SettingsRow({ icon, label, value, onPress, locked, statusIcon }) {
       </View>
       <View style={styles.rowRight}>
         {statusIcon && (
-          <Ionicons name={statusIcon.name} size={18} color={statusIcon.color} style={{ marginRight: 8 }} />
+          <Ionicons
+            name={statusIcon.name}
+            size={16}
+            color={statusIcon.color}
+            style={{ marginRight: 8 }}
+          />
         )}
         {locked ? (
-          <Ionicons name="lock-closed" size={18} color={Colors.light.subtitle} />
+          <Ionicons name="lock-closed" size={16} color={c.textMuted} />
         ) : onPress ? (
-          <Ionicons name="chevron-forward" size={18} color={Colors.light.subtitle} />
+          <Ionicons name="chevron-forward" size={16} color={c.textMuted} />
         ) : null}
       </View>
     </View>
@@ -570,259 +514,286 @@ function SettingsRow({ icon, label, value, onPress, locked, statusIcon }) {
     return (
       <Pressable
         onPress={onPress}
-        style={({ pressed }) => [pressed && styles.rowPressed]}
+        style={({ pressed }) => [pressed && { opacity: 0.6 }]}
       >
         {content}
       </Pressable>
     );
   }
-
   return content;
 }
+
+function VerificationBanner({ state, c, verificationCount, verificationStatus, onUpdatePress }) {
+  const configs = {
+    incomplete: {
+      bg: "#FEF3C7", border: "#F59E0B", titleColor: c.text,
+      icon: "warning", iconColor: "#F59E0B",
+      title: "Complete verification",
+      body: verificationCount === 0
+        ? "Verify your details to start receiving quote requests from customers."
+        : `${3 - verificationCount} more step${3 - verificationCount !== 1 ? "s" : ""} to start receiving quotes.`,
+      progress: verificationCount,
+      progressColor: "#F59E0B",
+      action: null,
+    },
+    review: {
+      bg: "#DBEAFE", border: "#3B82F6", titleColor: "#3B82F6",
+      icon: "time-outline", iconColor: "#3B82F6",
+      title: "Under review",
+      body: "We're checking your documents. This usually takes 1–2 business days.",
+      progress: null,
+      action: null,
+    },
+    complete: {
+      bg: "#D1FAE5", border: "#10B981", titleColor: "#10B981",
+      icon: "checkmark-circle", iconColor: "#10B981",
+      title: "Verification complete",
+      body: "You're all set! Clients can now find you and request quotes.",
+      progress: 3,
+      progressColor: "#10B981",
+      action: null,
+    },
+    expiring: {
+      bg: "#FEF3C7", border: "#F59E0B", titleColor: "#D97706",
+      icon: "warning", iconColor: "#F59E0B",
+      title: "Insurance expiring soon",
+      body: "Your insurance is expiring soon. Upload your renewal to continue receiving quotes.",
+      progress: null,
+      action: "Update now",
+    },
+    action: {
+      bg: "#FEE2E2", border: "#DC2626", titleColor: "#DC2626",
+      icon: "alert-circle", iconColor: "#DC2626",
+      title: "Action required",
+      body: verificationStatus.insurance === "expired"
+        ? "Your insurance has expired. Upload a new certificate to continue receiving quotes."
+        : "There's an issue with your verification. Please check and resubmit.",
+      progress: null,
+      action: "Update now",
+    },
+  };
+  const cfg = configs[state];
+  if (!cfg) return null;
+  return (
+    <View style={[styles.banner, { backgroundColor: cfg.bg, borderColor: cfg.border }]}>
+      <Ionicons name={cfg.icon} size={20} color={cfg.iconColor} />
+      <View style={{ flex: 1 }}>
+        <ThemedText style={[styles.bannerTitle, { color: cfg.titleColor }]}>
+          {cfg.title}
+        </ThemedText>
+        <ThemedText style={[styles.bannerBody, { color: "#374151" }]}>
+          {cfg.body}
+        </ThemedText>
+        {cfg.progress != null && (
+          <>
+            <View style={styles.progressTrack}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${(cfg.progress / 3) * 100}%`,
+                    backgroundColor: cfg.progressColor,
+                  },
+                ]}
+              />
+            </View>
+            <ThemedText style={[styles.progressText, { color: "#6B7280" }]}>
+              {cfg.progress} of 3 complete
+            </ThemedText>
+          </>
+        )}
+        {cfg.action && (
+          <Pressable
+            onPress={onUpdatePress}
+            style={({ pressed }) => [
+              styles.bannerAction,
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <ThemedText style={styles.bannerActionText}>{cfg.action}</ThemedText>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ======================================================================
+// Styles
+// ======================================================================
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
   },
-  loadingContainer: {
-    flex: 1,
+  // Inline chevron — sits at the top of the ScrollView content so it
+  // scrolls away with the page (matches Client Request). Free-standing,
+  // no row or background block behind it.
+  chevronBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 14,
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+  // Title block — standalone Public Sans Bold 32pt, matches Profile /
+  // Projects / Home tabs exactly.
+  titleBlock: {
+    paddingTop: 0,
+    paddingBottom: 16,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
+  pageTitle: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 32,
+    lineHeight: 34,
+    letterSpacing: -0.8,
   },
   scrollContent: {
     paddingHorizontal: 20,
+    paddingTop: 12,
   },
-  // Banner base styles
-  bannerContent: {
-    flex: 1,
+
+  // Banners
+  banner: {
+    flexDirection: "row",
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 18,
   },
-  bannerText: {
-    fontSize: 14,
-    color: Colors.light.subtitle,
-    lineHeight: 20,
-    marginBottom: 12,
+  bannerTitle: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 15,
+    marginBottom: 4,
   },
-  progressBar: {
-    height: 4,
-    backgroundColor: "#E5E7EB",
-    borderRadius: 2,
-    overflow: "hidden",
+  bannerBody: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 13.5,
+    lineHeight: 19,
     marginBottom: 8,
   },
-  progressFillAmber: {
-    height: "100%",
-    backgroundColor: "#F59E0B",
+  progressTrack: {
+    height: 4,
+    backgroundColor: "rgba(0,0,0,0.06)",
     borderRadius: 2,
+    overflow: "hidden",
+    marginBottom: 6,
   },
-  progressFillGreen: {
+  progressFill: {
     height: "100%",
-    backgroundColor: "#10B981",
     borderRadius: 2,
   },
   progressText: {
-    fontSize: 12,
-    color: Colors.light.subtitle,
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 11.5,
   },
-  updateButton: {
-    backgroundColor: Colors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+  bannerAction: {
     alignSelf: "flex-start",
-    marginTop: 8,
+    backgroundColor: PRIMARY,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    marginTop: 10,
   },
-  updateButtonText: {
+  bannerActionText: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 13,
     color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
+    letterSpacing: -0.1,
   },
-  // Incomplete Banner (Amber)
-  incompleteBanner: {
-    flexDirection: "row",
-    backgroundColor: "#FEF3C7",
-    borderWidth: 1,
-    borderColor: "#F59E0B",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    gap: 12,
-  },
-  incompleteBannerTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.light.title,
-    marginBottom: 4,
-  },
-  // Under Review Banner (Blue)
-  reviewBanner: {
-    flexDirection: "row",
-    backgroundColor: "#DBEAFE",
-    borderWidth: 1,
-    borderColor: "#3B82F6",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    gap: 12,
-  },
-  reviewBannerTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#3B82F6",
-    marginBottom: 4,
-  },
-  // Complete Banner (Green)
-  completeBanner: {
-    flexDirection: "row",
-    backgroundColor: "#D1FAE5",
-    borderWidth: 1,
-    borderColor: "#10B981",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    gap: 12,
-  },
-  completeBannerTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#10B981",
-    marginBottom: 4,
-  },
-  // Expiring Soon Banner (Amber)
-  expiringBanner: {
-    flexDirection: "row",
-    backgroundColor: "#FEF3C7",
-    borderWidth: 1,
-    borderColor: "#F59E0B",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    gap: 12,
-  },
-  expiringBannerTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#D97706",
-    marginBottom: 4,
-  },
-  // Action Banner (Red)
-  actionBanner: {
-    flexDirection: "row",
-    backgroundColor: "#FEE2E2",
-    borderWidth: 1,
-    borderColor: "#DC2626",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    gap: 12,
-  },
-  actionBannerTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#DC2626",
-    marginBottom: 4,
-  },
+
   // Section
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Colors.light.subtitle,
-    letterSpacing: 0.5,
+  sectionEyebrow: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginTop: 12,
     marginBottom: 8,
-    marginTop: 8,
+    paddingHorizontal: 2,
   },
   sectionCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: Colors.light.border,
-    marginBottom: 16,
     overflow: "hidden",
   },
-  divider: {
+  rowDivider: {
     height: 1,
-    backgroundColor: Colors.light.border,
-    marginLeft: 52,
+    marginLeft: 60,
   },
+
   // Row
   rowContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  rowPressed: {
-    backgroundColor: Colors.light.secondaryBackground,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   rowLeft: {
     flexDirection: "row",
     alignItems: "center",
     flex: 1,
+    minWidth: 0,
   },
-  rowTextContainer: {
+  rowIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rowTextCol: {
     marginLeft: 12,
     flex: 1,
+    minWidth: 0,
   },
   rowLabel: {
-    fontSize: 16,
-    color: Colors.light.title,
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 15,
   },
   rowValue: {
-    fontSize: 14,
-    color: Colors.light.subtitle,
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 13,
     marginTop: 2,
   },
   rowRight: {
     flexDirection: "row",
     alignItems: "center",
+    paddingLeft: 8,
   },
-  // Theme segmented control (Appearance row)
+
+  // Theme segmented control
   themeSeg: {
     flexDirection: "row",
-    backgroundColor: "#F0F0F3",
     borderRadius: 9,
+    borderWidth: 1,
     padding: 3,
     gap: 2,
   },
   themeSegBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
     borderRadius: 7,
   },
-  themeSegBtnActive: {
-    backgroundColor: "#0B0B0D",
-  },
   themeSegLabel: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 11.5,
-    fontWeight: "600",
-    color: Colors.light.subtitle,
   },
-  themeSegLabelActive: {
-    color: "#FFFFFF",
-  },
-  // Version
+
+  // Version footer
   versionContainer: {
     alignItems: "center",
-    paddingVertical: 16,
+    paddingVertical: 18,
     borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
-    marginTop: 8,
+    marginTop: 14,
   },
   versionText: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 12,
-    color: Colors.light.subtitle,
   },
 });
