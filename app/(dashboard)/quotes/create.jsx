@@ -30,7 +30,6 @@ import {
   Alert,
   TextInput,
   Keyboard,
-  InputAccessoryView,
   Modal,
 } from "react-native";
 import { useEffect, useMemo, useState } from "react";
@@ -56,7 +55,6 @@ const VALIDATION = {
   ITEM_NAME_MAX: 200,
   ITEM_DESC_MAX: 500,
 };
-const NUMERIC_ACCESSORY_ID = "builder-numeric-done";
 
 /* ───────── helpers ───────── */
 
@@ -521,7 +519,6 @@ export default function Create() {
                 onChange={(field, v) => updateLine(idx, field, v)}
                 onRemove={() => removeLine(idx)}
                 canRemove={items.length > 1}
-                numericAccessoryId={NUMERIC_ACCESSORY_ID}
               />
             ))}
 
@@ -635,17 +632,6 @@ export default function Create() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* iOS numeric keyboard Done accessory */}
-      {Platform.OS === "ios" && (
-        <InputAccessoryView nativeID={NUMERIC_ACCESSORY_ID}>
-          <View style={styles.accessory}>
-            <Pressable onPress={Keyboard.dismiss} hitSlop={8}>
-              <ThemedText style={styles.accessoryDone}>Done</ThemedText>
-            </Pressable>
-          </View>
-        </InputAccessoryView>
-      )}
-
       {/* Pickers + editors */}
       <CustomDateTimePicker
         visible={showStartPicker}
@@ -740,7 +726,6 @@ function BuilderLine({
   onChange,
   onRemove,
   canRemove,
-  numericAccessoryId,
 }) {
   const qty = Number(item.qty || 1);
   const unit = Number(item.unit_price || 0);
@@ -793,7 +778,10 @@ function BuilderLine({
             placeholder="1"
             placeholderTextColor={c.textFaint}
             keyboardType="number-pad"
-            inputAccessoryViewID={Platform.OS === "ios" ? numericAccessoryId : undefined}
+            // No iOS inputAccessoryViewID — the floating Done blob
+            // was unwanted chrome; returnKeyType="done" on the
+            // keyboard still dismisses it, and the tap-outside
+            // gesture on the scroll container also works.
             returnKeyType="done"
             accessibilityLabel="Quantity"
           />
@@ -809,7 +797,6 @@ function BuilderLine({
             placeholder="0"
             placeholderTextColor={c.textFaint}
             keyboardType="decimal-pad"
-            inputAccessoryViewID={Platform.OS === "ios" ? numericAccessoryId : undefined}
             returnKeyType="done"
             accessibilityLabel="Unit price"
           />
@@ -1437,21 +1424,6 @@ function makeStyles(c, dark) {
     actionPrimaryText: {
       ...TypeVariants.button,
       color: "#fff",
-    },
-
-    /* numeric accessory */
-    accessory: {
-      flexDirection: "row",
-      justifyContent: "flex-end",
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      backgroundColor: c.elevate,
-      borderTopWidth: 1,
-      borderTopColor: c.border,
-    },
-    accessoryDone: {
-      ...TypeVariants.button,
-      color: c.tint,
     },
 
     /* prompt modal */
