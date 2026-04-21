@@ -1,12 +1,29 @@
 // app/(dashboard)/profile/index.jsx
-// Profile page - shows profile card with burger menu to settings
+// Profile tab — full redesign pass.
+//
+// Shape + typography match the Home / Projects / Messages pattern:
+//   · Public-Sans-Bold 28 page title at the top, burger icon on the right.
+//   · Pill-container cards (elevate2 bg, borderStrong, radius 18)
+//     with small uppercase eyebrow + content rows, same pattern used on
+//     Client Request / Quote Overview.
+//   · Fully dark-mode aware via useTheme — no hard-coded Colors.light.*
+//     on rendered text / backgrounds.
+//
+// The trade variant keeps every data surface the old screen had
+// (verification status, reviews, performance stats, bio, job titles,
+// location, show-all-reviews modal) — just reorganised off the
+// Airbnb-y two-column card into the Settled redesign language.
+//
+// The client variant is intentionally minimal (avatar + display name
+// + project count) — the Settings screen via the burger menu is where
+// their account surface lives.
+
 import { useEffect, useState, useCallback } from "react";
 import {
   StyleSheet,
   View,
   ScrollView,
   Image,
-  ActivityIndicator,
   Pressable,
   FlatList,
   Modal,
@@ -21,7 +38,10 @@ import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { ProfilePageSkeleton } from "../../../components/Skeleton";
+import { IconBtn } from "../../../components/design";
 import { Colors } from "../../../constants/Colors";
+import { FontFamily, TypeVariants } from "../../../constants/Typography";
+import { useTheme } from "../../../hooks/useTheme";
 
 import { useUser } from "../../../hooks/useUser";
 import { getMyRole, getMyProfile } from "../../../lib/api/profile";
@@ -29,15 +49,20 @@ import { getTradeReviews } from "../../../lib/api/trust";
 import { supabase } from "../../../lib/supabase";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
 
-const PRIMARY = Colors?.light?.tint || "#7C3AED";
+const PRIMARY = Colors.primary;
 
-// Keep tab label + icon
 export const options = {
   title: "Profile",
   tabBarIcon: ({ color, size, focused }) => (
-    <Ionicons name={focused ? "person-circle" : "person-circle-outline"} size={size} color={color} />
+    <Ionicons
+      name={focused ? "person-circle" : "person-circle-outline"}
+      size={size}
+      color={color}
+    />
   ),
 };
+
+// ---- small helpers ---------------------------------------------------
 
 function normalizeRole(r) {
   if (r == null) return null;
@@ -49,11 +74,10 @@ function normalizeRole(r) {
 
 function getInitials(name) {
   if (!name) return "?";
-  const parts = name.trim().split(" ");
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
-  return name.slice(0, 2).toUpperCase();
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 function getNameWithInitial(fullName) {
@@ -65,10 +89,29 @@ function getNameWithInitial(fullName) {
   return fullName;
 }
 
+function formatRelativeTime(date) {
+  if (!date) return "";
+  const now = new Date();
+  const reviewDate = new Date(date);
+  const diffMs = now - reviewDate;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? "s" : ""} ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? "s" : ""} ago`;
+  return `${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? "s" : ""} ago`;
+}
+
+// ======================================================================
+// Screen
+// ======================================================================
+
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, authChecked } = useUser();
+  const { colors: c, dark } = useTheme();
 
   const [role, setRole] = useState(null);
   const [roleLoading, setRoleLoading] = useState(true);
@@ -76,13 +119,14 @@ export default function ProfileScreen() {
   const [reviews, setReviews] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
   const [showAllReviews, setShowAllReviews] = useState(false);
+  const [verificationSheetVisible, setVerificationSheetVisible] = useState(false);
   const [performanceStats, setPerformanceStats] = useState({
     responseTimeHours: null,
     quoteRate: null,
   });
   const [performanceInfoVisible, setPerformanceInfoVisible] = useState(false);
 
-  // Determine role
+  // ---- role ---------------------------------------------------------
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -102,7 +146,7 @@ export default function ProfileScreen() {
     return () => { alive = false; };
   }, [user?.id, authChecked]);
 
-  // Load profile data and reviews
+  // ---- profile + reviews + performance ------------------------------
   const loadProfile = useCallback(async () => {
     if (!user?.id) return;
     try {
@@ -110,61 +154,56 @@ export default function ProfileScreen() {
       const me = await getMyProfile();
       setProfile(me || null);
 
-      // Fetch reviews for trade profiles
       if (me?.id) {
         const reviewsData = await getTradeReviews(me.id, { limit: 20 });
         setReviews(reviewsData || []);
 
-        // Load performance stats (quote rate) for trades
+        // Quote-rate computation (same algorithm as before — untouched
+        // data logic; only the render is being redesigned).
         const myId = user.id;
 
-        // Fetch request targets with timestamps
         const { data: targets } = await supabase
           .from("request_targets")
           .select("request_id, state, first_action_at")
           .eq("trade_id", myId);
 
-        // Fetch quotes
         const { data: quotes } = await supabase
           .from("tradify_native_app_db")
           .select("id, request_id, status")
           .eq("trade_id", myId);
 
-        // Calculate quote rate with grace period:
-        // - Only count accepted requests that are "mature" (accepted > 3 days ago)
-        // - This gives trades time to send quotes before affecting their rate
         const now = new Date();
-        const gracePeriodMs = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
+        const gracePeriodMs = 3 * 24 * 60 * 60 * 1000;
 
         const requestsWithQuotesSet = new Set(
           (quotes || [])
-            .filter((q) => ["sent", "accepted", "declined", "expired", "completed", "awaiting_completion"].includes(q.status?.toLowerCase()))
+            .filter((q) =>
+              ["sent", "accepted", "declined", "expired", "completed", "awaiting_completion"].includes(
+                (q.status || "").toLowerCase()
+              )
+            )
             .map((q) => q.request_id)
         );
 
-        // Filter to only "mature" accepted requests (accepted > 3 days ago)
-        // OR requests that already have quotes (regardless of age)
         const matureAcceptedRequests = (targets || []).filter((t) => {
           if (!t.state?.toLowerCase().includes("accepted")) return false;
-
-          // If this request already has a quote, include it (successful conversion)
           if (requestsWithQuotesSet.has(t.request_id)) return true;
-
-          // Otherwise, only include if it's past the grace period
           if (t.first_action_at) {
             const acceptedAt = new Date(t.first_action_at);
             return (now - acceptedAt) > gracePeriodMs;
           }
-
-          return false; // No timestamp and no quote = still in grace period
+          return false;
         });
 
         const quoteRate = matureAcceptedRequests.length > 0
-          ? Math.min(100, Math.round((requestsWithQuotesSet.size / matureAcceptedRequests.length) * 100))
+          ? Math.min(
+              100,
+              Math.round((requestsWithQuotesSet.size / matureAcceptedRequests.length) * 100)
+            )
           : null;
 
         setPerformanceStats({
-          responseTimeHours: null, // Would need backend RPC for this
+          responseTimeHours: null, // reserved — back-end RPC not wired yet
           quoteRate,
         });
       }
@@ -173,17 +212,13 @@ export default function ProfileScreen() {
     }
   }, [user?.id]);
 
-  // Initial load
   useEffect(() => {
     if (role) loadProfile();
   }, [user?.id, role, loadProfile]);
 
-  // Reload when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      if (role && user?.id) {
-        loadProfile();
-      }
+      if (role && user?.id) loadProfile();
     }, [role, user?.id, loadProfile])
   );
 
@@ -198,182 +233,194 @@ export default function ProfileScreen() {
 
   const isTrades = role === "trades";
 
-  // Get display data
+  // ---- derived display data -----------------------------------------
   const displayName = profile?.full_name || user?.email || "User";
   const businessName = profile?.business_name;
-  const photoUrl = profile?.photo_url;
-  const jobTitles = profile?.job_titles || [];
+  const photoUrl = profile?.photo_url || null;
+  const jobTitles = Array.isArray(profile?.job_titles) ? profile.job_titles : [];
   const basePostcode = profile?.base_postcode;
-  // The database column is "town_city" (not base_city or base_town_city)
   const baseCity = profile?.town_city;
   const serviceRadiusKm = profile?.service_radius_km;
-
-  // Convert km to miles for display (1 km = 0.621371 miles)
   const serviceRadiusMiles = serviceRadiusKm
     ? Math.round(serviceRadiusKm * 0.621371)
     : null;
-
-  // Format location display: "City · X mi" or just "City" or fallback to postcode
   const locationDisplay = baseCity
     ? (serviceRadiusMiles ? `${baseCity} · ${serviceRadiusMiles} mi` : baseCity)
     : basePostcode || null;
 
-  // Verification status
   const verification = profile?.verification || {
     photo_id: "not_started",
     insurance: "not_started",
     credentials: "not_started",
   };
+  const verifiedCount = [
+    verification.photo_id === "verified",
+    verification.insurance === "verified",
+    verification.credentials === "verified",
+  ].filter(Boolean).length;
 
-  // Review data - calculate from actual reviews array if available, fallback to profile fields
   const reviewCount = reviews.length > 0 ? reviews.length : (profile?.review_count || 0);
   const averageRating = reviews.length > 0
     ? reviews.reduce((sum, r) => sum + (r.rating || 0), 0) / reviews.length
     : (profile?.average_rating || 0);
 
-  // Client data
   const projectCount = profile?.project_count || 0;
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
       <ThemedStatusBar />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <ThemedText style={styles.headerTitle}>Profile</ThemedText>
-        <Pressable
+      {/* Top-right icon dock — same position / chrome as the 3-dots on
+          the trade Home tab and the filter icon on Projects. Floats
+          over the scroll content with no wrapping row or surface
+          behind it.                                                */}
+      <View style={[styles.topBar, { top: insets.top + 12 }]}>
+        <IconBtn
+          icon="menu-outline"
           onPress={() => router.push("/profile/settings")}
-          hitSlop={10}
-          style={({ pressed }) => [pressed && { opacity: 0.7 }]}
-        >
-          <Ionicons name="menu-outline" size={26} color={Colors.light.title} />
-        </Pressable>
+          testID="profile-settings-btn"
+        />
       </View>
 
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Profile Card */}
-        {isTrades ? (
-          <TradeProfileCard
-            photoUrl={photoUrl}
-            businessName={businessName}
-            displayName={displayName}
-            verification={verification}
-            jobTitles={jobTitles}
-            locationDisplay={locationDisplay}
-          />
-        ) : (
-          <ClientProfileCard
-            photoUrl={photoUrl}
-            displayName={displayName}
-            projectCount={projectCount}
-          />
-        )}
+        {/* Page title — matches Home / Projects. Public Sans Bold 32,
+            lives inside the scroll (no row wrapper / no block behind
+            it — just free-standing text).                          */}
+        <View style={styles.titleBlock}>
+          <ThemedText style={[styles.pageTitle, { color: c.text }]}>
+            Profile
+          </ThemedText>
+        </View>
 
-        {/* Performance Section (Trades only - horizontal 3-column layout) */}
+        {/* ─────── Zone 1 — Identity hero ───────────────────────
+            Photo, name/business, location, verification badges, and
+            trade chips — all part of "who this person is". No card,
+            no section headers. The chips are inline here (not in a
+            separate section) because they describe identity, not a
+            different surface.                                       */}
+        <ProfileHero
+          c={c}
+          photoUrl={photoUrl}
+          displayName={displayName}
+          businessName={businessName}
+          locationDisplay={locationDisplay}
+          isTrades={isTrades}
+          projectCount={projectCount}
+          verification={verification}
+          verifiedCount={verifiedCount}
+          jobTitles={jobTitles}
+          onVerificationPress={() => setVerificationSheetVisible(true)}
+        />
+
         {isTrades && (
-          <View style={styles.performanceSection}>
-            {/* Info Button positioned top-right */}
-            <Pressable
-              style={styles.performanceInfoButtonTopRight}
-              onPress={() => setPerformanceInfoVisible(true)}
-              hitSlop={10}
-            >
-              <Ionicons name="information-circle-outline" size={18} color="#9CA3AF" />
-            </Pressable>
-
-            {/* Horizontal 3-column layout: Rating | Response | Quotes */}
-            <View style={styles.performanceRowThreeCol}>
-              {/* Rating */}
-              <View style={styles.performanceColItem}>
-                <View style={styles.performanceValueRow}>
-                  <Ionicons name="star" size={16} color="#F59E0B" />
-                  <ThemedText style={styles.performanceValueText}>
-                    {averageRating > 0 ? averageRating.toFixed(1) : "--"}
+          <>
+            {/* About — plain paragraph, no card. Only rendered when a
+                bio exists; the thin divider above it separates it from
+                the identity hero block.                             */}
+            {!!profile?.bio && (
+              <>
+                <View style={[styles.flowDivider, { backgroundColor: c.border }]} />
+                <View style={styles.flowBlock}>
+                  <ThemedText style={[styles.bodyText, { color: c.text }]}>
+                    {profile.bio}
                   </ThemedText>
                 </View>
-                <ThemedText style={styles.performanceColLabel}>
-                  {reviewCount > 0 ? `${reviewCount} review${reviewCount !== 1 ? "s" : ""}` : "No reviews"}
-                </ThemedText>
-              </View>
+              </>
+            )}
 
-              {/* Response Time */}
-              <View style={styles.performanceColItem}>
-                <View style={styles.performanceValueRow}>
-                  <Ionicons name="flash" size={16} color={PRIMARY} />
-                  <ThemedText style={styles.performanceValueText}>
-                    {performanceStats.responseTimeHours !== null
-                      ? `${performanceStats.responseTimeHours} hrs`
-                      : "--"}
+            {/* Performance — a quiet inline row right above reviews.
+                Two columns only (response + quote rate). The star
+                rating + review count are redundant here because the
+                Reviews section immediately below shows them prominently. */}
+            <View style={[styles.flowDivider, { backgroundColor: c.border }]} />
+            <View style={[styles.flowBlock, styles.perfInlineWrap]}>
+              <View style={styles.perfInlineRow}>
+                <View style={styles.perfInlineItem}>
+                  <View style={styles.perfInlineValueRow}>
+                    <Ionicons name="flash" size={13} color={PRIMARY} />
+                    <ThemedText style={[styles.perfInlineValue, { color: c.text }]}>
+                      {performanceStats.responseTimeHours != null
+                        ? `${performanceStats.responseTimeHours}h`
+                        : "–"}
+                    </ThemedText>
+                  </View>
+                  <ThemedText style={[styles.perfInlineLabel, { color: c.textMuted }]}>
+                    Response
                   </ThemedText>
                 </View>
-                <ThemedText style={styles.performanceColLabel}>response</ThemedText>
-              </View>
-
-              {/* Quote Rate */}
-              <View style={styles.performanceColItem}>
-                <View style={styles.performanceValueRow}>
-                  <Ionicons name="checkmark" size={16} color={PRIMARY} />
-                  <ThemedText style={styles.performanceValueText}>
-                    {performanceStats.quoteRate !== null ? `${performanceStats.quoteRate}%` : "--"}
+                <View style={[styles.perfInlineDivider, { backgroundColor: c.border }]} />
+                <Pressable
+                  onPress={() => setPerformanceInfoVisible(true)}
+                  hitSlop={6}
+                  style={styles.perfInlineItem}
+                  accessibilityLabel="Quote rate — tap for details"
+                >
+                  <View style={styles.perfInlineValueRow}>
+                    <Ionicons name="checkmark" size={13} color={PRIMARY} />
+                    <ThemedText style={[styles.perfInlineValue, { color: c.text }]}>
+                      {performanceStats.quoteRate != null
+                        ? `${performanceStats.quoteRate}%`
+                        : "–"}
+                    </ThemedText>
+                  </View>
+                  <ThemedText style={[styles.perfInlineLabel, { color: c.textMuted }]}>
+                    Quote rate
                   </ThemedText>
-                </View>
-                <ThemedText style={styles.performanceColLabel}>quotes</ThemedText>
+                </Pressable>
               </View>
             </View>
-          </View>
-        )}
 
-        {/* Divider before Bio (Trades only) */}
-        {isTrades && (
-          <View style={styles.sectionDivider} />
-        )}
-
-        {/* Bio Section (Trades only) - No header for clean look */}
-        {isTrades && profile?.bio && (
-          <View style={styles.bioSection}>
-            <ThemedText style={styles.bioText}>{profile.bio}</ThemedText>
-          </View>
-        )}
-
-        {/* Divider between bio and reviews */}
-        {isTrades && profile?.bio && (
-          <View style={styles.bioDivider} />
-        )}
-
-        {/* Reviews Section (Trades only) */}
-        {isTrades && (
-          <ReviewsSection
-            reviews={reviews}
-            reviewCount={reviewCount}
-            averageRating={averageRating}
-            businessName={businessName}
-            onShowAll={() => setShowAllReviews(true)}
-          />
+            {/* Reviews — no leading divider; the perf row above it is
+                tight enough to act as its own separator. */}
+            <View style={styles.flowBlock}>
+              <ReviewsSection
+                c={c}
+                dark={dark}
+                reviews={reviews}
+                reviewCount={reviewCount}
+                averageRating={averageRating}
+                businessName={businessName}
+                onShowAll={() => setShowAllReviews(true)}
+              />
+            </View>
+          </>
         )}
 
         <Spacer height={insets.bottom + 180} />
       </ScrollView>
 
-      {/* All Reviews Modal */}
       {isTrades && (
         <AllReviewsModal
+          c={c}
+          dark={dark}
           visible={showAllReviews}
           onClose={() => setShowAllReviews(false)}
           reviews={reviews}
           reviewCount={reviewCount}
           averageRating={averageRating}
+          businessName={businessName}
           insets={insets}
         />
       )}
-
-      {/* Performance Info Modal */}
       {isTrades && (
         <PerformanceInfoModal
+          c={c}
+          dark={dark}
           visible={performanceInfoVisible}
           onClose={() => setPerformanceInfoVisible(false)}
+          insets={insets}
+        />
+      )}
+      {isTrades && (
+        <VerificationSheet
+          c={c}
+          visible={verificationSheetVisible}
+          onClose={() => setVerificationSheetVisible(false)}
+          verification={verification}
           insets={insets}
         />
       )}
@@ -381,256 +428,328 @@ export default function ProfileScreen() {
   );
 }
 
-// Trade Profile Card Component - Two column layout with 2 rows on right
-function TradeProfileCard({
+// ======================================================================
+// Hero — flat avatar + name + location, no card wrapping.
+// ======================================================================
+
+function ProfileHero({
+  c,
   photoUrl,
-  businessName,
   displayName,
-  verification,
-  jobTitles,
+  businessName,
   locationDisplay,
+  isTrades,
+  projectCount,
+  verification,
+  verifiedCount,
+  jobTitles = [],
+  onVerificationPress,
 }) {
-  return (
-    <View style={styles.profileCard}>
-      <View style={styles.cardColumns}>
-        {/* Left Column: Avatar, Name, Badges */}
-        <View style={styles.cardLeftColumn}>
-          {/* Avatar */}
-          <View style={styles.avatarContainer}>
-            {photoUrl ? (
-              <Image source={{ uri: photoUrl }} style={styles.cardAvatar} />
-            ) : (
-              <View style={[styles.cardAvatar, styles.avatarFallback]}>
-                <ThemedText style={styles.avatarInitials}>
-                  {getInitials(businessName || displayName)}
-                </ThemedText>
-              </View>
-            )}
-          </View>
+  const showName = isTrades ? (businessName || displayName) : displayName;
+  const showSub = isTrades
+    ? (businessName ? getNameWithInitial(displayName) : null)
+    : `${projectCount} project${projectCount !== 1 ? "s" : ""} completed`;
 
-          {/* Name Section */}
-          <View style={styles.nameSection}>
-            <ThemedText style={styles.cardBusinessName} numberOfLines={2}>
-              {businessName || "Business Name"}
-            </ThemedText>
-            <ThemedText style={styles.cardPersonalName}>
-              {getNameWithInitial(displayName)}
+  return (
+    <View style={styles.hero}>
+      <View style={styles.heroTop}>
+        {photoUrl ? (
+          <Image source={{ uri: photoUrl }} style={styles.heroAvatar} />
+        ) : (
+          <View
+            style={[
+              styles.heroAvatar,
+              styles.heroAvatarFallback,
+              { backgroundColor: c.elevate, borderColor: c.border },
+            ]}
+          >
+            <ThemedText style={[styles.heroAvatarInitials, { color: c.textMid }]}>
+              {getInitials(showName)}
             </ThemedText>
           </View>
+        )}
 
-          {/* Verification Badges */}
-          <View style={styles.badgesRow}>
-            <VerificationBadge
-              icon="person-outline"
-              label="ID"
-              status={verification.photo_id}
-            />
-            <VerificationBadge
-              icon="shield-outline"
-              label="Ins"
-              status={verification.insurance}
-            />
-            <VerificationBadge
-              icon="ribbon-outline"
-              label="Cred"
-              status={verification.credentials}
-            />
-          </View>
-        </View>
-
-        {/* Vertical Divider */}
-        <View style={styles.verticalDivider} />
-
-        {/* Right Column: Job Titles, Location (2 rows only) */}
-        <View style={styles.cardRightColumn}>
-          {/* Job Titles - more space for content */}
-          <View style={styles.rightSectionLarge}>
-            {jobTitles.length > 0 ? (
-              <ThemedText style={styles.jobTitlesText} numberOfLines={3}>
-                {jobTitles.join(" · ")}
-              </ThemedText>
-            ) : (
-              <ThemedText style={styles.emptyText}>No job titles</ThemedText>
-            )}
-          </View>
-
-          {/* Divider */}
-          <View style={styles.horizontalDivider} />
-
-          {/* Location - City · X mi format */}
-          <View style={styles.rightSectionLarge}>
-            <View style={styles.locationRow}>
-              <Ionicons name="location" size={16} color={Colors.light.title} />
-              <ThemedText style={styles.locationText} numberOfLines={1}>
-                {locationDisplay || "No location set"}
-              </ThemedText>
-            </View>
-          </View>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-// Client Profile Card Component
-function ClientProfileCard({ photoUrl, displayName, projectCount }) {
-  return (
-    <View style={styles.profileCard}>
-      <View style={styles.clientCardContent}>
-        {/* Avatar */}
-        <View style={styles.avatarContainer}>
-          {photoUrl ? (
-            <Image source={{ uri: photoUrl }} style={styles.cardAvatar} />
-          ) : (
-            <View style={[styles.cardAvatar, styles.avatarFallback]}>
-              <ThemedText style={styles.avatarInitials}>
-                {getInitials(displayName)}
+        <View style={styles.heroTextCol}>
+          <ThemedText style={[styles.heroName, { color: c.text }]} numberOfLines={2}>
+            {showName}
+          </ThemedText>
+          {!!showSub && (
+            <ThemedText style={[styles.heroSub, { color: c.textMid }]} numberOfLines={1}>
+              {showSub}
+            </ThemedText>
+          )}
+          {!!locationDisplay && (
+            <View style={styles.heroLocRow}>
+              <Ionicons name="location-outline" size={14} color={c.textMuted} />
+              <ThemedText style={[styles.heroLoc, { color: c.textMuted }]} numberOfLines={1}>
+                {locationDisplay}
               </ThemedText>
             </View>
           )}
+          {isTrades && verification && (
+            <Pressable
+              onPress={onVerificationPress}
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.heroVerifyRow,
+                pressed && { opacity: 0.6 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`Verification: ${verifiedCount} of 3 verified. Tap for details.`}
+            >
+              <InlineVerifyBadge
+                c={c}
+                icon="person-outline"
+                status={verification.photo_id}
+              />
+              <InlineVerifyBadge
+                c={c}
+                icon="shield-outline"
+                status={verification.insurance}
+              />
+              <InlineVerifyBadge
+                c={c}
+                icon="ribbon-outline"
+                status={verification.credentials}
+              />
+              <ThemedText
+                style={[
+                  styles.heroVerifySummary,
+                  { color: verifiedCount === 3 ? "#10B981" : c.textMuted },
+                ]}
+                numberOfLines={1}
+              >
+                {verifiedCount === 3
+                  ? "Fully verified"
+                  : `${verifiedCount}/3 verified`}
+              </ThemedText>
+            </Pressable>
+          )}
         </View>
+      </View>
 
-        {/* Info */}
-        <View style={styles.clientCardInfo}>
-          <ThemedText style={styles.cardBusinessName}>{displayName}</ThemedText>
-          <ThemedText style={styles.cardPersonalName}>
-            {projectCount} project{projectCount !== 1 ? "s" : ""} completed
-          </ThemedText>
+      {/* Trade chips — sit inline at the bottom of the hero, under the
+          verification row. Part of identity, not a separate section.
+          Wraps under the avatar column so longer chip sets still read
+          cleanly on narrow screens.                                */}
+      {isTrades && jobTitles.length > 0 && (
+        <View style={styles.heroChipsRow}>
+          {jobTitles.map((t, i) => (
+            <View
+              key={`${t}-${i}`}
+              style={[
+                styles.chip,
+                { backgroundColor: c.elevate, borderColor: c.border },
+              ]}
+            >
+              <ThemedText style={[styles.chipText, { color: c.text }]}>
+                {t}
+              </ThemedText>
+            </View>
+          ))}
         </View>
+      )}
+    </View>
+  );
+}
+
+// Small round badge that shows one verification item inline in the hero.
+// Verified = green tint, otherwise muted with dashed border feel.
+function InlineVerifyBadge({ c, icon, status }) {
+  const isVerified = status === "verified";
+  return (
+    <View
+      style={[
+        styles.inlineBadge,
+        {
+          backgroundColor: isVerified ? "#D1FAE5" : c.elevate,
+          borderColor: isVerified ? "#10B981" : c.border,
+        },
+      ]}
+    >
+      <Ionicons
+        name={icon}
+        size={12}
+        color={isVerified ? "#059669" : c.textMuted}
+      />
+      {isVerified && (
+        <View style={styles.inlineBadgeCheck}>
+          <Ionicons name="checkmark" size={7} color="#FFFFFF" />
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ======================================================================
+// PillCard — the shared container used across the redesign. eyebrow +
+// optional top-right icon button + children.
+// ======================================================================
+
+function PillCard({ c, eyebrow, rightAction, children }) {
+  return (
+    <View
+      style={[
+        styles.pillCard,
+        { backgroundColor: c.elevate2, borderColor: c.borderStrong },
+      ]}
+    >
+      <View style={styles.pillEyebrowRow}>
+        <ThemedText style={[styles.pillEyebrow, { color: c.textMuted }]}>
+          {eyebrow}
+        </ThemedText>
+        {rightAction ? (
+          <Pressable
+            onPress={rightAction.onPress}
+            hitSlop={10}
+            style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+            accessibilityLabel="More info"
+          >
+            <Ionicons name={rightAction.icon} size={18} color={c.textMuted} />
+          </Pressable>
+        ) : null}
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function Divider({ c }) {
+  return <View style={{ height: 1, backgroundColor: c.border, marginVertical: 10 }} />;
+}
+
+// ======================================================================
+// VerificationRow — one row per doc, with status chip on the right.
+// ======================================================================
+
+function VerificationRow({ c, icon, label, status }) {
+  const map = {
+    verified:        { label: "Verified",    fg: "#10B981", bg: "#D1FAE5" },
+    under_review:    { label: "Under review", fg: "#3B82F6", bg: "#DBEAFE" },
+    pending_review:  { label: "Under review", fg: "#3B82F6", bg: "#DBEAFE" },
+    submitted:       { label: "Submitted",   fg: "#3B82F6", bg: "#DBEAFE" },
+    rejected:        { label: "Rejected",    fg: "#DC2626", bg: "#FEE2E2" },
+    expired:         { label: "Expired",     fg: "#DC2626", bg: "#FEE2E2" },
+    expiring_soon:   { label: "Expiring",    fg: "#D97706", bg: "#FEF3C7" },
+    not_started:     { label: "Not started", fg: c.textMuted, bg: c.elevate },
+  };
+  const meta = map[status] || map.not_started;
+  return (
+    <View style={styles.rowBase}>
+      <View style={styles.rowLeft}>
+        <View
+          style={[
+            styles.rowIconWrap,
+            { backgroundColor: c.elevate, borderColor: c.border },
+          ]}
+        >
+          <Ionicons name={icon} size={16} color={c.textMid} />
+        </View>
+        <ThemedText style={[styles.rowLabel, { color: c.text }]}>{label}</ThemedText>
+      </View>
+      <View style={[styles.statusChip, { backgroundColor: meta.bg }]}>
+        <ThemedText style={[styles.statusChipText, { color: meta.fg }]}>
+          {meta.label}
+        </ThemedText>
       </View>
     </View>
   );
 }
 
-// Verification Badge Component - No dots
-function VerificationBadge({ icon, label, status }) {
-  const isVerified = status === "verified";
+// ======================================================================
+// PerfStat — one column of the 3-col performance row.
+// ======================================================================
 
+function PerfStat({ c, icon, iconColor, value, label }) {
   return (
-    <View style={styles.badgeWrapper}>
-      <View style={[
-        styles.badgeIconContainer,
-        isVerified ? styles.badgeVerified : styles.badgeNotVerified,
-      ]}>
-        <Ionicons
-          name={icon}
-          size={16}
-          color={isVerified ? PRIMARY : "#D1D5DB"}
-        />
-        {isVerified && (
-          <View style={styles.badgeCheckmark}>
-            <Ionicons name="checkmark" size={8} color="#FFFFFF" />
-          </View>
-        )}
+    <View style={styles.perfStat}>
+      <View style={styles.perfValueRow}>
+        <Ionicons name={icon} size={14} color={iconColor} />
+        <ThemedText style={[styles.perfValue, { color: c.text }]}>
+          {value}
+        </ThemedText>
       </View>
-      <ThemedText style={[
-        styles.badgeLabel,
-        isVerified ? styles.badgeLabelVerified : styles.badgeLabelNotVerified,
-      ]}>
+      <ThemedText style={[styles.perfLabel, { color: c.textMuted }]}>
         {label}
       </ThemedText>
     </View>
   );
 }
 
-// Format relative time
-function formatRelativeTime(date) {
-  if (!date) return "";
-  const now = new Date();
-  const reviewDate = new Date(date);
-  const diffMs = now - reviewDate;
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+// ======================================================================
+// Reviews section + individual review card.
+// ======================================================================
 
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? "s" : ""} ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? "s" : ""} ago`;
-  return `${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? "s" : ""} ago`;
-}
-
-// Reviews Section Component - Horizontal scrolling Airbnb style
-function ReviewsSection({ reviews, reviewCount, averageRating, businessName, onShowAll }) {
+function ReviewsSection({ c, dark, reviews, reviewCount, averageRating, businessName, onShowAll }) {
+  const [photoViewer, setPhotoViewer] = useState({ open: false, images: [], index: 0 });
   const hasReviews = reviews.length > 0;
 
-  // State for full-screen photo viewer
-  const [photoViewer, setPhotoViewer] = useState({ open: false, images: [], index: 0 });
-
-  // Star rating display
-  const renderStars = (rating, size = 14) => {
-    return (
-      <View style={styles.starsRow}>
-        {[1, 2, 3, 4, 5].map((star) => (
-          <Ionicons
-            key={star}
-            name={star <= rating ? "star" : "star-outline"}
-            size={size}
-            color="#F59E0B"
-          />
-        ))}
-      </View>
-    );
-  };
-
-  // Open photo viewer for a review
   const openPhotoViewer = (photos, startIndex = 0) => {
-    const images = photos.map((url) => ({ uri: url }));
-    setPhotoViewer({ open: true, images, index: startIndex });
+    setPhotoViewer({ open: true, images: photos.map((url) => ({ uri: url })), index: startIndex });
   };
 
-  // Single review card
+  const renderStars = (rating, size = 14) => (
+    <View style={styles.starsRow}>
+      {[1, 2, 3, 4, 5].map((s) => (
+        <Ionicons
+          key={s}
+          name={s <= rating ? "star" : "star-outline"}
+          size={size}
+          color="#F59E0B"
+        />
+      ))}
+    </View>
+  );
+
   const ReviewCard = ({ review }) => {
     const reviewerName = review.reviewer?.full_name || "Client";
     const reviewerPhoto = review.reviewer?.photo_url;
     const hasPhotos = review.photos && review.photos.length > 0;
-
     return (
-      <View style={styles.reviewCard}>
-        {/* Reviewer Info */}
+      <View
+        style={[
+          styles.reviewCard,
+          { backgroundColor: c.elevate2, borderColor: c.borderStrong },
+        ]}
+      >
         <View style={styles.reviewerRow}>
           {reviewerPhoto ? (
             <Image source={{ uri: reviewerPhoto }} style={styles.reviewerAvatar} />
           ) : (
-            <View style={[styles.reviewerAvatar, styles.reviewerAvatarFallback]}>
-              <ThemedText style={styles.reviewerInitials}>
+            <View
+              style={[
+                styles.reviewerAvatar,
+                { backgroundColor: c.elevate, borderColor: c.border, borderWidth: 1 },
+                { alignItems: "center", justifyContent: "center" },
+              ]}
+            >
+              <ThemedText style={[styles.reviewerInitials, { color: c.textMid }]}>
                 {getInitials(reviewerName)}
               </ThemedText>
             </View>
           )}
           <View style={styles.reviewerInfo}>
-            <ThemedText style={styles.reviewerName} numberOfLines={1}>
+            <ThemedText style={[styles.reviewerName, { color: c.text }]} numberOfLines={1}>
               {reviewerName}
             </ThemedText>
-            <ThemedText style={styles.reviewDate}>
+            <ThemedText style={[styles.reviewDate, { color: c.textMuted }]}>
               {formatRelativeTime(review.created_at)}
             </ThemedText>
           </View>
         </View>
-
-        {/* Rating */}
         <View style={styles.reviewRatingRow}>
           {renderStars(review.rating)}
         </View>
-
-        {/* Review Text */}
-        {review.content && (
-          <ThemedText style={styles.reviewContent} numberOfLines={4}>
+        {!!review.content && (
+          <ThemedText style={[styles.reviewContent, { color: c.textMid }]} numberOfLines={4}>
             {review.content}
           </ThemedText>
         )}
-
-        {/* Review Photos - Show all photos in a row, tap to zoom */}
         {hasPhotos && (
           <View style={styles.reviewPhotosRow}>
-            {review.photos.map((photoUrl, idx) => (
-              <Pressable
-                key={idx}
-                onPress={() => openPhotoViewer(review.photos, idx)}
-              >
-                <Image
-                  source={{ uri: photoUrl }}
-                  style={styles.reviewPhoto}
-                />
+            {review.photos.map((url, i) => (
+              <Pressable key={i} onPress={() => openPhotoViewer(review.photos, i)}>
+                <Image source={{ uri: url }} style={styles.reviewPhoto} />
               </Pressable>
             ))}
           </View>
@@ -639,226 +758,146 @@ function ReviewsSection({ reviews, reviewCount, averageRating, businessName, onS
     );
   };
 
-  // Format header title
   const headerTitle = hasReviews
-    ? businessName
-      ? `${businessName}'s reviews (${reviewCount})`
-      : `${averageRating.toFixed(1)} (${reviewCount} review${reviewCount !== 1 ? "s" : ""})`
-    : businessName
-      ? `${businessName}'s reviews`
-      : "Reviews";
+    ? (businessName
+        ? `${businessName}'s reviews`
+        : `${averageRating.toFixed(1)} · ${reviewCount} review${reviewCount !== 1 ? "s" : ""}`)
+    : "Reviews";
 
   return (
     <View style={styles.reviewsSection}>
-      {/* Header */}
-      <View style={styles.reviewsSectionHeader}>
-        <ThemedText style={styles.reviewsSectionTitle}>
-          {headerTitle}
-        </ThemedText>
-      </View>
-
-      {/* Reviews List */}
+      {/* No REVIEWS eyebrow — the user wanted headline-free flowing
+          sections; the title alone carries the section.             */}
+      <ThemedText style={[styles.reviewsTitle, { color: c.text }]}>
+        {headerTitle}
+      </ThemedText>
+      {hasReviews && (
+        <View style={styles.ratingSubRow}>
+          {renderStars(Math.round(averageRating), 16)}
+          <ThemedText style={[styles.ratingSubText, { color: c.textMid }]}>
+            {averageRating.toFixed(1)} · {reviewCount} review{reviewCount !== 1 ? "s" : ""}
+          </ThemedText>
+        </View>
+      )}
       {hasReviews ? (
         <>
           <FlatList
             data={reviews.slice(0, 5)}
             horizontal
             showsHorizontalScrollIndicator={false}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(it) => it.id}
             renderItem={({ item }) => <ReviewCard review={item} />}
             contentContainerStyle={styles.reviewsList}
             snapToInterval={340 + 12}
             decelerationRate="fast"
+            style={{ marginTop: 14 }}
           />
-
-          {/* Show All Reviews Button - always visible when reviews exist */}
-          <Pressable style={styles.showMoreBtn} onPress={onShowAll}>
-            <ThemedText style={styles.showMoreText}>
+          <Pressable
+            onPress={onShowAll}
+            style={({ pressed }) => [
+              styles.showAllBtn,
+              { borderColor: c.borderStrong, backgroundColor: c.elevate },
+              pressed && { opacity: 0.8 },
+            ]}
+          >
+            <ThemedText style={[styles.showAllText, { color: c.text }]}>
               Show all reviews
             </ThemedText>
           </Pressable>
         </>
       ) : (
-        <View style={styles.noReviewsContainer}>
-          <Ionicons name="chatbubble-outline" size={32} color="#D1D5DB" />
-          <ThemedText style={styles.noReviewsMessage}>
+        <View
+          style={[
+            styles.noReviewsCard,
+            { backgroundColor: c.elevate2, borderColor: c.borderStrong },
+          ]}
+        >
+          <Ionicons name="chatbubble-outline" size={28} color={c.textMuted} />
+          <ThemedText style={[styles.noReviewsTitle, { color: c.textMid }]}>
             No reviews yet
           </ThemedText>
-          <ThemedText style={styles.noReviewsSubtext}>
-            Reviews from clients will appear here
+          <ThemedText style={[styles.noReviewsSub, { color: c.textMuted }]}>
+            Reviews from clients will appear here.
           </ThemedText>
         </View>
       )}
 
-      {/* Full-screen Image Viewer */}
       <ImageViewing
         images={photoViewer.images}
         imageIndex={photoViewer.index}
         visible={photoViewer.open}
         onRequestClose={() => setPhotoViewer({ open: false, images: [], index: 0 })}
-        FooterComponent={({ imageIndex }) => (
-          <View style={styles.viewerFooter}>
-            <View style={styles.viewerDots}>
-              {photoViewer.images.map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.viewerDot,
-                    i === imageIndex && styles.viewerDotActive,
-                  ]}
-                />
-              ))}
-            </View>
-          </View>
-        )}
       />
     </View>
   );
 }
 
-// Performance Info Modal Component (3rd person language for profile view)
-function PerformanceInfoModal({ visible, onClose, insets }) {
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={[styles.perfInfoModalContent80, { paddingBottom: (insets?.bottom || 0) + 20 }]}>
-          {/* Handle bar */}
-          <View style={styles.modalHandle} />
+// ======================================================================
+// AllReviewsModal — bottom sheet. Dark-mode-aware.
+// ======================================================================
 
-          <View style={styles.perfInfoModalHeader}>
-            <ThemedText style={styles.perfInfoModalTitle}>Performance Metrics</ThemedText>
-            <Pressable onPress={onClose} hitSlop={10} style={styles.modalCloseBtn}>
-              <Ionicons name="close" size={20} color="#111827" />
-            </Pressable>
-          </View>
-
-          <ScrollView style={styles.perfInfoModalScrollContent} showsVerticalScrollIndicator={false}>
-          {/* Response Time */}
-          <View style={styles.perfInfoSection}>
-            <View style={styles.perfInfoSectionHeader}>
-              <Ionicons name="flash" size={20} color={PRIMARY} />
-              <ThemedText style={styles.perfInfoSectionTitle}>Response Time</ThemedText>
-            </View>
-            <ThemedText style={styles.perfInfoSectionText}>
-              This measures how quickly the business responds to new quote requests and messages from clients.
-            </ThemedText>
-            <View style={styles.perfInfoTipBox}>
-              <ThemedText style={styles.perfInfoTipTitle}>Why it matters</ThemedText>
-              <ThemedText style={styles.perfInfoTipText}>
-                Clients often reach out to multiple businesses. Those who respond within a few hours are much more likely to win the job. A fast response time indicates a reliable and attentive service provider.
-              </ThemedText>
-            </View>
-          </View>
-
-          {/* Quote Rate */}
-          <View style={styles.perfInfoSection}>
-            <View style={styles.perfInfoSectionHeader}>
-              <Ionicons name="checkmark" size={20} color={PRIMARY} />
-              <ThemedText style={styles.perfInfoSectionTitle}>Quote Rate</ThemedText>
-            </View>
-            <ThemedText style={styles.perfInfoSectionText}>
-              This shows the percentage of accepted quote requests that received a formal quote from the business.
-            </ThemedText>
-            <View style={styles.perfInfoTipBox}>
-              <ThemedText style={styles.perfInfoTipTitle}>How it's calculated</ThemedText>
-              <ThemedText style={styles.perfInfoTipText}>
-                A high quote rate means the business follows through on enquiries and provides clear pricing. This helps clients compare options and make informed decisions.
-              </ThemedText>
-            </View>
-          </View>
-        </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-// All Reviews Modal (Bottom Sheet Style)
-function AllReviewsModal({ visible, onClose, reviews, reviewCount, averageRating, insets }) {
-  // State for full-screen photo viewer
+function AllReviewsModal({ c, dark, visible, onClose, reviews, reviewCount, averageRating, businessName, insets }) {
   const [photoViewer, setPhotoViewer] = useState({ open: false, images: [], index: 0 });
+  const openPhotoViewer = (photos, startIndex = 0) =>
+    setPhotoViewer({ open: true, images: photos.map((u) => ({ uri: u })), index: startIndex });
 
-  // Open photo viewer for a review
-  const openPhotoViewer = (photos, startIndex = 0) => {
-    const images = photos.map((url) => ({ uri: url }));
-    setPhotoViewer({ open: true, images, index: startIndex });
-  };
+  const renderStars = (rating, size = 14) => (
+    <View style={styles.starsRow}>
+      {[1, 2, 3, 4, 5].map((s) => (
+        <Ionicons
+          key={s}
+          name={s <= rating ? "star" : "star-outline"}
+          size={size}
+          color="#F59E0B"
+        />
+      ))}
+    </View>
+  );
 
-  // Star rating display
-  const renderStars = (rating, size = 14) => {
-    return (
-      <View style={styles.starsRow}>
-        {[1, 2, 3, 4, 5].map((star) => (
-          <Ionicons
-            key={star}
-            name={star <= rating ? "star" : "star-outline"}
-            size={size}
-            color="#F59E0B"
-          />
-        ))}
-      </View>
-    );
-  };
-
-  // Full review item - Airbnb style
   const FullReviewItem = ({ review }) => {
     const reviewerName = review.reviewer?.full_name || "Client";
     const reviewerPhoto = review.reviewer?.photo_url;
     const hasPhotos = review.photos && review.photos.length > 0;
-
     return (
       <View style={styles.fullReviewItem}>
-        {/* Reviewer Info Row */}
         <View style={styles.fullReviewerRow}>
           {reviewerPhoto ? (
             <Image source={{ uri: reviewerPhoto }} style={styles.fullReviewerAvatar} />
           ) : (
-            <View style={[styles.fullReviewerAvatar, styles.reviewerAvatarFallback]}>
-              <ThemedText style={styles.fullReviewerInitials}>
+            <View
+              style={[
+                styles.fullReviewerAvatar,
+                { backgroundColor: c.elevate, borderColor: c.border, borderWidth: 1 },
+                { alignItems: "center", justifyContent: "center" },
+              ]}
+            >
+              <ThemedText style={[styles.fullReviewerInitials, { color: c.textMid }]}>
                 {getInitials(reviewerName)}
               </ThemedText>
             </View>
           )}
           <View style={styles.fullReviewerInfo}>
-            <ThemedText style={styles.fullReviewerName}>
+            <ThemedText style={[styles.fullReviewerName, { color: c.text }]}>
               {reviewerName}
             </ThemedText>
+            <View style={styles.fullReviewMeta}>
+              {renderStars(review.rating, 12)}
+              <ThemedText style={[styles.fullReviewDate, { color: c.textMuted }]}>
+                {"  ·  "}{formatRelativeTime(review.created_at)}
+              </ThemedText>
+            </View>
           </View>
         </View>
-
-        {/* Stars and Date Row */}
-        <View style={styles.fullReviewMeta}>
-          {renderStars(review.rating, 12)}
-          <ThemedText style={styles.fullReviewMetaDot}> · </ThemedText>
-          <ThemedText style={styles.fullReviewDate}>
-            {formatRelativeTime(review.created_at)}
-          </ThemedText>
-        </View>
-
-        {/* Review Text - Full content, no truncation */}
-        {review.content && (
-          <ThemedText style={styles.fullReviewContent}>
+        {!!review.content && (
+          <ThemedText style={[styles.fullReviewContent, { color: c.textMid }]}>
             {review.content}
           </ThemedText>
         )}
-
-        {/* Review Photos - Tap to zoom */}
         {hasPhotos && (
           <View style={styles.fullReviewPhotosRow}>
-            {review.photos.map((photoUrl, idx) => (
-              <Pressable
-                key={idx}
-                onPress={() => openPhotoViewer(review.photos, idx)}
-              >
-                <Image
-                  source={{ uri: photoUrl }}
-                  style={styles.fullReviewPhoto}
-                />
+            {review.photos.map((u, i) => (
+              <Pressable key={i} onPress={() => openPhotoViewer(review.photos, i)}>
+                <Image source={{ uri: u }} style={styles.fullReviewPhoto} />
               </Pressable>
             ))}
           </View>
@@ -869,404 +908,539 @@ function AllReviewsModal({ visible, onClose, reviews, reviewCount, averageRating
 
   return (
     <>
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
-          {/* Handle bar */}
-          <View style={styles.modalHandle} />
-
-          {/* Header - Airbnb style with X on right */}
-          <View style={styles.modalHeader}>
-            <ThemedText style={styles.modalTitle}>
-              {reviewCount} review{reviewCount !== 1 ? "s" : ""}
-            </ThemedText>
-            <Pressable
-              onPress={onClose}
-              hitSlop={10}
-              style={styles.modalCloseBtn}
-            >
-              <Ionicons name="close" size={20} color="#111827" />
-            </Pressable>
-          </View>
-
-          {/* Divider after header */}
-          <View style={styles.modalDivider} />
-
-          {/* Reviews List */}
-          <FlatList
-            data={reviews}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <FullReviewItem review={item} />}
-            contentContainerStyle={styles.fullReviewsList}
-            showsVerticalScrollIndicator={false}
-            ItemSeparatorComponent={() => <View style={styles.reviewSeparator} />}
-          />
-        </View>
-      </View>
-    </Modal>
-
-    {/* Full-screen Image Viewer */}
-    <ImageViewing
-      images={photoViewer.images}
-      imageIndex={photoViewer.index}
-      visible={photoViewer.open}
-      onRequestClose={() => setPhotoViewer({ open: false, images: [], index: 0 })}
-      FooterComponent={({ imageIndex }) => (
-        <View style={styles.viewerFooter}>
-          <View style={styles.viewerDots}>
-            {photoViewer.images.map((_, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.viewerDot,
-                  i === imageIndex && styles.viewerDotActive,
-                ]}
-              />
-            ))}
+      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+        <View style={styles.sheetOverlay}>
+          <View
+            style={[
+              styles.sheetContent,
+              { backgroundColor: c.background, paddingBottom: (insets?.bottom || 0) + 20 },
+            ]}
+          >
+            <View style={[styles.sheetHandle, { backgroundColor: c.borderStrong }]} />
+            <View style={styles.sheetHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <ThemedText style={[styles.sheetEyebrow, { color: c.textMuted }]}>
+                  {businessName ? `${businessName.toUpperCase()} · REVIEWS` : "REVIEWS"}
+                </ThemedText>
+                <ThemedText style={[styles.sheetTitle, { color: c.text }]}>
+                  {averageRating > 0 ? averageRating.toFixed(1) : "–"} · {reviewCount} review{reviewCount !== 1 ? "s" : ""}
+                </ThemedText>
+              </View>
+              <Pressable
+                onPress={onClose}
+                hitSlop={10}
+                style={[styles.sheetCloseBtn, { backgroundColor: c.elevate, borderColor: c.border }]}
+              >
+                <Ionicons name="close" size={18} color={c.text} />
+              </Pressable>
+            </View>
+            <View style={[styles.sheetDivider, { backgroundColor: c.border }]} />
+            <FlatList
+              data={reviews}
+              keyExtractor={(it) => it.id}
+              renderItem={({ item }) => <FullReviewItem review={item} />}
+              contentContainerStyle={styles.fullReviewsList}
+              showsVerticalScrollIndicator={false}
+              ItemSeparatorComponent={() => (
+                <View style={[styles.reviewSeparator, { backgroundColor: c.border }]} />
+              )}
+            />
           </View>
         </View>
-      )}
-    />
+      </Modal>
+      <ImageViewing
+        images={photoViewer.images}
+        imageIndex={photoViewer.index}
+        visible={photoViewer.open}
+        onRequestClose={() => setPhotoViewer({ open: false, images: [], index: 0 })}
+      />
     </>
   );
 }
 
+// ======================================================================
+// PerformanceInfoModal — matches the same sheet chrome.
+// ======================================================================
+
+// ======================================================================
+// VerificationSheet — per-doc detail, opened from the hero badge row.
+// ======================================================================
+
+function VerificationSheet({ c, visible, onClose, verification, insets }) {
+  const statusMeta = {
+    verified:        { label: "Verified",    fg: "#10B981", bg: "#D1FAE5" },
+    under_review:    { label: "Under review", fg: "#3B82F6", bg: "#DBEAFE" },
+    pending_review:  { label: "Under review", fg: "#3B82F6", bg: "#DBEAFE" },
+    submitted:       { label: "Submitted",   fg: "#3B82F6", bg: "#DBEAFE" },
+    rejected:        { label: "Rejected",    fg: "#DC2626", bg: "#FEE2E2" },
+    expired:         { label: "Expired",     fg: "#DC2626", bg: "#FEE2E2" },
+    expiring_soon:   { label: "Expiring",    fg: "#D97706", bg: "#FEF3C7" },
+    not_started:     { label: "Not started", fg: c.textMuted, bg: c.elevate },
+  };
+  const rows = [
+    { icon: "person-outline", label: "Photo ID",    status: verification?.photo_id    || "not_started" },
+    { icon: "shield-outline", label: "Insurance",   status: verification?.insurance   || "not_started" },
+    { icon: "ribbon-outline", label: "Credentials", status: verification?.credentials || "not_started" },
+  ];
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.sheetOverlay}>
+        <View
+          style={[
+            styles.sheetContent,
+            { backgroundColor: c.background, paddingBottom: (insets?.bottom || 0) + 20, height: "54%" },
+          ]}
+        >
+          <View style={[styles.sheetHandle, { backgroundColor: c.borderStrong }]} />
+          <View style={styles.sheetHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <ThemedText style={[styles.sheetEyebrow, { color: c.textMuted }]}>
+                VERIFICATION
+              </ThemedText>
+              <ThemedText style={[styles.sheetTitle, { color: c.text }]}>
+                Documents
+              </ThemedText>
+            </View>
+            <Pressable
+              onPress={onClose}
+              hitSlop={10}
+              style={[styles.sheetCloseBtn, { backgroundColor: c.elevate, borderColor: c.border }]}
+            >
+              <Ionicons name="close" size={18} color={c.text} />
+            </Pressable>
+          </View>
+          <View style={[styles.sheetDivider, { backgroundColor: c.border }]} />
+          <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
+            {rows.map((r, i) => {
+              const meta = statusMeta[r.status] || statusMeta.not_started;
+              return (
+                <View key={r.label}>
+                  <View style={styles.rowBase}>
+                    <View style={styles.rowLeft}>
+                      <View
+                        style={[
+                          styles.rowIconWrap,
+                          { backgroundColor: c.elevate, borderColor: c.border },
+                        ]}
+                      >
+                        <Ionicons name={r.icon} size={16} color={c.textMid} />
+                      </View>
+                      <ThemedText style={[styles.rowLabel, { color: c.text }]}>
+                        {r.label}
+                      </ThemedText>
+                    </View>
+                    <View style={[styles.statusChip, { backgroundColor: meta.bg }]}>
+                      <ThemedText style={[styles.statusChipText, { color: meta.fg }]}>
+                        {meta.label}
+                      </ThemedText>
+                    </View>
+                  </View>
+                  {i < rows.length - 1 && (
+                    <View style={{ height: 1, backgroundColor: c.border, marginVertical: 12 }} />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function PerformanceInfoModal({ c, visible, onClose, insets }) {
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.sheetOverlay}>
+        <View
+          style={[
+            styles.sheetContent,
+            { backgroundColor: c.background, paddingBottom: (insets?.bottom || 0) + 20 },
+          ]}
+        >
+          <View style={[styles.sheetHandle, { backgroundColor: c.borderStrong }]} />
+          <View style={styles.sheetHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <ThemedText style={[styles.sheetEyebrow, { color: c.textMuted }]}>
+                PERFORMANCE
+              </ThemedText>
+              <ThemedText style={[styles.sheetTitle, { color: c.text }]}>
+                How it's measured
+              </ThemedText>
+            </View>
+            <Pressable
+              onPress={onClose}
+              hitSlop={10}
+              style={[styles.sheetCloseBtn, { backgroundColor: c.elevate, borderColor: c.border }]}
+            >
+              <Ionicons name="close" size={18} color={c.text} />
+            </Pressable>
+          </View>
+          <View style={[styles.sheetDivider, { backgroundColor: c.border }]} />
+          <ScrollView contentContainerStyle={styles.perfInfoScroll}>
+            <View style={styles.perfInfoSection}>
+              <View style={styles.perfInfoHeader}>
+                <Ionicons name="flash" size={18} color={PRIMARY} />
+                <ThemedText style={[styles.perfInfoTitle, { color: c.text }]}>
+                  Response time
+                </ThemedText>
+              </View>
+              <ThemedText style={[styles.perfInfoBody, { color: c.textMid }]}>
+                How quickly the business replies to new requests and messages. Clients
+                often reach out to several trades — a quick first reply is one of the
+                biggest drivers of winning the job.
+              </ThemedText>
+            </View>
+            <View style={[styles.perfInfoDivider, { backgroundColor: c.border }]} />
+            <View style={styles.perfInfoSection}>
+              <View style={styles.perfInfoHeader}>
+                <Ionicons name="checkmark" size={18} color={PRIMARY} />
+                <ThemedText style={[styles.perfInfoTitle, { color: c.text }]}>
+                  Quote rate
+                </ThemedText>
+              </View>
+              <ThemedText style={[styles.perfInfoBody, { color: c.textMid }]}>
+                The percentage of accepted requests that get a real quote. A 3-day grace
+                period is applied after accepting so new requests don't drag your rate
+                down unfairly.
+              </ThemedText>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ======================================================================
+// Styles
+// ======================================================================
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
   },
-  loadingContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  header: {
+  // Top-right icon dock — absolute position so it floats above the
+  // scroll content (no background / row / block behind it). Same
+  // treatment used on the trade Home tab and Projects tab.
+  topBar: {
+    position: "absolute",
+    right: 16,
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
-    backgroundColor: "#FFFFFF",
+    gap: 8,
+    zIndex: 20,
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: Colors.light.title,
+  // Title block — free-standing inside the ScrollView, matches the
+  // Home / Projects tab pattern. No row wrapper, no surface behind.
+  // scrollContent already handles the 20-px horizontal inset, so this
+  // only sets vertical rhythm.
+  titleBlock: {
+    paddingTop: 4,
+    paddingBottom: 10,
   },
+  pageTitle: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 32,
+    lineHeight: 34,
+    letterSpacing: -0.8,
+  },
+  // ScrollView content — 54 top-padding so the titleBlock clears the
+  // absolutely-positioned icon dock (which sits at top: 12 + 36 tall,
+  // so ~48 from safe-area top). Matches the Projects tab value.
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 54,
   },
-  // Profile Card
-  profileCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.light.border,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+
+  // Hero — outer wrap is column so chips can sit under the avatar+text
+  // row instead of squeezed into the right column.
+  hero: {
+    paddingVertical: 8,
   },
-  // Two-column layout
-  cardColumns: {
+  heroTop: {
     flexDirection: "row",
-  },
-  cardLeftColumn: {
-    width: "40%",
-    paddingRight: 12,
-  },
-  verticalDivider: {
-    width: 1,
-    backgroundColor: Colors.light.border,
-  },
-  cardRightColumn: {
-    flex: 1,
-    paddingLeft: 12,
-    justifyContent: "space-between",
-  },
-  // Avatar
-  avatarContainer: {
     alignItems: "center",
-    marginBottom: 12,
+    gap: 14,
   },
-  cardAvatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-  },
-  avatarFallback: {
-    backgroundColor: Colors.light.secondaryBackground,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarInitials: {
-    fontSize: 24,
-    fontWeight: "600",
-    color: Colors.light.subtitle,
-  },
-  // Name section
-  nameSection: {
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  cardBusinessName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.light.title,
-    textAlign: "center",
-  },
-  cardPersonalName: {
-    fontSize: 13,
-    color: Colors.light.subtitle,
-    marginTop: 2,
-    textAlign: "center",
-  },
-  // Badges Row
-  badgesRow: {
+  heroChipsRow: {
     flexDirection: "row",
-    justifyContent: "center",
+    flexWrap: "wrap",
     gap: 8,
+    marginTop: 14,
   },
-  badgeWrapper: {
+  heroAvatar: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+  },
+  heroAvatarFallback: {
     alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
   },
-  badgeIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+  heroAvatarInitials: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 26,
+  },
+  heroTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  heroName: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 22,
+    lineHeight: 26,
+    letterSpacing: -0.4,
+  },
+  heroSub: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  heroLocRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 6,
+  },
+  heroLoc: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 13,
+    flexShrink: 1,
+  },
+  heroVerifyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+  },
+  heroVerifySummary: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 12.5,
+    marginLeft: 4,
+  },
+
+  // Small round verification badge rendered inline in the hero.
+  inlineBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
   },
-  badgeVerified: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: Colors.light.border,
-  },
-  badgeNotVerified: {
-    backgroundColor: "#F9FAFB",
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderStyle: "dashed",
-  },
-  badgeCheckmark: {
+  inlineBadgeCheck: {
     position: "absolute",
-    top: -4,
-    right: -4,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    top: -3,
+    right: -3,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     backgroundColor: "#10B981",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
   },
-  badgeLabel: {
-    fontSize: 10,
-    marginTop: 4,
+
+  // Zone 2 wrapper — borderless area for stats + specialty chips.
+  zone: {
+    marginTop: 18,
   },
-  badgeLabelVerified: {
-    color: "#374151",
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+    paddingVertical: 4,
   },
-  badgeLabelNotVerified: {
-    color: "#9CA3AF",
-  },
-  // Right column sections
-  rightSection: {
-    paddingVertical: 8,
-  },
-  rightSectionLarge: {
-    paddingVertical: 12,
-    flex: 1,
-    justifyContent: "center",
-  },
-  horizontalDivider: {
+
+  // Flowing sections — bio / perf / reviews as vertically stacked
+  // blocks with thin dividers, no card chrome around the blocks.
+  flowDivider: {
     height: 1,
-    backgroundColor: Colors.light.border,
+    marginTop: 20,
+    marginBottom: 4,
   },
-  // Job titles
-  jobTitlesText: {
-    fontSize: 14,
-    color: "#374151",
-    fontWeight: "500",
-    lineHeight: 20,
+  flowBlock: {
+    paddingTop: 14,
   },
-  emptyText: {
-    fontSize: 14,
-    color: Colors.light.subtitle,
-    fontStyle: "italic",
+
+  // Inline performance row — lives just above Reviews. Deliberately
+  // quieter than the old 3-col grid: smaller type, tighter padding,
+  // only Response + Quote rate (no star rating, that's below).
+  perfInlineWrap: {
+    paddingTop: 10,
+    paddingBottom: 4,
   },
-  // Location
-  locationRow: {
+  perfInlineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  perfInlineItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
-  locationText: {
-    fontSize: 14,
-    color: "#374151",
-    flex: 1,
-  },
-  // Client card
-  clientCardContent: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  clientCardInfo: {
-    marginLeft: 16,
-    flex: 1,
-  },
-  // Performance Section - Horizontal 3-column layout
-  performanceSection: {
-    marginTop: 20,
-    marginBottom: 4,
-    position: "relative",
-  },
-  performanceInfoButtonTopRight: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    padding: 4,
-    zIndex: 1,
-  },
-  performanceRowThreeCol: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-around",
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-  },
-  performanceColItem: {
-    alignItems: "center",
-    flex: 1,
-  },
-  performanceValueRow: {
+  perfInlineValueRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginBottom: 4,
   },
-  performanceValueText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
+  perfInlineValue: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 14,
+    letterSpacing: -0.2,
   },
-  performanceColLabel: {
-    fontSize: 12,
-    color: Colors.light.subtitle,
-    textAlign: "center",
+  perfInlineLabel: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 13,
   },
-  sectionDivider: {
-    height: 1,
-    backgroundColor: Colors.light.border,
-    marginTop: 16,
-    marginBottom: 4,
+  perfInlineDivider: {
+    width: 1,
+    height: 14,
   },
-  // Performance Info Modal (80% height bottom sheet)
-  perfInfoModalContent80: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: "80%",
-    paddingTop: 12,
+
+  // Pill card
+  pillCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
-  perfInfoModalHeader: {
+  pillEyebrowRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 16,
+    marginBottom: 10,
   },
-  perfInfoModalTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#111827",
+  pillEyebrow: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
   },
-  perfInfoModalScrollContent: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 16,
+  eyebrow: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
   },
-  perfInfoSection: {
-    marginBottom: 28,
+
+  // Row base (verification)
+  rowBase: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  perfInfoSectionHeader: {
+  rowLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginBottom: 12,
+    flex: 1,
+    minWidth: 0,
   },
-  perfInfoSectionTitle: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  perfInfoSectionText: {
-    fontSize: 15,
-    color: "#374151",
-    lineHeight: 22,
-    marginBottom: 12,
-  },
-  perfInfoTipBox: {
-    backgroundColor: "#F9FAFB",
+  rowIconWrap: {
+    width: 32,
+    height: 32,
     borderRadius: 10,
-    padding: 14,
-    borderLeftWidth: 3,
-    borderLeftColor: PRIMARY,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  perfInfoTipTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
+  rowLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 15,
+    flex: 1,
+  },
+  statusChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  statusChipText: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 12,
+  },
+
+  // Perf stats
+  perfRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+  },
+  perfStat: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  perfDivider: {
+    width: 1,
+  },
+  perfValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 4,
+  },
+  perfValue: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 17,
+    letterSpacing: -0.3,
+  },
+  perfLabel: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 12,
+    textAlign: "center",
+  },
+
+  // About / bio
+  bodyText: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+
+  // Chips (trades offered)
+  chipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  chipText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 13,
+  },
+
+  // Reviews section
+  reviewsSection: {
+    marginTop: 6,
+  },
+  reviewsHeaderRow: {
     marginBottom: 6,
   },
-  perfInfoTipText: {
-    fontSize: 14,
-    color: "#4B5563",
-    lineHeight: 20,
+  reviewsTitle: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 22,
+    letterSpacing: -0.4,
   },
-  // Bio Section
-  bioSection: {
-    marginTop: 20,
-    paddingHorizontal: 4,
-  },
-  bioText: {
-    fontSize: 18, // 2 sizes larger than review content (14px)
-    color: "#374151",
-    lineHeight: 26,
-  },
-  bioDivider: {
-    height: 1,
-    backgroundColor: Colors.light.border,
-    marginTop: 20,
-    marginHorizontal: 4,
-  },
-  // Reviews Section
-  reviewsSection: {
-    marginTop: 24,
-  },
-  reviewsSectionHeader: {
-    marginBottom: 16,
-  },
-  reviewsTitleRow: {
+  ratingSubRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    marginTop: 6,
   },
-  reviewsSectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
+  ratingSubText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 13,
   },
   starsRow: {
     flexDirection: "row",
@@ -1275,63 +1449,47 @@ const styles = StyleSheet.create({
   reviewsList: {
     paddingRight: 20,
   },
-  // Review Card (Horizontal) - wider to fit 5 photos without scrolling
   reviewCard: {
     width: 340,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    borderRadius: 18,
+    borderWidth: 1,
     padding: 16,
     marginRight: 12,
-    borderWidth: 1,
-    borderColor: Colors.light.border,
   },
   reviewerRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 10,
   },
   reviewerAvatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
   },
-  reviewerAvatarFallback: {
-    backgroundColor: "#E5E7EB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   reviewerInitials: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 14,
-    fontWeight: "600",
-    color: "#6B7280",
   },
   reviewerInfo: {
     marginLeft: 10,
     flex: 1,
   },
   reviewerName: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 14,
-    fontWeight: "600",
-    color: Colors.light.title,
   },
   reviewDate: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 12,
-    color: "#9CA3AF",
     marginTop: 2,
   },
   reviewRatingRow: {
     marginBottom: 8,
   },
-  reviewRatingBadge: {
-    marginLeft: "auto",
-  },
   reviewContent: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 14,
-    color: "#374151",
     lineHeight: 20,
-  },
-  reviewPhotosScroll: {
-    marginTop: 12,
   },
   reviewPhotosRow: {
     flexDirection: "row",
@@ -1343,137 +1501,131 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: 6,
   },
-  // Show More Button - Airbnb style grey pill
-  showMoreBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    marginTop: 16,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 8,
+  showAllBtn: {
     alignSelf: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    marginTop: 18,
+    borderRadius: 999,
+    borderWidth: 1,
   },
-  showMoreText: {
+  showAllText: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
+    letterSpacing: -0.1,
   },
-  // No Reviews State
-  noReviewsContainer: {
-    alignItems: "center",
-    paddingVertical: 32,
-    paddingHorizontal: 20,
-    backgroundColor: "#F9FAFB",
-    borderRadius: 16,
-  },
-  noReviewsMessage: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#6B7280",
+  noReviewsCard: {
     marginTop: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+    alignItems: "center",
   },
-  noReviewsSubtext: {
-    fontSize: 14,
-    color: "#9CA3AF",
+  noReviewsTitle: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 15,
+    marginTop: 10,
+  },
+  noReviewsSub: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 13,
     marginTop: 4,
     textAlign: "center",
   },
-  // Modal Styles
-  modalOverlay: {
+
+  // Bottom-sheet modal (reviews + perf info)
+  sheetOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
   },
-  modalContent: {
-    backgroundColor: "#FFFFFF",
+  sheetContent: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    height: "80%",
+    height: "82%",
     paddingTop: 12,
   },
-  modalHandle: {
+  sheetHandle: {
     width: 36,
     height: 4,
-    backgroundColor: "#D1D5DB",
     borderRadius: 2,
     alignSelf: "center",
-    marginBottom: 16,
+    marginBottom: 14,
   },
-  modalHeader: {
+  sheetHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 24,
-    paddingBottom: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 14,
   },
-  modalTitle: {
+  sheetEyebrow: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  sheetTitle: {
+    fontFamily: FontFamily.headerBold,
     fontSize: 22,
-    fontWeight: "700",
-    color: "#111827",
+    letterSpacing: -0.4,
   },
-  modalCloseBtn: {
+  sheetCloseBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#F3F4F6",
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  modalDivider: {
+  sheetDivider: {
     height: 1,
-    backgroundColor: Colors.light.border,
-    marginHorizontal: 24,
+    marginHorizontal: 20,
   },
+
   fullReviewsList: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingTop: 8,
   },
   fullReviewItem: {
-    paddingVertical: 20,
+    paddingVertical: 18,
   },
-  // Full review item styles - Airbnb style
   fullReviewerRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 10,
   },
   fullReviewerAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
   },
   fullReviewerInitials: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#6B7280",
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 15,
   },
   fullReviewerInfo: {
     marginLeft: 12,
     flex: 1,
   },
   fullReviewerName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 15,
   },
   fullReviewMeta: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
-  },
-  fullReviewMetaDot: {
-    fontSize: 14,
-    color: "#6B7280",
+    marginTop: 2,
   },
   fullReviewDate: {
-    fontSize: 14,
-    color: "#6B7280",
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 13,
   },
   fullReviewContent: {
-    fontSize: 16,
-    color: "#374151",
-    lineHeight: 24,
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 15,
+    lineHeight: 22,
   },
   fullReviewPhotosRow: {
     flexDirection: "row",
@@ -1487,24 +1639,34 @@ const styles = StyleSheet.create({
   },
   reviewSeparator: {
     height: 1,
-    backgroundColor: Colors.light.border,
   },
-  // Image viewer styles
-  viewerFooter: {
-    alignItems: "center",
-    paddingBottom: 40,
+
+  // Perf info modal body
+  perfInfoScroll: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 24,
   },
-  viewerDots: {
+  perfInfoSection: {
+    paddingVertical: 14,
+  },
+  perfInfoHeader: {
     flexDirection: "row",
+    alignItems: "center",
     gap: 8,
+    marginBottom: 8,
   },
-  viewerDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.4)",
+  perfInfoTitle: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 16,
   },
-  viewerDotActive: {
-    backgroundColor: "#fff",
+  perfInfoBody: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  perfInfoDivider: {
+    height: 1,
+    marginHorizontal: 0,
   },
 });
