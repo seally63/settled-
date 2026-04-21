@@ -467,7 +467,17 @@ export default function Create() {
             styles.scrollContent,
             { paddingTop: insets.top + 10 },
           ]}
+          // `handled` — taps on non-interactive empty area dismiss the
+          // keyboard; taps handled by a child (TextInput, button) keep
+          // it open.
           keyboardShouldPersistTaps="handled"
+          // iOS `number-pad` / `decimal-pad` keyboards have no Return
+          // key, so for the qty + unit-price inputs there was no way
+          // to dismiss once the floating Done accessory was removed.
+          // `interactive` matches native Messages / Mail — user can
+          // swipe the keyboard down, and it tracks the drag smoothly.
+          // Also dismisses on any normal scroll gesture.
+          keyboardDismissMode="interactive"
           showsVerticalScrollIndicator={false}
         >
           {/* Inline chrome — chevron back + eye (preview). Transparent,
