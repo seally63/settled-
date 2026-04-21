@@ -680,10 +680,34 @@ export default function ClientProjects() {
         });
       }
 
-      // Enrich decided quotes with review info
+      // Work-started enrichment. rpc_client_list_decided_quotes doesn't
+      // return `work_started_at`, but we need it to flip the project
+      // card from "Scheduled" to "In progress" once the trade has
+      // tapped Start Work. Fetch just this one column for the accepted
+      // quotes in the payload and stitch it in.
+      const activeQuoteIds = (decidedData || [])
+        .filter((q) =>
+          ["accepted", "awaiting_completion", "issue_reported", "issue_resolved_pending"]
+            .includes(String(q.status || "").toLowerCase())
+        )
+        .map((q) => q.quote_id)
+        .filter(Boolean);
+      let workStartedByQuoteId = {};
+      if (activeQuoteIds.length > 0) {
+        const { data: wsData } = await supabase
+          .from("tradify_native_app_db")
+          .select("id, work_started_at")
+          .in("id", activeQuoteIds);
+        (wsData || []).forEach((r) => {
+          if (r.work_started_at) workStartedByQuoteId[r.id] = r.work_started_at;
+        });
+      }
+
+      // Enrich decided quotes with review info + work_started_at
       const enrichedDecidedData = (decidedData || []).map((q) => ({
         ...q,
         client_review_rating: reviewsByQuoteId[q.quote_id] || null,
+        work_started_at: workStartedByQuoteId[q.quote_id] || null,
       }));
 
       setDecidedQuotes(enrichedDecidedData);
@@ -1244,7 +1268,12 @@ export default function ClientProjects() {
             tradeName: q.trade_business_name || "Trade",
             amount: q.grand_total,
             status,
+            // Work-started stamp — flips card to "In progress" when set.
+            workStartedAt: q.work_started_at || null,
           };
+        } else if (q.work_started_at && !activeByRequest[reqId].workStartedAt) {
+          // If a later group pass finds the stamp, keep it.
+          activeByRequest[reqId].workStartedAt = q.work_started_at;
         }
         // Update with highest priority status
         const statusPriority = {
@@ -1457,11 +1486,24 @@ export default function ClientProjects() {
         subStatus = "work_confirmed";
       }
 
+      // Work-started override — any confirmed-or-not state flips to
+      // "In progress" once the trade has tapped Start Work. Matches
+      // the trade-side short-circuit in quotes/index.jsx.
+      if (group.workStartedAt) {
+        statusType = "scheduled";
+        statusText = "In progress";
+        statusDetail = `Started ${formatDate(group.workStartedAt)}`;
+        subStatus = "work_in_progress";
+      }
+
       allProjects.push({
         id: `active-${group.requestId}`,
         type: "active",
         stage: "HIRED",
         stageIndex: 2,
+        subStatus,
+        workStartedAt: group.workStartedAt || null,
+        nextAppointment: nextAppt || null,
         progressPosition: getClientProgressPosition("HIRED", subStatus),
         requestId: group.requestId,
         quoteId: group.quoteId,
@@ -1472,6 +1514,7 @@ export default function ClientProjects() {
         statusText,
         statusDetail,
         priceInfo: null,
+        tradeName: group.tradeName,
         actions,
         sortPriority:
           statusType === "issue"
@@ -1634,10 +1677,24 @@ export default function ClientProjects() {
                   <ProjectRow
                     {...row}
                     onPress={() => {
-                      if (project.quoteId) {
-                        router.push(`/(dashboard)/myquotes/${project.quoteId}`);
-                      } else if (project.requestId) {
+                      // Every card routes to the Your Request page —
+                      // never directly to the Quote Overview. The user
+                      // reaches specific quotes / appointments from that
+                      // page's Recent Activity. Previously, as soon as
+                      // any quote existed (draft / sent / accepted /
+                      // appointment) the card short-circuited to
+                      // /myquotes/[quoteId], which skipped the Request
+                      // context entirely and made the flow feel
+                      // disjointed. Mirrors the trade-side fix in
+                      // quotes/index.jsx.
+                      if (project.requestId) {
                         router.push(`/(dashboard)/myquotes/request/${project.requestId}`);
+                      } else if (project.quoteId) {
+                        // Deep-link safety net: if somehow we have no
+                        // requestId (shouldn't happen in normal data)
+                        // the quote overview is still better than a
+                        // dead tap.
+                        router.push(`/(dashboard)/myquotes/${project.quoteId}`);
                       }
                     }}
                   />
@@ -1701,6 +1758,234 @@ const rowDividerColor = "rgba(15,15,20,0.06)";
 // SummaryStrip intentionally removed — product decision: client side does
 // not surface Committed / In review totals on the Projects tab.
 
+// Canonical client-side project states. Mirror the trade-side 16 so
+// that for any given row, the chip colour is identical across both
+// POVs (labels can differ — "New enquiry" vs "Enquiry sent" — but
+// colour is the shared signal).
+const CLIENT_STATE = {
+  ENQUIRY_SENT:       "ENQUIRY_SENT",        // #1  Purple
+  ENQUIRY_NO_RESPONSE:"ENQUIRY_NO_RESPONSE", // #2  Gray
+  TRADE_UNAVAILABLE:  "TRADE_UNAVAILABLE",   // #3  Gray
+  QUOTE_PREPARING:    "QUOTE_PREPARING",     // #4  Blue
+  QUOTE_RECEIVED:     "QUOTE_RECEIVED",      // #5  Blue
+  QUOTE_EXPIRED:      "QUOTE_EXPIRED",       // #6  Gray
+  QUOTE_DECLINED:     "QUOTE_DECLINED",      // #7  Red
+  AWAITING_SCHEDULE:  "AWAITING_SCHEDULE",   // #8  Amber
+  VISIT_PROPOSED:     "VISIT_PROPOSED",      // #9  Blue
+  SCHEDULED:          "SCHEDULED",           // #10 Teal
+  IN_PROGRESS:        "IN_PROGRESS",         // #11 Amber
+  CONFIRM_COMPLETION: "CONFIRM_COMPLETION",  // #12 Amber
+  ISSUE_REPORTED:     "ISSUE_REPORTED",      // #13 Coral
+  RESOLUTION_RECEIVED:"RESOLUTION_RECEIVED", // #14 Blue
+  COMPLETED:          "COMPLETED",           // #15 Green
+  REVIEWED:           "REVIEWED",            // #16 Green
+};
+
+function clientDaysAgoText(iso) {
+  if (!iso) return null;
+  const d = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+  if (d === 0) return "today";
+  if (d === 1) return "1d ago";
+  return `${d}d ago`;
+}
+
+function clientCardDate(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+    });
+  } catch { return null; }
+}
+
+function clientCardTime(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch { return null; }
+}
+
+function deriveClientCanonicalState(project) {
+  const stage = project.stage;
+  const sub = project.subStatus || null;
+  const status = String(project.status || "").toLowerCase();
+
+  if (stage === "EXPIRED") {
+    // Enquiry-expired vs quote-expired: the existing loader sets
+    // stage EXPIRED for both, but a priceInfo / grand_total value
+    // means a quote actually existed.
+    return project.priceInfo ? CLIENT_STATE.QUOTE_EXPIRED : CLIENT_STATE.ENQUIRY_NO_RESPONSE;
+  }
+  if (stage === "CANCELLED") {
+    // Client either declined the quote themselves, or the trade
+    // was unavailable (declined the enquiry).
+    if (project.explanation && /declined this quote/i.test(project.explanation)) {
+      return CLIENT_STATE.QUOTE_DECLINED;
+    }
+    return CLIENT_STATE.TRADE_UNAVAILABLE;
+  }
+
+  if (stage === "POSTED") return CLIENT_STATE.ENQUIRY_SENT;
+
+  if (stage === "QUOTES") {
+    return project.priceInfo ? CLIENT_STATE.QUOTE_RECEIVED : CLIENT_STATE.QUOTE_PREPARING;
+  }
+
+  if (stage === "HIRED") {
+    if (sub === "work_in_progress" || project.workStartedAt) return CLIENT_STATE.IN_PROGRESS;
+    if (sub === "awaiting_completion" || status === "awaiting_completion") {
+      return CLIENT_STATE.CONFIRM_COMPLETION;
+    }
+    if (sub === "issue_reported" || status === "issue_reported") return CLIENT_STATE.ISSUE_REPORTED;
+    if (sub === "issue_resolved_pending" || status === "issue_resolved_pending") {
+      return CLIENT_STATE.RESOLUTION_RECEIVED;
+    }
+    if (sub === "work_pending") return CLIENT_STATE.VISIT_PROPOSED;
+    if (sub === "work_confirmed") return CLIENT_STATE.SCHEDULED;
+    return CLIENT_STATE.AWAITING_SCHEDULE;
+  }
+
+  if (stage === "DONE") {
+    return project.hasReview ? CLIENT_STATE.REVIEWED : CLIENT_STATE.COMPLETED;
+  }
+
+  return CLIENT_STATE.ENQUIRY_SENT;
+}
+
+function clientStateMeta(state, project) {
+  const next = project.nextAppointment;
+  const apptDate = clientCardDate(next?.scheduled_at);
+  const apptTime = clientCardTime(next?.scheduled_at);
+
+  switch (state) {
+    case CLIENT_STATE.ENQUIRY_SENT:
+      return {
+        color: StatusColor.ENQUIRY,
+        label: "Enquiry sent",
+        rightTop: "Awaiting",
+        rightBot: `Sent ${clientDaysAgoText(project.created_at) || "recently"}`,
+      };
+    case CLIENT_STATE.ENQUIRY_NO_RESPONSE:
+      return {
+        color: StatusColor.EXPIRED,
+        label: "No response",
+        rightTop: "—",
+        rightBot: "Enquiry expired",
+      };
+    case CLIENT_STATE.TRADE_UNAVAILABLE:
+      return {
+        color: StatusColor.EXPIRED,
+        label: "Trade unavailable",
+        rightTop: "—",
+        rightBot: clientDaysAgoText(project.updated_at) || "—",
+      };
+    case CLIENT_STATE.QUOTE_PREPARING:
+      return {
+        color: StatusColor.QUOTING,
+        label: "Quote in progress",
+        rightTop: "Preparing",
+        rightBot: "Trade is preparing a quote",
+      };
+    case CLIENT_STATE.QUOTE_RECEIVED:
+      return {
+        color: StatusColor.QUOTING,
+        label: "Quote received",
+        rightTop: project.priceInfo || "Received",
+        rightBot: `Received ${clientDaysAgoText(project.quoteReceivedAt) || "recently"}`,
+      };
+    case CLIENT_STATE.QUOTE_EXPIRED:
+      return {
+        color: StatusColor.EXPIRED,
+        label: "Expired",
+        rightTop: project.priceInfo || "—",
+        rightBot: "Quote expired",
+      };
+    case CLIENT_STATE.QUOTE_DECLINED:
+      return {
+        color: StatusColor.DECLINED,
+        label: "Quote declined",
+        rightTop: project.priceInfo || "—",
+        rightBot: clientDaysAgoText(project.updated_at) || "—",
+      };
+    case CLIENT_STATE.AWAITING_SCHEDULE:
+      return {
+        color: StatusColor.IN_PROGRESS,
+        label: "Awaiting schedule",
+        rightTop: project.priceInfo || "Accepted",
+        rightBot: `Accepted ${clientDaysAgoText(project.acceptedAt) || "recently"}`,
+      };
+    case CLIENT_STATE.VISIT_PROPOSED:
+      return {
+        color: StatusColor.QUOTING,
+        label: "Visit proposed",
+        rightTop: project.priceInfo || "—",
+        rightBot: apptDate ? `${apptDate} confirm or reschedule` : "Confirm or reschedule",
+      };
+    case CLIENT_STATE.SCHEDULED:
+      return {
+        color: StatusColor.HIRED,
+        label: "Scheduled",
+        rightTop: project.priceInfo || "Scheduled",
+        rightBot: apptDate && apptTime ? `${apptDate}, ${apptTime}` : apptDate || "Scheduled",
+      };
+    case CLIENT_STATE.IN_PROGRESS:
+      return {
+        color: StatusColor.IN_PROGRESS,
+        label: "In progress",
+        rightTop: project.priceInfo || "Active",
+        rightBot: project.workStartedAt
+          ? `Started ${clientCardDate(project.workStartedAt) || "recently"}`
+          : "In progress",
+      };
+    case CLIENT_STATE.CONFIRM_COMPLETION:
+      return {
+        color: StatusColor.IN_PROGRESS,
+        label: "Confirm completion",
+        rightTop: project.priceInfo || "—",
+        rightBot: "Review and confirm",
+      };
+    case CLIENT_STATE.ISSUE_REPORTED:
+      return {
+        color: StatusColor.ISSUE,
+        label: "Issue reported",
+        rightTop: project.priceInfo || "—",
+        rightBot: "Awaiting resolution",
+      };
+    case CLIENT_STATE.RESOLUTION_RECEIVED:
+      return {
+        color: StatusColor.QUOTING,
+        label: "Resolution received",
+        rightTop: project.priceInfo || "—",
+        rightBot: "Review resolution",
+      };
+    case CLIENT_STATE.COMPLETED:
+      return {
+        color: StatusColor.COMPLETED,
+        label: "Completed",
+        rightTop: project.priceInfo || "Completed",
+        rightBot: `Completed ${clientCardDate(project.completedAt) || "recently"}`,
+      };
+    case CLIENT_STATE.REVIEWED:
+      return {
+        color: StatusColor.COMPLETED,
+        label: "Reviewed",
+        rightTop: project.priceInfo || "Completed",
+        rightBot: clientDaysAgoText(project.reviewedAt) || "Review given",
+      };
+    default:
+      return {
+        color: StatusColor.EXPIRED,
+        label: "",
+        rightTop: null,
+        rightBot: null,
+      };
+  }
+}
+
 // Turn a ClientProjects internal project object into ProjectRow props.
 function buildClientRow(project) {
   const { service, category } = parseTitle(project.title);
@@ -1709,88 +1994,27 @@ function buildClientRow(project) {
     (category ? getCategoryIconLocal(category) : null) ||
     defaultServiceTypeIconLocal;
 
-  const muted = project.stage === "EXPIRED" || project.stage === "CANCELLED";
-  const fresh = project.type === "quotes" && (project.isFresh || project.quotesCount >= 1 && project.daysOld <= 0);
+  const canonical = deriveClientCanonicalState(project);
+  const meta = clientStateMeta(canonical, project);
 
-  // Canonical-status → colour. Shared palette with the trade-side
-  // Projects tab — the client sees the SAME chip colour as the trade
-  // for the same underlying state, so a user instantly recognises
-  // where the project is in its life regardless of POV.
-  //
-  //   POSTED    → purple   (enquiry sent)
-  //   QUOTES    → blue     (quote received / review) once a price lands;
-  //                         amber while trade is still preparing.
-  //   HIRED     → teal     (scheduled)
-  //   DONE      → green    (completed)
-  //   EXPIRED   → gray
-  //   CANCELLED → red      (declined / cancelled — both sides match)
-  const stageMeta = {
-    POSTED:    { color: StatusColor.ENQUIRY,       label: "Enquiry sent" },
-    QUOTES:    project.priceInfo
-      ? { color: StatusColor.QUOTING,              label: "Review quotes" }
-      : { color: StatusColor.IN_PROGRESS,          label: "Preparing" },
-    HIRED:     { color: StatusColor.HIRED,         label: "Scheduled" },
-    DONE:      { color: StatusColor.COMPLETED,     label: "Completed" },
-    EXPIRED:   { color: StatusColor.EXPIRED,       label: "Expired" },
-    CANCELLED: { color: StatusColor.DECLINED,      label: "Cancelled" },
-  }[project.stage] || { color: StatusColor.EXPIRED, label: "" };
+  const muted =
+    canonical === CLIENT_STATE.ENQUIRY_NO_RESPONSE ||
+    canonical === CLIENT_STATE.QUOTE_EXPIRED ||
+    canonical === CLIENT_STATE.TRADE_UNAVAILABLE ||
+    canonical === CLIENT_STATE.QUOTE_DECLINED;
+  const fresh = project.type === "quotes" &&
+    (project.isFresh || (project.quotesCount >= 1 && project.daysOld <= 0));
 
-  // Right column — follows the trade-side format: primary line is the £
-  // figure (or short state when no price yet), secondary is a short
-  // status sub-line. V2 is browse-and-choose, so nothing references
-  // "N trades invited" / open-request semantics.
-  //   POSTED  : "Awaiting"   · "Direct request"
-  //   QUOTES  : priceInfo    · "Quote ready"
-  //   HIRED   : priceInfo    · "Scheduled" / short status
-  //   DONE    : priceInfo    · "Completed" / "Review given"
-  //   EXPIRED : priceInfo    · "Expired"
-  //   CANCELLED: "Cancelled" · "—"
-  let rightTop = null;
-  let rightBot = null;
-  switch (project.stage) {
-    case "POSTED":
-      rightTop = "Awaiting";
-      rightBot = "Direct request";
-      break;
-    case "QUOTES":
-      // Without priceInfo there's no actual quote yet — trade is
-      // still preparing. Don't claim "Quoted".
-      rightTop = project.priceInfo || "Preparing";
-      rightBot = project.statusText || (project.priceInfo ? "Quote ready" : "Preparing your quote");
-      break;
-    case "HIRED":
-      rightTop = project.priceInfo || "Hired";
-      rightBot = project.statusText || project.statusDetail || "Scheduled";
-      break;
-    case "DONE":
-      rightTop = project.priceInfo || "Completed";
-      rightBot = project.hasReview ? "Review given" : "Completed";
-      break;
-    case "EXPIRED":
-      rightTop = project.priceInfo || "Expired";
-      rightBot = "Expired";
-      break;
-    case "CANCELLED":
-      rightTop = "Cancelled";
-      rightBot = "—";
-      break;
-    default:
-      rightTop = project.priceInfo || null;
-      rightBot = project.statusText || null;
-  }
-
-  // Subtitle — short context line (e.g. "Direct request · Mark Thornton"
-  // or "SW4 · 6 items · posted 2d ago"). Keep it short — the row is single-line.
   const subtitle = project.contextLine || project.statusDetail || null;
 
   return {
     iconSource,
-    stripeColor: stageMeta.color,
-    statusLabel: stageMeta.label,
+    stripeColor: meta.color,
+    statusLabel: meta.label,
     title: service || project.title || "Project",
     subtitle,
-    rightTop,
-    rightBot,
+    rightTop: meta.rightTop,
+    rightBot: meta.rightBot,
     fresh,
     muted,
   };

@@ -2042,8 +2042,11 @@ export default function ClientMyQuoteDetail() {
               )}
             </View>
 
-            {/* Section Divider */}
-            <View style={styles.sectionDivider} />
+            {/* Stray divider — previously separated the Quote block
+                from the dead-coded "Your Request" block below. Since
+                that block is hidden, this divider had nothing to
+                divide and just drew a line mid-page. Hidden to match. */}
+            {false && <View style={styles.sectionDivider} />}
 
             {/* Your request section removed per redesign — user reaches
                 this page from the Client Request page itself, so the
@@ -2153,11 +2156,16 @@ export default function ClientMyQuoteDetail() {
             )}
             {/* /Your request dead-code */}
 
-            {/* Section Divider - only show if there are appointments */}
-            {appointments.length > 0 && <View style={styles.sectionDivider} />}
+            {/* Appointments section + its leading divider intentionally
+                hidden on the client Quote Overview. Appointments now
+                live on the Your Request page's Recent Activity, so
+                showing them here duplicated the list and left two
+                dangling horizontal rules on the page. Data loading +
+                AppointmentCard rendering stay in the tree behind the
+                false guard for easy reinstatement.                  */}
+            {false && appointments.length > 0 && <View style={styles.sectionDivider} />}
 
-            {/* Appointments Section - Multiple Appointments Support */}
-            {appointments.length > 0 && (
+            {false && appointments.length > 0 && (
               <>
                 <Pressable
                   style={styles.collapsibleHeader}

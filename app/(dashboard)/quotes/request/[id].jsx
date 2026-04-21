@@ -38,17 +38,18 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 const trvStyles = StyleSheet.create({
   // Sticky chevron — floats top-left, always visible as you scroll.
   // Sizing matches the builder's iconBtn for visual uniformity across
-  // the three screens (request detail · builder · schedule).
-  stickyChevron: {
-    position: "absolute",
-    left: 20,
+  // the three screens (request detail · builder · schedule). The
+  // chevron now scrolls with the content (was sticky) so it can't
+  // sit on top of rows as the user scrolls down.
+  inlineChevron: {
+    marginLeft: 20,
+    marginBottom: 12,
     width: 36,
     height: 36,
     borderRadius: 18,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 30,
   },
   eyebrowRow: {
     flexDirection: "row",
@@ -524,7 +525,7 @@ function quoteShortId(id) {
 }
 
 // Interleaved appointments + quotes, newest first, tappable.
-function RecentActivitySection({ styles, c, appointments, quotes, onActivityPress, clientName }) {
+function RecentActivitySection({ styles, c, appointments, quotes, onActivityPress, clientName, workStartedAt, hasConfirmedWorkAppt }) {
   const items = [
     ...((appointments || []).map((a) => ({
       kind: "appointment",
@@ -570,6 +571,8 @@ function RecentActivitySection({ styles, c, appointments, quotes, onActivityPres
                 item={it}
                 onPress={() => onActivityPress(it)}
                 clientName={clientName}
+                workStartedAt={workStartedAt}
+                hasConfirmedWorkAppt={hasConfirmedWorkAppt}
               />
             </View>
           ))
@@ -579,7 +582,7 @@ function RecentActivitySection({ styles, c, appointments, quotes, onActivityPres
   );
 }
 
-function ActivityRow({ styles, c, item, onPress, clientName }) {
+function ActivityRow({ styles, c, item, onPress, clientName, workStartedAt, hasConfirmedWorkAppt }) {
   const { kind, data } = item;
   if (kind === "appointment") {
     const scheduled = new Date(data.scheduled_at);
@@ -598,6 +601,12 @@ function ActivityRow({ styles, c, item, onPress, clientName }) {
         : data.status === "proposed"
         ? Colors.status.pending
         : Colors.status.declined;
+    // Subtitle prompt (A+B-agreed hint): a confirmed appointment that's
+    // today or past, with no Start Work stamp, should nudge the trade
+    // to tap and fire it.
+    const apptIsConfirmed = data.status === "confirmed" || data.status === "accepted";
+    const apptDue = Number.isFinite(scheduled.getTime()) && scheduled.getTime() <= Date.now();
+    const promptStart = apptIsConfirmed && apptDue && !workStartedAt;
     return (
       <Pressable
         onPress={onPress}
@@ -613,6 +622,7 @@ function ActivityRow({ styles, c, item, onPress, clientName }) {
           </ThemedText>
           <ThemedText style={[styles.activityMeta, { color: c.textMuted }]} numberOfLines={1}>
             {dateStr} · {timeStr}
+            {promptStart ? "  ·  tap to start work" : ""}
           </ThemedText>
         </View>
         <View style={[styles.activityBadge, { backgroundColor: statusTone + "22", borderColor: statusTone }]}>
@@ -649,6 +659,11 @@ function ActivityRow({ styles, c, item, onPress, clientName }) {
   const title = clientFirst
     ? `Quote #${quoteShortId(data.id)} for ${clientFirst}`
     : `Quote #${quoteShortId(data.id)}`;
+  // Subtitle prompt on the accepted quote row: ask the trade to book
+  // a work appointment when they haven't yet. Disappears as soon as
+  // a confirmed work appointment exists.
+  const showScheduleHint =
+    s === "accepted" && !hasConfirmedWorkAppt && !workStartedAt;
   return (
     <Pressable
       onPress={onPress}
@@ -662,6 +677,11 @@ function ActivityRow({ styles, c, item, onPress, clientName }) {
         <ThemedText style={[styles.activityTitle, { color: c.text }]} numberOfLines={1}>
           {title}
         </ThemedText>
+        {showScheduleHint && (
+          <ThemedText style={[styles.activityMeta, { color: c.textMuted }]} numberOfLines={1}>
+            Tap + to schedule the first visit
+          </ThemedText>
+        )}
       </View>
       <View style={[styles.activityBadge, { backgroundColor: tone + "22", borderColor: tone }]}>
         <ThemedText style={[styles.activityBadgeText, { color: tone }]}>{label}</ThemedText>
@@ -678,10 +698,24 @@ function RecentActivityBottomSheet({
   onReschedule,
   onCancelAppt,
   onOpenQuote,
+  // Start-work props (optional — only meaningful on the trade side).
+  canStartWork,
+  workStartedAt,
+  canUndoStartWork,
+  onStartWork,
+  onUndoStartWork,
 }) {
   const visible = !!activity;
   const kind = activity?.kind;
   const data = activity?.data;
+  // Only surface Start Work inside the appointment sheet when the
+  // activity being viewed is an appointment. Avoids bleeding the
+  // action into the quote sheet.
+  const apptStatus = String(data?.status || "").toLowerCase();
+  const isConfirmedAppt = kind === "appointment" &&
+    (apptStatus === "confirmed" || apptStatus === "accepted");
+  const showStartWork = isConfirmedAppt && canStartWork && !workStartedAt;
+  const showStartedBadge = isConfirmedAppt && !!workStartedAt;
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={sheetStyles.backdrop} onPress={onClose}>
@@ -716,7 +750,63 @@ function RecentActivityBottomSheet({
                   Location: {data.location}
                 </ThemedText>
               ) : null}
+
+              {/* Work-started banner — only on a confirmed appointment
+                  belonging to the accepted quote. While inside the 5-min
+                  window the trade can also Undo the stamp. After that
+                  window the banner stays for reference but Undo is hidden.  */}
+              {showStartedBadge && (
+                <View
+                  style={{
+                    marginTop: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    borderRadius: 12,
+                    backgroundColor: c.elevate,
+                    borderWidth: 1,
+                    borderColor: c.border,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                    <Ionicons name="play-circle" size={18} color={Colors.status?.pending || "#F4B740"} />
+                    <ThemedText style={{ color: c.text, fontFamily: "PublicSans_600SemiBold", fontSize: 14 }} numberOfLines={1}>
+                      Work started
+                    </ThemedText>
+                    <ThemedText style={{ color: c.textMuted, fontSize: 12 }} numberOfLines={1}>
+                      · {new Date(workStartedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                    </ThemedText>
+                  </View>
+                  {canUndoStartWork && (
+                    <Pressable onPress={onUndoStartWork} hitSlop={8}>
+                      <ThemedText style={{ color: Colors.primary, fontFamily: "PublicSans_600SemiBold", fontSize: 13 }}>
+                        Undo
+                      </ThemedText>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+
               <View style={sheetStyles.actions}>
+                {showStartWork && (
+                  <Pressable
+                    onPress={onStartWork}
+                    style={({ pressed }) => [
+                      sheetStyles.actionPrimary,
+                      { backgroundColor: Colors.primary, flex: 1 },
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Start work"
+                  >
+                    <Ionicons name="play" size={16} color="#fff" />
+                    <ThemedText style={sheetStyles.actionPrimaryText}>
+                      Start work
+                    </ThemedText>
+                  </Pressable>
+                )}
                 <Pressable
                   onPress={() => onReschedule(data)}
                   style={({ pressed }) => [
@@ -832,9 +922,9 @@ function CreateActionSheet({ insets, c, visible, onClose, onCreateQuote, onCreat
               <Ionicons name="calendar-outline" size={22} color={Colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <ThemedText style={[sheetStyles.rowTitle, { color: c.text }]}>Create appointment</ThemedText>
+              <ThemedText style={[sheetStyles.rowTitle, { color: c.text }]}>Schedule appointment</ThemedText>
               <ThemedText style={[sheetStyles.rowSub, { color: c.textMuted }]}>
-                Schedule a survey visit or kick-off meeting
+                Create appointment to schedule a visit or start work
               </ThemedText>
             </View>
           </Pressable>
@@ -1529,7 +1619,7 @@ export default function RequestDetails() {
             .maybeSingle(),
           supabase
             .from("tradify_native_app_db")
-            .select("id, project_title, grand_total, status, created_at, line_items, valid_until, request_id")
+            .select("id, project_title, grand_total, status, created_at, line_items, valid_until, request_id, work_started_at")
             .eq("trade_id", myId)
             .eq("request_id", id)
             .order("created_at", { ascending: false })
@@ -1831,6 +1921,32 @@ export default function RequestDetails() {
 
   const hasAttachments = attachments.length > 0;
 
+  // Work-started machinery. `workStartedAt` flips the project into
+  // "In progress" on both POVs; `canStartWork` guards the action
+  // (needs accepted quote + confirmed appointment for the quote);
+  // `canUndoStartWork` mirrors the 5-minute RPC window so the chip
+  // only renders while the RPC will still accept it.
+  const acceptedQuote = (quotes || []).find(
+    (q) => String(q?.status || "").toLowerCase() === "accepted"
+  ) || null;
+  const workStartedAt = acceptedQuote?.work_started_at || null;
+  const hasConfirmedWorkAppt = (appointments || []).some((a) => {
+    const s = String(a?.status || "").toLowerCase();
+    if (!(s === "confirmed" || s === "accepted")) return false;
+    if (acceptedQuote?.id && a.quote_id === acceptedQuote.id) return true;
+    // Fallback: request-level appointments (quote_id null) that don't
+    // look like a survey — treat as work appointments.
+    const title = String(a?.title || "").toLowerCase();
+    return !title.includes("survey");
+  });
+  const canStartWork =
+    !!acceptedQuote && !workStartedAt && hasConfirmedWorkAppt;
+  const workStartedMsAgo = workStartedAt
+    ? Date.now() - new Date(workStartedAt).getTime()
+    : null;
+  const canUndoStartWork =
+    !!workStartedAt && workStartedMsAgo != null && workStartedMsAgo < 5 * 60 * 1000;
+
   // === Derived values for the redesigned hero ===
   const reqTitle =
     req?.suggested_title ||
@@ -1888,45 +2004,49 @@ export default function RequestDetails() {
       ? Colors.status.scheduled
       : Colors.status.declined;
 
+  // Inline chevron — used in BOTH the error/empty fallback bodies and
+  // as the first row inside the ScrollView's content. Scrolls with the
+  // rest of the page so it never covers content as the user scrolls.
+  const inlineChevron = (
+    <Pressable
+      onPress={() =>
+        router.canGoBack?.() ? router.back() : router.replace("/quotes")
+      }
+      hitSlop={10}
+      style={[
+        trvStyles.inlineChevron,
+        { backgroundColor: c.elevate, borderColor: c.border },
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel="Back"
+    >
+      <Ionicons name="chevron-back" size={18} color={c.text} />
+    </Pressable>
+  );
+
   return (
     <ThemedView style={styles.container}>
-      {/* Sticky chevron back — sits on top at all times (only this
-          screen has a sticky back; the builder + schedule pages have
-          their chevron inline with the scroll content). Matches the
-          iconBtn style used on the builder for visual uniformity. */}
-      <Pressable
-        onPress={() =>
-          router.canGoBack?.() ? router.back() : router.replace("/quotes")
-        }
-        hitSlop={10}
-        style={[
-          trvStyles.stickyChevron,
-          {
-            top: insets.top + 10,
-            backgroundColor: c.elevate,
-            borderColor: c.border,
-          },
-        ]}
-      >
-        <Ionicons name="chevron-back" size={18} color={c.text} />
-      </Pressable>
-
       {err ? (
-        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }}>
-          <ThemedText>Error: {err}</ThemedText>
+        <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 0 }}>
+          {inlineChevron}
+          <View style={{ paddingHorizontal: 20 }}>
+            <ThemedText>Error: {err}</ThemedText>
+          </View>
         </View>
       ) : !req ? (
-        // No skeleton — the sticky chevron is already on top so the user
-        // can navigate back instantly. Initial fetch is fast enough that
-        // an empty screen for the few ms is cleaner than a loader flash.
-        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }} />
+        // No skeleton — the inline chevron gives an instant back route.
+        // Initial fetch is fast enough that an empty screen for the few
+        // ms is cleaner than a loader flash.
+        <View style={{ paddingTop: insets.top + 12 }}>
+          {inlineChevron}
+        </View>
       ) : (
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{
-            // Leaves room for the sticky chevron (insets.top + 10 + 36)
-            // plus a small gap before the eyebrow.
-            paddingTop: insets.top + 56,
+            // Chevron is inline at the top of this content now; just a
+            // modest top pad off the safe-area edge.
+            paddingTop: insets.top + 12,
             // Extra bottom room so the FAB (~60px circle + 80-130px
             // bottom offset) doesn't cover the last content row.
             paddingBottom: insets.bottom + 220,
@@ -1939,7 +2059,10 @@ export default function RequestDetails() {
           contentInsetAdjustmentBehavior="never"
           keyboardShouldPersistTaps="handled"
         >
-          {/* Eyebrow — tight below the sticky chevron */}
+          {/* Inline chevron — scrolls with the content. */}
+          {inlineChevron}
+
+          {/* Eyebrow */}
           <View style={trvStyles.eyebrowRow}>
             <View style={[trvStyles.eyebrowDot, { backgroundColor: eyebrowDot }]} />
             <ThemedText style={[trvStyles.eyebrow, { color: c.textMuted }]}>
@@ -2127,6 +2250,8 @@ export default function RequestDetails() {
                 appointments={appointments}
                 quotes={quotes}
                 clientName={clientName}
+                workStartedAt={workStartedAt}
+                hasConfirmedWorkAppt={hasConfirmedWorkAppt}
                 onActivityPress={(activity) => {
                   // Quote cards always open directly (no bottom sheet):
                   //  · draft       → builder for continued editing
@@ -2215,7 +2340,9 @@ export default function RequestDetails() {
           bottom offset as the floating tab bar so it feels uniform, but
           the tab bar is hidden on this screen so the FAB owns the slot.
           Tap → bottom sheet offering "Create quote" or "Create
-          appointment".                                             */}
+          appointment". The amber dot overlay signals a pending action:
+          the quote is accepted + either no work appointment exists, or
+          the scheduled date has arrived but Start Work hasn't fired.   */}
       {!loading && req && status === "claimed" && (
         <FABCreate
           insets={insets}
@@ -2229,6 +2356,69 @@ export default function RequestDetails() {
         c={c}
         activity={activitySheet}
         onClose={() => setActivitySheet(null)}
+        canStartWork={canStartWork}
+        workStartedAt={workStartedAt}
+        canUndoStartWork={canUndoStartWork}
+        onStartWork={async () => {
+          if (!acceptedQuote?.id) return;
+          // Soft guard: if the appointment is >7 days out, ask again.
+          const appt = activitySheet?.kind === "appointment" ? activitySheet.data : null;
+          const ms = appt?.scheduled_at
+            ? new Date(appt.scheduled_at).getTime() - Date.now()
+            : 0;
+          const farOut = ms > 7 * 24 * 60 * 60 * 1000;
+          const dateLabel = appt?.scheduled_at
+            ? new Date(appt.scheduled_at).toLocaleDateString(undefined, {
+                day: "numeric",
+                month: "long",
+              })
+            : null;
+          const doStart = async () => {
+            try {
+              const { error } = await supabase.rpc("rpc_trade_start_work", {
+                p_quote_id: acceptedQuote.id,
+              });
+              if (error) throw error;
+              setActivitySheet(null);
+              load();
+            } catch (e) {
+              Alert.alert("Could not start work", e?.message || "Please try again.");
+            }
+          };
+          const clientFirst = (clientName || "Client").split(" ")[0];
+          if (farOut && dateLabel) {
+            Alert.alert(
+              "Start work early?",
+              `This appointment isn't until ${dateLabel}. Start anyway? ${clientFirst} will be notified.`,
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Start anyway", style: "destructive", onPress: doStart },
+              ]
+            );
+          } else {
+            Alert.alert(
+              "Start work",
+              `Start this job now? ${clientFirst} will be notified that work has begun.`,
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Start work", onPress: doStart },
+              ]
+            );
+          }
+        }}
+        onUndoStartWork={async () => {
+          if (!acceptedQuote?.id) return;
+          try {
+            const { error } = await supabase.rpc("rpc_trade_undo_start_work", {
+              p_quote_id: acceptedQuote.id,
+            });
+            if (error) throw error;
+            setActivitySheet(null);
+            load();
+          } catch (e) {
+            Alert.alert("Could not undo", e?.message || "Undo window has passed.");
+          }
+        }}
         onReschedule={(appt) => {
           setActivitySheet(null);
           router.push({
@@ -2278,27 +2468,35 @@ export default function RequestDetails() {
         visible={createSheetOpen}
         onClose={() => setCreateSheetOpen(false)}
         onCreateQuote={() => {
+          // Close the sheet first, then navigate on the next tick so
+          // the modal dismissal animation doesn't race with the push
+          // on iOS (which can silently drop the navigation when both
+          // fire synchronously from a modal callback).
           setCreateSheetOpen(false);
-          router.push({
-            pathname: "/quotes/create",
-            params: {
-              requestId: String(id),
-              title: encodeURIComponent(derivedTitleForCreate),
-              clientName: encodeURIComponent(clientName || ""),
-            },
-          });
+          setTimeout(() => {
+            router.push({
+              pathname: "/quotes/create",
+              params: {
+                requestId: String(id),
+                title: encodeURIComponent(derivedTitleForCreate),
+                clientName: encodeURIComponent(clientName || ""),
+              },
+            });
+          }, 0);
         }}
         onCreateAppointment={() => {
           setCreateSheetOpen(false);
-          router.push({
-            pathname: "/quotes/schedule",
-            params: {
-              requestId: String(id || ""),
-              title: encodeURIComponent(derivedTitleForCreate),
-              clientName: encodeURIComponent(clientName || ""),
-              postcode: encodeURIComponent(req?.postcode || ""),
-            },
-          });
+          setTimeout(() => {
+            router.push({
+              pathname: "/quotes/schedule",
+              params: {
+                requestId: String(id || ""),
+                title: encodeURIComponent(derivedTitleForCreate),
+                clientName: encodeURIComponent(clientName || ""),
+                postcode: encodeURIComponent(req?.postcode || ""),
+              },
+            });
+          }, 0);
         }}
       />
 
