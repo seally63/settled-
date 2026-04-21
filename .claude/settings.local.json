@@ -87,7 +87,12 @@
       "Read(//private/tmp/design-fetch/**)",
       "Bash(curl -sL -D - -o /tmp/design-fetch/body.bin \"https://api.anthropic.com/v1/design/h/0KMP4EklXzWWBK_pvpc47Q?open_file=Settled+Redesign.html\")",
       "Bash(mkdir -p /tmp/settled-design)",
-      "Bash(unzip -o \"/Users/rljy/Downloads/Settled..zip\" -d /tmp/settled-design)"
+      "Bash(unzip -o \"/Users/rljy/Downloads/Settled..zip\" -d /tmp/settled-design)",
+      "Bash(gh pr create --title 'Redesign sweep — quote review, tab bar, profile pass' --body ' *)",
+      "Bash(gh pr *)",
+      "Bash(npx --yes @babel/cli --presets=@babel/preset-react \"app/\\(dashboard\\)/quotes/create.jsx\" -o /tmp/quote-create-build.js)",
+      "Bash(git restore *)",
+      "Bash(awk 'NR>=1714 && NR<=1789 && /<View|<\\\\/View>/' \"app/\\(dashboard\\)/quotes/[id].jsx\")"
     ],
     "deny": [],
     "ask": []

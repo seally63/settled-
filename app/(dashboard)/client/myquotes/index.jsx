@@ -25,6 +25,7 @@ import Spacer from "../../../../components/Spacer";
 import ProgressBar from "../../../../components/ProgressBar";
 import { ProjectsPageSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
+import { StatusColor } from "../../../../constants/ProjectStatus";
 import ThemedStatusBar from "../../../../components/ThemedStatusBar";
 import { IconBtn, FilterPills, ProjectRow } from "../../../../components/design";
 import {
@@ -1711,20 +1712,28 @@ function buildClientRow(project) {
   const muted = project.stage === "EXPIRED" || project.stage === "CANCELLED";
   const fresh = project.type === "quotes" && (project.isFresh || project.quotesCount >= 1 && project.daysOld <= 0);
 
-  // Stage → stripe colour + label
+  // Canonical-status → colour. Shared palette with the trade-side
+  // Projects tab — the client sees the SAME chip colour as the trade
+  // for the same underlying state, so a user instantly recognises
+  // where the project is in its life regardless of POV.
+  //
+  //   POSTED    → purple   (enquiry sent)
+  //   QUOTES    → blue     (quote received / review) once a price lands;
+  //                         amber while trade is still preparing.
+  //   HIRED     → teal     (scheduled)
+  //   DONE      → green    (completed)
+  //   EXPIRED   → gray
+  //   CANCELLED → red      (declined / cancelled — both sides match)
   const stageMeta = {
-    POSTED:    { color: "#F4B740", label: "Awaiting quotes" },
-    // "Review quotes" is only right once at least one quote has a
-    // price. Before that (trade still preparing), the stage chip
-    // should read "Preparing".
+    POSTED:    { color: StatusColor.ENQUIRY,       label: "Enquiry sent" },
     QUOTES:    project.priceInfo
-      ? { color: "#7C5CFF", label: "Review quotes" }
-      : { color: "#3B82F6", label: "Preparing" },
-    HIRED:     { color: "#3DCF89", label: "Scheduled" },
-    DONE:      { color: "#3DCF89", label: "Completed" },
-    EXPIRED:   { color: "#8A8A94", label: "Expired" },
-    CANCELLED: { color: "#8A8A94", label: "Cancelled" },
-  }[project.stage] || { color: "#8A8A94", label: "" };
+      ? { color: StatusColor.QUOTING,              label: "Review quotes" }
+      : { color: StatusColor.IN_PROGRESS,          label: "Preparing" },
+    HIRED:     { color: StatusColor.HIRED,         label: "Scheduled" },
+    DONE:      { color: StatusColor.COMPLETED,     label: "Completed" },
+    EXPIRED:   { color: StatusColor.EXPIRED,       label: "Expired" },
+    CANCELLED: { color: StatusColor.DECLINED,      label: "Cancelled" },
+  }[project.stage] || { color: StatusColor.EXPIRED, label: "" };
 
   // Right column — follows the trade-side format: primary line is the £
   // figure (or short state when no price yet), secondary is a short

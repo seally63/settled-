@@ -20,6 +20,7 @@ import Spacer from "../../../components/Spacer";
 import ProgressBar from "../../../components/ProgressBar";
 import { ProjectsPageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
+import { StatusColor } from "../../../constants/ProjectStatus";
 import { useUser } from "../../../hooks/useUser";
 import { useTheme } from "../../../hooks/useTheme";
 import { supabase } from "../../../lib/supabase";
@@ -1838,18 +1839,22 @@ function buildTradeRow(project, formatNum) {
     !isDraft &&
     (project.type === "accepted" || !project.quoteAmount);
 
+  // Canonical-status → colour. Purple (enquiry) is the brand primary;
+  // both POVs see the same colour chip for the same underlying state.
+  // Draft quotes stay in the "in-progress on my end" bucket (amber) so
+  // the trade can see at a glance which rows still need their attention.
   const stageMeta = {
-    REQUEST:   { color: "#F4B740", label: "Needs quote" },
+    REQUEST:   { color: StatusColor.ENQUIRY,     label: "New enquiry" },
     QUOTE:     isDraft
-      ? { color: "#F4B740", label: "Quote drafted" }
+      ? { color: StatusColor.IN_PROGRESS,        label: "Quote drafted" }
       : isAcceptedWithoutQuote
-      ? { color: "#5BB3FF", label: "Accepted — draft a quote" }
-      : { color: "#7C5CFF", label: "Quote sent" },
-    WORK:      { color: "#5BB3FF", label: "In progress" },
-    COMPLETED: { color: "#3DCF89", label: "Completed" },
-    EXPIRED:   { color: "#8A8A94", label: "Expired" },
-    DECLINED:  { color: "#8A8A94", label: "Declined" },
-  }[project.stage] || { color: "#8A8A94", label: "" };
+      ? { color: StatusColor.QUOTING,            label: "Accepted — draft a quote" }
+      : { color: StatusColor.QUOTING,            label: "Quote sent" },
+    WORK:      { color: StatusColor.HIRED,       label: "Scheduled" },
+    COMPLETED: { color: StatusColor.COMPLETED,   label: "Completed" },
+    EXPIRED:   { color: StatusColor.EXPIRED,     label: "Expired" },
+    DECLINED:  { color: StatusColor.DECLINED,    label: "Declined" },
+  }[project.stage] || { color: StatusColor.EXPIRED, label: "" };
 
   let rightTop = null;
   let rightBot = null;
