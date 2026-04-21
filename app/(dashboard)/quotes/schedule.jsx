@@ -8,9 +8,6 @@ import {
   Alert,
   Platform,
   ActivityIndicator,
-  InputAccessoryView,
-  Keyboard,
-  Text,
 } from "react-native";
 import { useState, useEffect, useMemo } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -28,7 +25,6 @@ import { Colors } from "../../../constants/Colors";
 import { FontFamily, Radius, TypeVariants } from "../../../constants/Typography";
 
 const PRIMARY = Colors.primary;
-const INPUT_ACCESSORY_ID = "schedule-keyboard-accessory";
 
 // Predefined appointment types
 const APPOINTMENT_TYPES = [
@@ -440,12 +436,21 @@ export default function ScheduleAppointment() {
   const eyebrow = `APPOINTMENT FOR ${(clientName || "CLIENT").toUpperCase()}`;
   const displayLocation = location || "Location not specified";
 
+  // iOS simulator only: the home-indicator gesture zone sits higher on
+  // the simulator than on a physical device and can eat taps in the
+  // bottom ~130px. Same fix as the floating FAB on the Client Request
+  // page — bump the scroll-content's bottom padding so the CTA button
+  // clears the gesture zone.
+  const Device = require("expo-device");
+  const isSimulator = Device.isDevice === false;
+  const scrollBottomPad = isSimulator ? 160 : Math.max(insets.bottom + 40, 60);
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: insets.top + 10 },
+          { paddingTop: insets.top + 10, paddingBottom: scrollBottomPad },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -585,7 +590,10 @@ export default function ScheduleAppointment() {
             multiline
             numberOfLines={3}
             textAlignVertical="top"
-            inputAccessoryViewID={Platform.OS === "ios" ? INPUT_ACCESSORY_ID : undefined}
+            // Note input intentionally has no iOS `inputAccessoryViewID`
+            // — the floating Done bar added extra chrome the user didn't
+            // want. iOS keyboard has its own dismiss via tap-outside /
+            // return, and multiline returns are preserved as newlines.
           />
         </View>
 
@@ -615,21 +623,6 @@ export default function ScheduleAppointment() {
         minimumDate={new Date()}
       />
 
-      {/* iOS keyboard accessory with Done button */}
-      {Platform.OS === "ios" && (
-        <InputAccessoryView nativeID={INPUT_ACCESSORY_ID}>
-          <View style={styles.keyboardAccessory}>
-            <View style={{ flex: 1 }} />
-            <Pressable
-              onPress={() => Keyboard.dismiss()}
-              style={styles.keyboardDoneBtn}
-              hitSlop={8}
-            >
-              <Text style={styles.keyboardDoneText}>Done</Text>
-            </Pressable>
-          </View>
-        </InputAccessoryView>
-      )}
     </ThemedView>
   );
 }
@@ -833,27 +826,6 @@ function makeStyles(c, dark) {
     color: c.text,
     backgroundColor: c.elevate,
     minHeight: 80,
-  },
-  // Keyboard accessory
-  keyboardAccessory: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: c.elevate2,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: c.border,
-  },
-  keyboardDoneBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: PRIMARY,
-  },
-  keyboardDoneText: {
-    fontFamily: FontFamily.headerSemibold,
-    fontSize: 14,
-    color: "#FFFFFF",
   },
   });
 }

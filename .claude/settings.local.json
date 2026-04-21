@@ -92,7 +92,8 @@
       "Bash(gh pr *)",
       "Bash(npx --yes @babel/cli --presets=@babel/preset-react \"app/\\(dashboard\\)/quotes/create.jsx\" -o /tmp/quote-create-build.js)",
       "Bash(git restore *)",
-      "Bash(awk 'NR>=1714 && NR<=1789 && /<View|<\\\\/View>/' \"app/\\(dashboard\\)/quotes/[id].jsx\")"
+      "Bash(awk 'NR>=1714 && NR<=1789 && /<View|<\\\\/View>/' \"app/\\(dashboard\\)/quotes/[id].jsx\")",
+      "Bash(awk -F: '$1>=2180 && $1<=2520 {print}')"
     ],
     "deny": [],
     "ask": []

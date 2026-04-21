@@ -32,16 +32,17 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 // the two POVs feel consistent. The only difference: the client sees
 // the TRADE they're enquiring with (not their own info).
 const clientReqStyles = StyleSheet.create({
-  stickyChevron: {
-    position: "absolute",
-    left: 20,
+  // Chevron is now inline (scrolls with content) so it can't cover
+  // rows as the user scrolls down.
+  inlineChevron: {
+    marginLeft: 20,
+    marginBottom: 12,
     width: 36,
     height: 36,
     borderRadius: 18,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 30,
   },
   /* hero block */
   eyebrowRow: {
@@ -793,45 +794,53 @@ export default function ClientRequestDetails() {
 
   const hasAttachments = attachments.length > 0;
 
+  // Inline chevron — scrolls with the content so it can't sit on top
+  // of rows as the user scrolls down. Matches the trade Client Request
+  // page's updated pattern.
+  const inlineChevron = (
+    <Pressable
+      onPress={() =>
+        router.canGoBack?.() ? router.back() : router.replace("/myquotes")
+      }
+      hitSlop={10}
+      style={[
+        clientReqStyles.inlineChevron,
+        { backgroundColor: c.elevate, borderColor: c.border },
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel="Back"
+    >
+      <Ionicons name="chevron-back" size={18} color={c.text} />
+    </Pressable>
+  );
+
   return (
     <ThemedView style={[styles.container, { backgroundColor: c.background }]}>
-      {/* Sticky chevron-back — matches the trade Client Request page
-          layout exactly. Same position, same icon btn styling.     */}
-      <Pressable
-        onPress={() =>
-          router.canGoBack?.() ? router.back() : router.replace("/myquotes")
-        }
-        hitSlop={10}
-        style={[
-          clientReqStyles.stickyChevron,
-          {
-            top: insets.top + 10,
-            backgroundColor: c.elevate,
-            borderColor: c.border,
-          },
-        ]}
-      >
-        <Ionicons name="chevron-back" size={18} color={c.text} />
-      </Pressable>
-
       {err ? (
-        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }}>
-          <ThemedText style={{ color: "#EF4444" }}>Error: {err}</ThemedText>
+        <View style={{ paddingTop: insets.top + 12 }}>
+          {inlineChevron}
+          <View style={{ paddingHorizontal: 20 }}>
+            <ThemedText style={{ color: "#EF4444" }}>Error: {err}</ThemedText>
+          </View>
         </View>
       ) : !req ? (
-        // No skeleton — sticky chevron is up on top already, so the
-        // user can tap back instantly while data loads.
-        <View style={{ paddingTop: insets.top + 80, paddingHorizontal: 20 }} />
+        // No skeleton — inline chevron gives an instant back route.
+        <View style={{ paddingTop: insets.top + 12 }}>
+          {inlineChevron}
+        </View>
       ) : (
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{
-            paddingTop: insets.top + 56,
+            paddingTop: insets.top + 12,
             paddingBottom: 140,
           }}
           contentInsetAdjustmentBehavior="never"
           keyboardShouldPersistTaps="handled"
         >
+          {/* Inline chevron — scrolls with content. */}
+          {inlineChevron}
+
           {/* Eyebrow — status pill reflecting what's happening on the
               request. Dot colour derived from state.               */}
           {(() => {

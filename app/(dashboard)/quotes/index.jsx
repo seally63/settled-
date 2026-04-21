@@ -568,11 +568,14 @@ export default function TradesmanProjects() {
         .order("created_at", { ascending: false });
       if (tErr) throw tErr;
 
-      // Fetch quotes
+      // Fetch quotes. `work_started_at` drives the "Scheduled" vs
+      // "In progress" distinction on project cards — without it every
+      // accepted quote shows as Scheduled regardless of whether the
+      // trade has actually begun work.
       const { data: quotes, error: qErr } = await supabase
         .from("tradify_native_app_db")
         .select(
-          "id, request_id, client_id, status, issued_at, created_at, details, currency, grand_total, tax_total, valid_until"
+          "id, request_id, client_id, status, issued_at, created_at, details, currency, grand_total, tax_total, valid_until, work_started_at"
         )
         .eq("trade_id", myId)
         .order("issued_at", { ascending: false, nullsFirst: false });
@@ -974,6 +977,12 @@ export default function TradesmanProjects() {
           const contactUnlocked =
             contactInfo.contact_unlocked || hasAcceptedQuote;
 
+          // Work-started timestamp — prefer the accepted quote's value
+          // (that's the project-level truth). Drafts/sent quotes never
+          // have this, so primaryQuote is only a fallback.
+          const workStartedAt =
+            acceptedQuote?.work_started_at || primaryQuote?.work_started_at || null;
+
           return {
             id: primaryQuote.id,
             request_id: requestId,
@@ -1002,6 +1011,7 @@ export default function TradesmanProjects() {
             daysSinceIssued,
             clientNotResponding,
             nextAppointment,
+            workStartedAt,
           };
         }
       );
@@ -1376,6 +1386,24 @@ export default function TradesmanProjects() {
         stage = "WORK";
         stageIndex = 2;
 
+        // Work-started short-circuit. Once the trade has tapped Start
+        // Work, the project is unambiguously "in progress" regardless
+        // of what the next upcoming appointment says. Skip the
+        // appointment-status cascade below in that case.
+        if (item.workStartedAt) {
+          statusType = "scheduled";
+          statusText = "In progress";
+          statusDetail = `Started ${formatDate(item.workStartedAt)}`;
+          subStatus = "work_in_progress";
+          actions = [
+            {
+              label: "Mark Complete",
+              primary: true,
+              onPress: () => router.push(`/quotes/${item.acceptedQuoteId || item.id}`),
+            },
+          ];
+        } else {
+
         // For accepted quotes, only look at WORK appointments (linked to quote_id)
         // Survey appointments (quote_id: null, title contains "Survey") should be ignored
         const isWorkAppointment = item.nextAppointment?.quote_id != null ||
@@ -1430,6 +1458,7 @@ export default function TradesmanProjects() {
             },
           ];
         }
+        } // close work-not-yet-started else-branch
       } else if (status === "awaiting_completion") {
         stage = "WORK";
         stageIndex = 2;
@@ -1516,6 +1545,19 @@ export default function TradesmanProjects() {
         // Raw status (draft / sent / accepted / …) so the card render
         // logic can distinguish them without inferring from labels.
         status,
+        // Fine-grained lifecycle key — the WORK stage alone maps to
+        // several canonical card states ("Schedule work" / "Visit
+        // proposed" / "Scheduled" / "In progress" / …). `subStatus`
+        // is already computed above; we just need to surface it so
+        // buildTradeRow can pick the right label + colour.
+        subStatus,
+        // Work-started timestamp: flips the card from "Scheduled" to
+        // "In progress" for both POVs. Null until the trade taps
+        // Start Work via the Client Request page appointment sheet.
+        workStartedAt: item.workStartedAt ?? null,
+        // Next upcoming appointment (if any) — handy for the card
+        // sub-detail line ("Thu 24 Apr, 09:00").
+        nextAppointment: item.nextAppointment ?? null,
         progressPosition: getTradeProgressPosition(stage, subStatus),
         requestId: item.request_id,
         quoteId: item.acceptedQuoteId || item.id,
@@ -1816,6 +1858,251 @@ function TradeSummaryStrip({ summary }) {
   );
 }
 
+// Canonical trade-side project states. 16 distinguishable rows; each
+// maps to exactly one chip colour + label + sub-detail template. This
+// is the single source of truth agreed in design — no ad-hoc labels
+// anywhere else in the trade app. See constants/ProjectStatus.js for
+// the colour palette (same palette drives the client side).
+const TRADE_STATE = {
+  // Enquiry stage
+  ENQUIRY_NEW:         "ENQUIRY_NEW",          // #1  New enquiry             / Purple
+  ENQUIRY_EXPIRED:     "ENQUIRY_EXPIRED",      // #2  Expired (no response)   / Gray
+  ENQUIRY_DECLINED:    "ENQUIRY_DECLINED",     // #3  Declined by you         / Red
+  // Quoting stage
+  QUOTE_DRAFTED:       "QUOTE_DRAFTED",        // #4  Quote drafted           / Amber
+  QUOTE_NEEDED:        "QUOTE_NEEDED",         // #5  Draft a quote           / Blue
+  QUOTE_SENT:          "QUOTE_SENT",           // #6  Quote sent              / Blue
+  QUOTE_NO_RESPONSE:   "QUOTE_NO_RESPONSE",    // #7  No response             / Gray
+  QUOTE_DECLINED:      "QUOTE_DECLINED",       // #8  Quote declined          / Red
+  // Work stage
+  WORK_NEEDS_APPT:     "WORK_NEEDS_APPT",      // #9  Schedule work           / Amber
+  WORK_APPT_PROPOSED:  "WORK_APPT_PROPOSED",   // #10 Visit proposed          / Blue
+  WORK_SCHEDULED:      "WORK_SCHEDULED",       // #11 Scheduled               / Teal
+  WORK_IN_PROGRESS:    "WORK_IN_PROGRESS",     // #12 In progress             / Amber
+  WORK_AWAITING:       "WORK_AWAITING",        // #13 Awaiting confirmation   / Amber
+  WORK_ISSUE:          "WORK_ISSUE",           // #14 Issue reported          / Coral
+  WORK_RESOLUTION:     "WORK_RESOLUTION",      // #15 Resolution sent         / Amber
+  COMPLETED:           "COMPLETED",            // #16 Completed               / Green
+};
+
+// Days-ago helper for the sub-detail copy. 0 → "today", 1 → "1d ago".
+function daysAgoText(iso) {
+  if (!iso) return null;
+  const d = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+  if (d === 0) return "today";
+  if (d === 1) return "1d ago";
+  return `${d}d ago`;
+}
+
+function formatCardDate(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+    });
+  } catch { return null; }
+}
+
+function formatCardTime(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch { return null; }
+}
+
+// Collapse the upstream loader's (stage + status + subStatus + workStartedAt)
+// onto a single canonical key. Keeping the mapping in one place means the
+// label / colour / detail renders from a single switch below, and nothing
+// else in the file needs to know about the 16-row table.
+function deriveTradeCanonicalState(project) {
+  const stage = project.stage;
+  const status = String(project.status || "").toLowerCase();
+  const sub = project.subStatus || null;
+
+  if (stage === "EXPIRED") return TRADE_STATE.ENQUIRY_EXPIRED;
+  if (stage === "DECLINED") {
+    // "Declined by you" (trade declined the enquiry) vs "Quote declined"
+    // (client turned a sent quote down). The loader uses DECLINED only
+    // for client-declined-quote paths; trade-decline is filtered out
+    // earlier (stateStr === "declined" return). Safe to map to #8.
+    return TRADE_STATE.QUOTE_DECLINED;
+  }
+  if (stage === "COMPLETED") return TRADE_STATE.COMPLETED;
+
+  if (stage === "REQUEST") return TRADE_STATE.ENQUIRY_NEW;
+
+  if (stage === "QUOTE") {
+    if (status === "draft") return TRADE_STATE.QUOTE_DRAFTED;
+    // Accepted the enquiry but no quote row yet (inbox "accepted" type),
+    // OR the sent-mapper emitted a quote with project.type === "accepted".
+    if (project.type === "accepted" || (!project.quoteAmount && status !== "sent" && status !== "created")) {
+      return TRADE_STATE.QUOTE_NEEDED;
+    }
+    if (status === "expired") return TRADE_STATE.QUOTE_NO_RESPONSE;
+    if (status === "sent" || status === "created") return TRADE_STATE.QUOTE_SENT;
+    return TRADE_STATE.QUOTE_SENT;
+  }
+
+  if (stage === "WORK") {
+    if (sub === "work_in_progress" || project.workStartedAt) {
+      return TRADE_STATE.WORK_IN_PROGRESS;
+    }
+    if (sub === "awaiting_completion" || status === "awaiting_completion") {
+      return TRADE_STATE.WORK_AWAITING;
+    }
+    if (sub === "issue_reported" || status === "issue_reported") {
+      return TRADE_STATE.WORK_ISSUE;
+    }
+    if (sub === "issue_resolved_pending" || status === "issue_resolved_pending") {
+      return TRADE_STATE.WORK_RESOLUTION;
+    }
+    if (sub === "work_proposed") return TRADE_STATE.WORK_APPT_PROPOSED;
+    if (sub === "work_confirmed") return TRADE_STATE.WORK_SCHEDULED;
+    if (sub === "accepted_no_appt") return TRADE_STATE.WORK_NEEDS_APPT;
+    // Fallback — shouldn't hit in practice.
+    return TRADE_STATE.WORK_NEEDS_APPT;
+  }
+
+  return TRADE_STATE.ENQUIRY_NEW;
+}
+
+// Canonical-state → chip colour + label + right-column detail. This is
+// the agreed table from the design sign-off. Any copy change on the
+// Projects card should happen HERE.
+function tradeStateMeta(state, project, formatNum) {
+  const next = project.nextAppointment;
+  const apptDate = formatCardDate(next?.scheduled_at);
+  const apptTime = formatCardTime(next?.scheduled_at);
+
+  switch (state) {
+    case TRADE_STATE.ENQUIRY_NEW:
+      return {
+        color: StatusColor.ENQUIRY,
+        label: "New enquiry",
+        rightTop: "New",
+        rightBot: `Received ${daysAgoText(project.created_at) || `${project.requestAge || 0}d ago`}`,
+      };
+    case TRADE_STATE.ENQUIRY_EXPIRED:
+      return {
+        color: StatusColor.EXPIRED,
+        label: "Expired",
+        rightTop: "—",
+        rightBot: "No response given",
+      };
+    case TRADE_STATE.ENQUIRY_DECLINED:
+      return {
+        color: StatusColor.DECLINED,
+        label: "Declined by you",
+        rightTop: "—",
+        rightBot: daysAgoText(project.created_at) || "—",
+      };
+    case TRADE_STATE.QUOTE_DRAFTED:
+      return {
+        color: StatusColor.IN_PROGRESS,
+        label: "Quote drafted",
+        rightTop: "Drafted",
+        rightBot: "Not yet sent",
+      };
+    case TRADE_STATE.QUOTE_NEEDED:
+      return {
+        color: StatusColor.QUOTING,
+        label: "Draft a quote",
+        rightTop: "Accepted",
+        rightBot: `Accepted ${daysAgoText(project.acceptedAt) || `${project.daysSinceSent || 0}d ago`}`,
+      };
+    case TRADE_STATE.QUOTE_SENT:
+      return {
+        color: StatusColor.QUOTING,
+        label: "Quote sent",
+        rightTop: project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : "Sent",
+        rightBot: `Sent ${project.daysSinceSent != null ? project.daysSinceSent + "d ago" : "recently"}`,
+      };
+    case TRADE_STATE.QUOTE_NO_RESPONSE:
+      return {
+        color: StatusColor.EXPIRED,
+        label: "No response",
+        rightTop: "—",
+        rightBot: "Quote expired",
+      };
+    case TRADE_STATE.QUOTE_DECLINED:
+      return {
+        color: StatusColor.DECLINED,
+        label: "Quote declined",
+        rightTop: "—",
+        rightBot: project.daysSinceSent != null ? `${project.daysSinceSent}d ago` : "—",
+      };
+    case TRADE_STATE.WORK_NEEDS_APPT:
+      return {
+        color: StatusColor.IN_PROGRESS,
+        label: "Schedule work",
+        rightTop: project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : "Accepted",
+        rightBot: "Needs appointment",
+      };
+    case TRADE_STATE.WORK_APPT_PROPOSED:
+      return {
+        color: StatusColor.QUOTING,
+        label: "Visit proposed",
+        rightTop: project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : "—",
+        rightBot: apptDate ? `${apptDate} awaiting client` : "Awaiting client",
+      };
+    case TRADE_STATE.WORK_SCHEDULED:
+      return {
+        color: StatusColor.HIRED,
+        label: "Scheduled",
+        rightTop: project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : "Scheduled",
+        rightBot: apptDate && apptTime ? `${apptDate}, ${apptTime}` : apptDate || "Scheduled",
+      };
+    case TRADE_STATE.WORK_IN_PROGRESS:
+      return {
+        color: StatusColor.IN_PROGRESS,
+        label: "In progress",
+        rightTop: project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : "Active",
+        rightBot: project.workStartedAt
+          ? `Started ${formatCardDate(project.workStartedAt) || "recently"}`
+          : "In progress",
+      };
+    case TRADE_STATE.WORK_AWAITING:
+      return {
+        color: StatusColor.IN_PROGRESS,
+        label: "Awaiting confirmation",
+        rightTop: project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : "—",
+        rightBot: `Sent to client ${daysAgoText(project.marked_complete_at) || "recently"}`,
+      };
+    case TRADE_STATE.WORK_ISSUE:
+      return {
+        color: StatusColor.ISSUE,
+        label: "Issue reported",
+        rightTop: project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : "—",
+        rightBot: project.statusDetail || "Client reported a problem",
+      };
+    case TRADE_STATE.WORK_RESOLUTION:
+      return {
+        color: StatusColor.IN_PROGRESS,
+        label: "Resolution sent",
+        rightTop: project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : "—",
+        rightBot: `Awaiting client ${daysAgoText(project.issueResolvedAt) || "recently"}`,
+      };
+    case TRADE_STATE.COMPLETED:
+      return {
+        color: StatusColor.COMPLETED,
+        label: "Completed",
+        rightTop: project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : "Completed",
+        rightBot: `Completed ${formatCardDate(project.completion_confirmed_at || project.issued_at) || "recently"}`,
+      };
+    default:
+      return {
+        color: StatusColor.EXPIRED,
+        label: "",
+        rightTop: null,
+        rightBot: null,
+      };
+  }
+}
+
 function buildTradeRow(project, formatNum) {
   const { service, category } = parseTitle(project.title);
   const iconSource =
@@ -1823,92 +2110,27 @@ function buildTradeRow(project, formatNum) {
     (category ? tryCategoryIcon(category) : null) ||
     defaultServiceIcon;
 
-  const muted = project.stage === "EXPIRED" || project.stage === "DECLINED";
-  const fresh =
-    project.stage === "REQUEST" && (project.requestAge === 0 || project.isFresh);
+  const canonical = deriveTradeCanonicalState(project);
+  const meta = tradeStateMeta(canonical, project, formatNum);
 
-  // Three mutually-exclusive sub-states inside the QUOTE stage:
-  //   · draft              — quote being worked on, not yet sent
-  //   · accepted-no-quote  — trade accepted the request, no quote yet
-  //   · quote sent         — quote actually delivered to the client
-  // Previously ALL three shared the same "Quote sent / Sent" label.
-  const quoteStatus = String(project.status || "").toLowerCase();
-  const isDraft = project.stage === "QUOTE" && quoteStatus === "draft";
-  const isAcceptedWithoutQuote =
-    project.stage === "QUOTE" &&
-    !isDraft &&
-    (project.type === "accepted" || !project.quoteAmount);
-
-  // Canonical-status → colour. Purple (enquiry) is the brand primary;
-  // both POVs see the same colour chip for the same underlying state.
-  // Draft quotes stay in the "in-progress on my end" bucket (amber) so
-  // the trade can see at a glance which rows still need their attention.
-  const stageMeta = {
-    REQUEST:   { color: StatusColor.ENQUIRY,     label: "New enquiry" },
-    QUOTE:     isDraft
-      ? { color: StatusColor.IN_PROGRESS,        label: "Quote drafted" }
-      : isAcceptedWithoutQuote
-      ? { color: StatusColor.QUOTING,            label: "Accepted — draft a quote" }
-      : { color: StatusColor.QUOTING,            label: "Quote sent" },
-    WORK:      { color: StatusColor.HIRED,       label: "Scheduled" },
-    COMPLETED: { color: StatusColor.COMPLETED,   label: "Completed" },
-    EXPIRED:   { color: StatusColor.EXPIRED,     label: "Expired" },
-    DECLINED:  { color: StatusColor.DECLINED,    label: "Declined" },
-  }[project.stage] || { color: StatusColor.EXPIRED, label: "" };
-
-  let rightTop = null;
-  let rightBot = null;
-  const amt = project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : null;
-
-  switch (project.stage) {
-    case "REQUEST":
-      rightTop = "New";
-      rightBot =
-        project.budgetInfo ||
-        (project.requestAge != null
-          ? project.requestAge === 0
-            ? "Posted today"
-            : `Posted ${project.requestAge}d ago`
-          : null);
-      break;
-    case "QUOTE":
-      // Drafts never show a £ value — it isn't client-facing yet.
-      rightTop = isDraft
-        ? "Drafted"
-        : amt || (isAcceptedWithoutQuote ? "Accepted" : "Sent");
-      rightBot = project.statusDetail || project.statusText || null;
-      break;
-    case "WORK":
-      rightTop = amt || "Active";
-      rightBot = project.statusText || "In progress";
-      break;
-    case "COMPLETED":
-      rightTop = amt || "Completed";
-      rightBot = "Paid";
-      break;
-    case "EXPIRED":
-      rightTop = amt || "Expired";
-      rightBot = project.statusDetail || "—";
-      break;
-    case "DECLINED":
-      rightTop = amt || "Declined";
-      rightBot = "—";
-      break;
-    default:
-      rightTop = amt;
-      rightBot = project.statusText || null;
-  }
+  const muted =
+    canonical === TRADE_STATE.ENQUIRY_EXPIRED ||
+    canonical === TRADE_STATE.ENQUIRY_DECLINED ||
+    canonical === TRADE_STATE.QUOTE_NO_RESPONSE ||
+    canonical === TRADE_STATE.QUOTE_DECLINED;
+  const fresh = canonical === TRADE_STATE.ENQUIRY_NEW &&
+    (project.requestAge === 0 || project.isFresh);
 
   const subtitle = project.contextLine || project.statusDetail || null;
 
   return {
     iconSource,
-    stripeColor: stageMeta.color,
-    statusLabel: stageMeta.label,
+    stripeColor: meta.color,
+    statusLabel: meta.label,
     title: service || project.title || "Project",
     subtitle,
-    rightTop,
-    rightBot,
+    rightTop: meta.rightTop,
+    rightBot: meta.rightBot,
     fresh,
     muted,
   };

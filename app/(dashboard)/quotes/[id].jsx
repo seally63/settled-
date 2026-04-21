@@ -2186,11 +2186,16 @@ export default function QuoteDetails() {
             </View>
           )}
 
-          {/* Section Divider - only show if appointments section will be visible */}
-          {(appointments.length > 0 || isAccepted) && <View style={styles.sectionDivider} />}
+          {/* Appointments block + divider intentionally hidden on the
+              trade Quote Overview — appointments now live on the Client
+              Request page's Recent Activity, so showing them here is
+              redundant (and the leading divider/line was bleeding into
+              the layout). Keeping the JSX behind `{false && ...}` so
+              the data-loading effects + reschedule handlers defined
+              further up stay intact.                                */}
+          {false && (appointments.length > 0 || isAccepted) && <View style={styles.sectionDivider} />}
 
-          {/* Appointments Section - with + Add button */}
-          {(appointments.length > 0 || isAccepted) && (
+          {false && (appointments.length > 0 || isAccepted) && (
             <View>
               <Pressable
                 style={styles.collapsibleHeader}
@@ -2574,89 +2579,116 @@ export default function QuoteDetails() {
                   keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}
                 >
-                  <ThemedText style={styles.sheetTitle}>Confirm completion</ThemedText>
-                  <ThemedText style={styles.sheetSubtitle}>
-                    Let {displayName ? displayName.split(" ")[0] : "the client"} know the work is done.
-                    They'll confirm before the job closes.
-                  </ThemedText>
+                  {/* Eyebrow + title — matches the pill-container pattern
+                      used elsewhere (Request page, Quote Builder preview).  */}
+                  <View style={styles.mcSheetHeader}>
+                    <ThemedText style={styles.mcSheetEyebrow}>JOB COMPLETION</ThemedText>
+                    <ThemedText style={styles.mcSheetTitle}>Mark as complete</ThemedText>
+                    <ThemedText style={styles.mcSheetSubtitle}>
+                      Let {displayName ? displayName.split(" ")[0] : "the client"} know the work is done.
+                      They'll confirm before the job closes.
+                    </ThemedText>
+                  </View>
 
                   <Spacer size={20} />
 
-                  <ThemedText style={styles.sheetSectionLabel}>Payment received</ThemedText>
+                  {/* Payment pill-container — Amount + Method live in a
+                      single bordered card, matching the Budget/Timing
+                      pill style used on the Request page.              */}
+                  <View style={styles.mcPillCard}>
+                    <ThemedText style={styles.mcPillEyebrow}>PAYMENT</ThemedText>
 
-                  <Spacer size={12} />
+                    <ThemedText style={styles.mcFieldLabel}>Amount received</ThemedText>
+                    <View style={styles.mcAmountRow}>
+                      <ThemedText style={styles.mcCurrency}>£</ThemedText>
+                      <TextInput
+                        style={styles.mcAmountInput}
+                        value={paymentAmount}
+                        onChangeText={setPaymentAmount}
+                        keyboardType="decimal-pad"
+                        placeholder="0.00"
+                        placeholderTextColor={c.textMuted}
+                        editable={!completeBusy}
+                      />
+                    </View>
 
-                  {/* Amount */}
-                  <ThemedText style={styles.sheetFieldLabel}>Amount</ThemedText>
-                  <View style={styles.sheetAmountInputContainer}>
-                    <ThemedText style={styles.sheetCurrencySymbol}>£</ThemedText>
+                    <View style={styles.mcPillDivider} />
+
+                    <ThemedText style={styles.mcFieldLabel}>Method</ThemedText>
+                    <Pressable
+                      style={styles.mcDropdown}
+                      onPress={() => setShowPaymentMethodPicker(true)}
+                      disabled={completeBusy}
+                    >
+                      <ThemedText style={styles.mcDropdownText}>
+                        {selectedPaymentMethodLabel}
+                      </ThemedText>
+                      <Ionicons name="chevron-down" size={18} color={c.textMid} />
+                    </Pressable>
+                  </View>
+
+                  <Spacer size={14} />
+
+                  {/* Final notes pill-container. Label reads plainly so the
+                      trade knows it's optional without the parenthetical.  */}
+                  <View style={styles.mcPillCard}>
+                    <ThemedText style={styles.mcPillEyebrow}>FINAL NOTES</ThemedText>
                     <TextInput
-                      style={styles.sheetAmountInput}
-                      value={paymentAmount}
-                      onChangeText={setPaymentAmount}
-                      keyboardType="decimal-pad"
-                      placeholder="0.00"
+                      style={styles.mcNotesInput}
+                      value={completionNotes}
+                      onChangeText={setCompletionNotes}
+                      placeholder="Optional — anything the client should know about the finished work."
                       placeholderTextColor={c.textMuted}
+                      multiline
+                      numberOfLines={3}
+                      textAlignVertical="top"
                       editable={!completeBusy}
+                      inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
                     />
                   </View>
 
-                  <Spacer size={16} />
+                  <Spacer size={22} />
 
-                  {/* Payment Method - Dropdown */}
-                  <ThemedText style={styles.sheetFieldLabel}>Method</ThemedText>
-                  <Pressable
-                    style={styles.sheetDropdown}
-                    onPress={() => setShowPaymentMethodPicker(true)}
-                    disabled={completeBusy}
-                  >
-                    <ThemedText style={styles.sheetDropdownText}>
-                      {selectedPaymentMethodLabel}
-                    </ThemedText>
-                    <Ionicons name="chevron-down" size={20} color={c.textMid} />
-                  </Pressable>
+                  {/* Inline actions — matches the qoInlineActions row used
+                      on the Client Quote Overview (equal-flex ghost + primary,
+                      52px height, Public Sans SemiBold, pill radius).       */}
+                  <View style={styles.mcActionRow}>
+                    <Pressable
+                      onPress={closeMarkCompleteSheet}
+                      disabled={completeBusy}
+                      style={({ pressed }) => [
+                        styles.mcActionGhost,
+                        { backgroundColor: c.elevate, borderColor: c.borderStrong },
+                        pressed && { opacity: 0.75 },
+                        completeBusy && { opacity: 0.5 },
+                      ]}
+                    >
+                      <ThemedText style={[styles.mcActionGhostText, { color: c.text }]}>
+                        Cancel
+                      </ThemedText>
+                    </Pressable>
 
-                  <Spacer size={16} />
-
-                  {/* Notes */}
-                  <ThemedText style={styles.sheetFieldLabel}>Final notes (optional)</ThemedText>
-                  <TextInput
-                    style={styles.sheetNotesInput}
-                    value={completionNotes}
-                    onChangeText={setCompletionNotes}
-                    placeholder="Any details about the work..."
-                    placeholderTextColor={c.textMuted}
-                    multiline
-                    numberOfLines={3}
-                    textAlignVertical="top"
-                    editable={!completeBusy}
-                    inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
-                  />
-
-                  <Spacer size={24} />
-
-                  {/* Confirm button */}
-                  <Pressable
-                    style={[
-                      styles.sheetConfirmBtn,
-                      { opacity: completeBusy ? 0.7 : 1 },
-                    ]}
-                    onPress={handleMarkComplete}
-                    disabled={completeBusy}
-                  >
-                    <ThemedText style={styles.sheetConfirmBtnText}>
-                      {completeBusy ? "Confirming..." : "Mark as complete"}
-                    </ThemedText>
-                  </Pressable>
-
-                  {/* Cancel */}
-                  <Pressable
-                    style={styles.sheetCancelBtn}
-                    onPress={closeMarkCompleteSheet}
-                    disabled={completeBusy}
-                  >
-                    <ThemedText style={styles.sheetCancelBtnText}>Cancel</ThemedText>
-                  </Pressable>
+                    <Pressable
+                      onPress={handleMarkComplete}
+                      disabled={completeBusy}
+                      style={({ pressed }) => [
+                        styles.mcActionPrimary,
+                        { backgroundColor: PRIMARY },
+                        pressed && { opacity: 0.85 },
+                        completeBusy && { opacity: 0.6 },
+                      ]}
+                    >
+                      <Ionicons
+                        name="checkmark"
+                        size={18}
+                        color="#FFFFFF"
+                        style={{ marginRight: 8 }}
+                      />
+                      <ThemedText style={styles.mcActionPrimaryText}>
+                        {completeBusy ? "Confirming…" : "Mark as complete"}
+                      </ThemedText>
+                    </Pressable>
+                  </View>
                 </ScrollView>
               </View>
             </KeyboardAvoidingView>
@@ -4995,14 +5027,15 @@ function makeStyles(c, dark) {
   },
   markCompleteBtn: {
     backgroundColor: PRIMARY,
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderRadius: 999,
+    paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
   },
   markCompleteBtnText: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 16,
-    fontWeight: "600",
+    letterSpacing: -0.1,
     color: "#FFFFFF",
   },
   messageClientBtn: {
@@ -5265,6 +5298,137 @@ function makeStyles(c, dark) {
   sheetCancelBtnText: {
     fontSize: 15,
     color: c.textMid,
+  },
+
+  // ---------------------------------------------------------------
+  // Mark-as-complete sheet (redesigned). All typography on
+  // Public Sans / DM Sans via FontFamily tokens; structure uses the
+  // pill-container pattern (elevate2 bg + borderStrong, radius 18)
+  // that matches the Request page / Quote Builder Preview.
+  // ---------------------------------------------------------------
+  mcSheetHeader: {
+    marginTop: 4,
+  },
+  mcSheetEyebrow: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: c.textMuted,
+    marginBottom: 8,
+  },
+  mcSheetTitle: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 22,
+    lineHeight: 26,
+    letterSpacing: -0.4,
+    color: c.text,
+  },
+  mcSheetSubtitle: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: c.textMid,
+    marginTop: 6,
+  },
+  mcPillCard: {
+    backgroundColor: c.elevate2,
+    borderWidth: 1,
+    borderColor: c.borderStrong,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+  },
+  mcPillEyebrow: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: c.textMuted,
+    marginBottom: 10,
+  },
+  mcFieldLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 13,
+    color: c.textMid,
+    marginBottom: 6,
+  },
+  mcAmountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  mcCurrency: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 22,
+    color: c.text,
+  },
+  mcAmountInput: {
+    flex: 1,
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 22,
+    letterSpacing: -0.3,
+    color: c.text,
+    paddingVertical: 6,
+    // transparent — container already provides the bordered pill look
+  },
+  mcPillDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: c.border,
+    marginVertical: 14,
+  },
+  mcDropdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 4,
+  },
+  mcDropdownText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 15,
+    color: c.text,
+  },
+  mcNotesInput: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: c.text,
+    minHeight: 72,
+    padding: 0,
+    // no inner border — the outer pill already reads as a container
+  },
+  mcActionRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  mcActionGhost: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+  },
+  mcActionGhostText: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 15,
+    letterSpacing: -0.1,
+  },
+  mcActionPrimary: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+  },
+  mcActionPrimaryText: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 15,
+    color: "#FFFFFF",
+    letterSpacing: -0.1,
   },
 
   // Payment method picker modal
