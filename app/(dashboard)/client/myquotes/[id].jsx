@@ -527,14 +527,45 @@ export default function ClientMyQuoteDetail() {
   async function decide(decision) {
     try {
       setBusy(true);
-      const { error } = await supabase.rpc("rpc_client_decide_quote", {
-        p_quote_id: id,
-        p_decision: decision,
-      });
-      if (error) throw error;
+
+      // Preferred path: SECURITY DEFINER RPC. It validates that the
+      // caller is the quote's client (matched via client_id on the
+      // quote, or requester_id on the underlying request) and
+      // back-fills client_id while it updates status.
+      const { error: rpcError } = await supabase.rpc(
+        "rpc_client_decide_quote",
+        { p_quote_id: id, p_decision: decision }
+      );
+
+      if (!rpcError) {
+        await load();
+        return;
+      }
+
+      // Fallback: the RPC isn't deployed yet, or returned a generic
+      // "function does not exist" error. Try a direct UPDATE — this
+      // succeeds when client_id on the row equals auth.uid(), which
+      // the RLS policy on tradify_native_app_db requires.
+      const msg = String(rpcError?.message || "").toLowerCase();
+      const rpcMissing =
+        msg.includes("does not exist") ||
+        msg.includes("could not find the function") ||
+        rpcError?.code === "PGRST202" ||
+        rpcError?.code === "42883";
+
+      if (!rpcMissing) {
+        throw rpcError;
+      }
+
+      const { error: updErr } = await supabase
+        .from("tradify_native_app_db")
+        .update({ status: decision, updated_at: new Date().toISOString() })
+        .eq("id", id);
+
+      if (updErr) throw updErr;
       await load();
     } catch (e) {
-      Alert.alert("Update failed", e.message);
+      Alert.alert("Update failed", e?.message || "Could not update the quote.");
     } finally {
       setBusy(false);
     }

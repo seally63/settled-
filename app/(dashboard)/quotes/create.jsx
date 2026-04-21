@@ -154,6 +154,12 @@ export default function Create() {
 
   // Project context
   const [clientFullName, setClientFullName] = useState(null);
+  // requester_id pulled from the loaded quote_requests row — required
+  // so we can stamp `client_id` on the new quote. Without it the
+  // RLS UPDATE policy on tradify_native_app_db
+  //   (trade_id = auth.uid() OR client_id = auth.uid())
+  // blocks the client from ever accepting or declining.
+  const [clientUserId, setClientUserId] = useState(null);
   const [serviceTypeName, setServiceTypeName] = useState("");
   const [serviceCategoryName, setServiceCategoryName] = useState("");
   const [projectPostcode, setProjectPostcode] = useState("");
@@ -245,6 +251,7 @@ export default function Create() {
       if (!alive) return;
 
       if (name) setClientFullName(name);
+      if (req?.requester_id) setClientUserId(req.requester_id);
       if (svcName) setServiceTypeName(svcName);
       if (catName) setServiceCategoryName(catName);
       if (req?.postcode) setProjectPostcode(String(req.postcode).toUpperCase());
@@ -369,6 +376,11 @@ export default function Create() {
     status,
     trade_id: user?.id || null,
     userId: user?.id || null,
+    // Stamp the client's profile id so the RLS policy lets them
+    // accept / decline once the quote lands. When this is null (deep
+    // link with no loaded request) a DB trigger back-fills it from
+    // quote_requests.requester_id.
+    client_id: clientUserId || null,
     vat_enabled: true,
     vat_rate: VAT_RATE,
     earliest_start: earliestStart ? earliestStart.toISOString().slice(0, 10) : null,

@@ -109,9 +109,15 @@ export function QuotesProvider({ children }) {
         tax_total,
         grand_total,
 
-        // ownership: set BOTH so policies work with either schema
+        // ownership: set BOTH so policies work with either schema.
+        // `client_id` is what the RLS UPDATE policy keys off on the
+        // client-side decide (accept/decline) — without it, clients
+        // cannot touch the row. A DB trigger will also back-fill it
+        // from quote_requests.requester_id as a safety net, but we
+        // prefer to send it from here when we know it.
         trade_id: data?.trade_id ?? user?.id ?? null,
         userId:   data?.userId   ?? user?.id ?? null,
+        ...(data?.client_id ? { client_id: data.client_id } : {}),
       }
 
       const { data: inserted, error } = await supabase
