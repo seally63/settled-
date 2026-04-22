@@ -1,66 +1,33 @@
 // components/KeyboardDoneButton.jsx
-// Reusable keyboard accessory with Done button for multiline inputs
-import { Platform, InputAccessoryView, View, Pressable, Text, Keyboard, StyleSheet } from "react-native";
+// Intentionally neutralised. The floating iOS "Done" accessory bar
+// above the keyboard isn't part of the redesign — dismissing the
+// keyboard works via tap-outside, drag, or the Return key on
+// keyboards that have one. Multiple screens still import this file
+// for backward-compat (they pass `inputAccessoryViewID={KEYBOARD_DONE_ID}`
+// on their TextInputs). With no InputAccessoryView rendered for that
+// nativeID anywhere in the tree, the prop is a no-op and nothing
+// appears above the keyboard. Each screen can be cleaned up
+// independently later, but this one change removes every Done bar
+// across the app in a single sweep.
+//
+// Why it mattered: with the new architecture enabled (app.json
+// newArchEnabled: true), an iOS InputAccessoryView mounted on one
+// screen can ghost onto subsequent screens after navigation — even
+// when the new screen never imports it. Killing the renderer at
+// source is the reliable way to make sure no Done bar appears
+// anywhere in the app until we explicitly want one back.
+//
+// If a future screen genuinely needs a keyboard toolbar, build a
+// dedicated component per-screen rather than reviving this one —
+// the generic "Done" affordance was adding chrome to screens that
+// don't need it.
 
-/**
- * iOS keyboard accessory view with a "Done" button to dismiss keyboard
- * For multiline TextInputs, add: inputAccessoryViewID={KEYBOARD_DONE_ID}
- *
- * Usage:
- * import { KeyboardDoneButton, KEYBOARD_DONE_ID } from '../components/KeyboardDoneButton';
- *
- * <TextInput
- *   multiline
- *   inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
- * />
- *
- * // At the end of your component (before closing tags):
- * <KeyboardDoneButton />
- */
+import React from "react";
 
 export const KEYBOARD_DONE_ID = "keyboard-done-accessory";
 
 export function KeyboardDoneButton() {
-  // Only render on iOS - Android handles this differently
-  if (Platform.OS !== "ios") {
-    return null;
-  }
-
-  return (
-    <InputAccessoryView nativeID={KEYBOARD_DONE_ID}>
-      <View style={styles.container}>
-        <View style={{ flex: 1 }} />
-        <Pressable
-          onPress={() => Keyboard.dismiss()}
-          style={styles.doneButton}
-          hitSlop={8}
-        >
-          <Text style={styles.doneText}>Done</Text>
-        </Pressable>
-      </View>
-    </InputAccessoryView>
-  );
+  return null;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F3F4F6",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#D1D5DB",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  doneButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  doneText: {
-    color: "#6849a7",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-});
 
 export default KeyboardDoneButton;
