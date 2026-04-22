@@ -151,7 +151,7 @@ export default function SavedTradesSection() {
     <View>
       <View style={styles.headerRow}>
         <SectionHead
-          title="Saved trades"
+          title="Discover Trades"
           chevron={false}
           style={styles.sectionHeadFlush}
         />

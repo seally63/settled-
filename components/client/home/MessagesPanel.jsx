@@ -160,9 +160,34 @@ export default function MessagesPanel() {
     }, [load])
   );
 
+  // Header chevron — routes to the main Messages tab.
+  const goToMessages = () => router.push("/(dashboard)/messages");
+
+  // Row tap — open the specific conversation. The trick: navigate to
+  // the Messages tab FIRST, then push the conversation on top. That
+  // builds the stack as [messages/index, messages/[id]], so tapping
+  // back inside the conversation naturally pops to the Messages tab
+  // with the correct reverse (slide-right → slide-left) animation.
+  //
+  // Previously we used a `returnTo` param and the conversation's back
+  // handler called `router.navigate(returnTo)` — navigate always uses
+  // a forward-push animation, which felt wrong on a back tap.
+  const openConversation = (conv) => {
+    router.push("/(dashboard)/messages");
+    // Queue the second push on the next tick so the tab switch lands
+    // first and the two transitions don't coalesce into a single
+    // forward push of /messages/[id].
+    setTimeout(() => {
+      router.push({
+        pathname: "/(dashboard)/messages/[id]",
+        params: { id: String(conv.request_id) },
+      });
+    }, 0);
+  };
+
   if (loading) {
     return (
-      <Panel title="Messages" chevron>
+      <Panel title="Messages" chevron onPress={goToMessages}>
         <View style={{ padding: 14 }}>
           <ThemedText
             style={{ ...TypeVariants.bodySm, color: c.textMuted }}
@@ -176,7 +201,7 @@ export default function MessagesPanel() {
 
   if (conversations.length === 0) {
     return (
-      <Panel title="Messages" chevron>
+      <Panel title="Messages" chevron onPress={goToMessages}>
         <View style={{ padding: 14 }}>
           <ThemedText
             style={{ ...TypeVariants.bodySm, color: c.textMid }}
@@ -189,11 +214,7 @@ export default function MessagesPanel() {
   }
 
   return (
-    <Panel
-      title="Messages"
-      chevron
-      onPress={() => router.push("/(dashboard)/messages")}
-    >
+    <Panel title="Messages" chevron onPress={goToMessages}>
       {conversations.map((conv, idx) => (
         <React.Fragment key={conv.conversation_id || `${conv.request_id}-${idx}`}>
           {idx > 0 ? (
@@ -203,12 +224,7 @@ export default function MessagesPanel() {
           ) : null}
           <MsgRow
             conversation={conv}
-            onPress={() =>
-              router.push({
-                pathname: "/(dashboard)/messages/[id]",
-                params: { id: String(conv.request_id) },
-              })
-            }
+            onPress={() => openConversation(conv)}
           />
         </React.Fragment>
       ))}
