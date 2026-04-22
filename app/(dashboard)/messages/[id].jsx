@@ -1242,6 +1242,18 @@ export default function MessageThread() {
     return uploadedPaths;
   };
 
+  // Defence-in-depth filter: the conversation thread is text-only.
+  // Legacy `message_type='appointment'` rows from before the
+  // 2026-04-28 migration should never surface here. The server RPC
+  // already filters them, but we repeat the guard client-side so
+  // the thread stays clean even if a client is hitting an older
+  // server or the legacy rpc_list_messages.
+  const stripNonTextMessages = (rows) =>
+    (rows || []).filter((m) => {
+      const t = String(m?.message_type || "").toLowerCase();
+      return t !== "appointment" && t !== "system";
+    });
+
   const loadMessages = useCallback(async () => {
     // Party mode: fetch every message between me and the other
     // party across all shared requests (one unified thread).
@@ -1255,7 +1267,7 @@ export default function MessageThread() {
           setMessages([]);
           return;
         }
-        setMessages(data || []);
+        setMessages(stripNonTextMessages(data));
       } catch (e) {
         console.warn("loadMessages (party) failed:", e?.message || e);
         setMessages([]);
@@ -1275,7 +1287,7 @@ export default function MessageThread() {
         setMessages([]);
         return;
       }
-      setMessages(data || []);
+      setMessages(stripNonTextMessages(data));
     } catch (e) {
       console.warn("loadMessages failed:", e?.message || e);
       setMessages([]);

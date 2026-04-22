@@ -26,14 +26,25 @@ import { FontFamily, Radius, TypeVariants } from "../../../constants/Typography"
 
 const PRIMARY = Colors.primary;
 
-// Predefined appointment types
+// Appointment types. The `id` is stored on appointments.kind (see
+// the 20260428 migration) so downstream screens can branch on it
+// without parsing the title string. `requiresQuote` is the client-
+// side gate; the DB RPC enforces the same rule server-side.
 const APPOINTMENT_TYPES = [
-  { id: 'survey', label: 'Survey / Assessment', icon: 'search-outline' },
-  { id: 'design', label: 'Design consultation', icon: 'color-palette-outline' },
-  { id: 'start_work', label: 'Start work', icon: 'hammer-outline' },
-  { id: 'followup', label: 'Follow-up visit', icon: 'refresh-outline' },
-  { id: 'final', label: 'Final inspection', icon: 'checkmark-done-outline' },
+  { id: 'survey',    label: 'Survey',             icon: 'search-outline',        requiresQuote: false },
+  { id: 'design',    label: 'Design consultation',icon: 'color-palette-outline', requiresQuote: false },
+  { id: 'start_job', label: 'Start Job',          icon: 'hammer-outline',        requiresQuote: true  },
+  { id: 'followup',  label: 'Follow-up visit',    icon: 'refresh-outline',       requiresQuote: true  },
+  { id: 'final',     label: 'Final inspection',   icon: 'checkmark-done-outline',requiresQuote: true  },
 ];
+
+// Shared lookup so other screens (Recent Activity card render,
+// bottom sheet) can resolve the icon + display label for a kind
+// value without importing the full schedule.jsx file.
+export function getAppointmentTypeMeta(kind) {
+  return APPOINTMENT_TYPES.find((t) => t.id === kind)
+    || { id: 'survey', label: 'Appointment', icon: 'calendar-outline', requiresQuote: false };
+}
 
 function getInitials(name) {
   if (!name) return "?";
@@ -73,11 +84,16 @@ export default function ScheduleAppointment() {
 
   // State
   const [selectedType, setSelectedType] = useState(null); // appointment type id
+  const [selectedQuoteId, setSelectedQuoteId] = useState(null);
   const [apptNote, setApptNote] = useState(""); // optional note
   const [apptDateTime, setApptDateTime] = useState(null);
   const [hasDate, setHasDate] = useState(false);
   const [hasTime, setHasTime] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Accepted quotes on this request (trade can only link an
+  // appointment to an accepted-and-still-active quote). Loaded
+  // below alongside request details.
+  const [acceptedQuotes, setAcceptedQuotes] = useState([]);
 
   // Picker state
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -199,8 +215,49 @@ export default function ScheduleAppointment() {
     })();
   }, [requestId, titleParam]);
 
+  // Load accepted quotes for this request so the trade can link the
+  // appointment to one. Only surfaces quotes that are still active
+  // (not completed / expired / declined).
+  useEffect(() => {
+    if (!requestId || !user?.id) return;
+    let alive = true;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("tradify_native_app_db")
+          .select("id, project_title, grand_total, status, issued_at, created_at")
+          .eq("trade_id", user.id)
+          .eq("request_id", requestId)
+          .in("status", ["accepted", "awaiting_completion"]);
+        if (!alive) return;
+        const list = (data || [])
+          .filter((q) => {
+            const s = String(q.status || "").toLowerCase();
+            return s === "accepted" || s === "awaiting_completion";
+          })
+          .sort(
+            (a, b) =>
+              new Date(b.issued_at || b.created_at || 0).getTime() -
+              new Date(a.issued_at || a.created_at || 0).getTime()
+          );
+        setAcceptedQuotes(list);
+        // If a quoteId was passed in via URL params, preselect it.
+        if (quoteId && list.find((q) => q.id === quoteId)) {
+          setSelectedQuoteId(quoteId);
+        }
+      } catch (e) {
+        console.warn("[SCHEDULE] Failed to load accepted quotes:", e);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [requestId, user?.id, quoteId]);
+
   // Get the selected type object
   const selectedTypeObj = APPOINTMENT_TYPES.find(t => t.id === selectedType);
+  const selectedQuote = acceptedQuotes.find((q) => q.id === selectedQuoteId);
+  const quoteRequired = !!selectedTypeObj?.requiresQuote;
 
   const handlePressDateRow = () => {
     const base = apptDateTime || new Date();
@@ -279,6 +336,18 @@ export default function ScheduleAppointment() {
       return { ok: false };
     }
 
+    // Required quote link for post-quote types (start_job, followup,
+    // final). Pre-quote types (survey, design) can be scheduled
+    // without a linked quote, and the "Don't link" option explicitly
+    // picks null.
+    if (quoteRequired && !selectedQuoteId) {
+      Alert.alert(
+        "Link an accepted quote",
+        `${selectedTypeObj.label} must be linked to an accepted quote. If you haven't sent one yet, do that first.`
+      );
+      return { ok: false };
+    }
+
     if (!hasDate && !hasTime) {
       Alert.alert(
         "Missing date & time",
@@ -333,18 +402,25 @@ export default function ScheduleAppointment() {
     try {
       setBusy(true);
 
-      // Use the RPC that creates appointment AND sends it to messages
-      // Note is passed as part of location for now (or could be added to notes param if RPC supports it)
+      // Appointment insert. As of the 20260428 migration this RPC
+      // stores `kind` on the appointment row and no longer inserts
+      // a matching messages row — the conversation is text-only;
+      // appointments surface on the project screen / Recent
+      // Activity only.
       const noteText = apptNote.trim();
 
       const { data, error } = await supabase.rpc(
         "rpc_send_appointment_message",
         {
           p_request_id: requestId,
-          p_quote_id: quoteId || null,
+          // Prefer the picker's selection over the URL param. Null
+          // is valid for optional kinds (survey / design); required
+          // kinds are already validated client-side above.
+          p_quote_id: selectedQuoteId || quoteId || null,
           p_scheduled_at: apptDateTime.toISOString(),
           p_title: typeLabel,
           p_location: location || null,
+          p_kind: selectedType,
         }
       );
 
@@ -357,7 +433,13 @@ export default function ScheduleAppointment() {
         return;
       }
 
-      // Show success message
+      // Show success message. Navigate back on OK. We defer the
+      // navigation one tick with setTimeout(0) so it runs AFTER the
+      // Alert's native onPress callback finishes — otherwise
+      // `router.back()` can be a no-op on some physical devices
+      // because it fires inside the same native callback the Alert
+      // is dismissing from. If for any reason there's nothing to
+      // pop (fresh deep-link), fall back to the Projects index.
       Alert.alert(
         "Appointment sent!",
         "The appointment has been sent to messages. The client can accept or decline it.",
@@ -365,14 +447,17 @@ export default function ScheduleAppointment() {
           {
             text: "OK",
             onPress: () => {
-              if (router.canGoBack?.()) {
-                router.back();
-              } else {
-                router.replace("/quotes");
-              }
+              setTimeout(() => {
+                if (router.canGoBack?.()) {
+                  router.back();
+                } else {
+                  router.replace("/(dashboard)/quotes");
+                }
+              }, 0);
             },
           },
-        ]
+        ],
+        { cancelable: false }
       );
     } catch (e) {
       console.warn("appointment create error", e?.message || e);
@@ -461,10 +546,17 @@ export default function ScheduleAppointment() {
           <Pressable
             onPress={() => {
               if (busy) return;
+              // Pop this screen off the stack — the originating
+              // Client Request screen is already below us and will
+              // re-focus via its `useFocusEffect` reload. We do NOT
+              // use `router.replace(pathname)` here because that
+              // PUSHES a second copy of the Client Request screen
+              // on top of the existing one (visible as a forward
+              // animation + a stale duplicate underneath).
               if (router.canGoBack?.()) {
                 router.back();
               } else {
-                router.replace("/quotes");
+                router.replace("/(dashboard)/quotes");
               }
             }}
             hitSlop={10}
@@ -529,6 +621,139 @@ export default function ScheduleAppointment() {
             );
           })}
         </View>
+
+        {/* Quote picker — required for start_job / followup / final;
+            optional (but recommended) for survey / design. Renders
+            once a type has been selected so the UI isn't noisy
+            before the user's made a choice. */}
+        {selectedTypeObj && (
+          <>
+            <ThemedText style={styles.sectionLabel}>
+              {quoteRequired ? "Link to accepted quote" : "Link to accepted quote (optional)"}
+            </ThemedText>
+            {!quoteRequired && (
+              <ThemedText
+                style={{
+                  fontFamily: FontFamily.bodyRegular,
+                  fontSize: 12.5,
+                  color: c.textMuted,
+                  marginTop: -6,
+                  marginBottom: 8,
+                }}
+              >
+                If this visit relates to an accepted quote, link it here.
+              </ThemedText>
+            )}
+            {acceptedQuotes.length === 0 ? (
+              <View style={[styles.card, { marginBottom: 4 }]}>
+                <ThemedText
+                  style={{
+                    fontFamily: FontFamily.bodyRegular,
+                    fontSize: 14,
+                    color: c.textMid,
+                  }}
+                >
+                  {quoteRequired
+                    ? "No accepted quotes on this request yet — send one first."
+                    : "No accepted quotes yet on this request."}
+                </ThemedText>
+              </View>
+            ) : (
+              <View style={styles.typeCardsContainer}>
+                {/* Optional "None" row for non-required types */}
+                {!quoteRequired && (
+                  <Pressable
+                    style={[
+                      styles.typeCard,
+                      !selectedQuoteId && styles.typeCardSelected,
+                    ]}
+                    onPress={() => setSelectedQuoteId(null)}
+                    disabled={busy}
+                  >
+                    <View style={styles.typeCardContent}>
+                      <Ionicons
+                        name="remove-circle-outline"
+                        size={20}
+                        color={!selectedQuoteId ? PRIMARY : c.textMuted}
+                        style={styles.typeCardIcon}
+                      />
+                      <ThemedText
+                        style={[
+                          styles.typeCardLabel,
+                          !selectedQuoteId && styles.typeCardLabelSelected,
+                        ]}
+                      >
+                        Don't link to a quote
+                      </ThemedText>
+                    </View>
+                    <View
+                      style={[
+                        styles.typeCardRadio,
+                        !selectedQuoteId && styles.typeCardRadioSelected,
+                      ]}
+                    >
+                      {!selectedQuoteId && <View style={styles.typeCardRadioInner} />}
+                    </View>
+                  </Pressable>
+                )}
+                {acceptedQuotes.map((q) => {
+                  const isSelected = selectedQuoteId === q.id;
+                  const short = String(q.id || "").slice(-4).toUpperCase();
+                  const amount = Number(q.grand_total || 0);
+                  return (
+                    <Pressable
+                      key={q.id}
+                      style={[
+                        styles.typeCard,
+                        isSelected && styles.typeCardSelected,
+                      ]}
+                      onPress={() => setSelectedQuoteId(q.id)}
+                      disabled={busy}
+                    >
+                      <View style={styles.typeCardContent}>
+                        <Ionicons
+                          name="document-text-outline"
+                          size={20}
+                          color={isSelected ? PRIMARY : c.textMuted}
+                          style={styles.typeCardIcon}
+                        />
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <ThemedText
+                            style={[
+                              styles.typeCardLabel,
+                              isSelected && styles.typeCardLabelSelected,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            Quote #{short} · {q.project_title || "Project"}
+                          </ThemedText>
+                          <ThemedText
+                            style={{
+                              fontFamily: FontFamily.bodyRegular,
+                              fontSize: 12,
+                              color: c.textMuted,
+                              marginTop: 2,
+                            }}
+                          >
+                            £{amount.toLocaleString("en-GB", { minimumFractionDigits: 0 })}
+                          </ThemedText>
+                        </View>
+                      </View>
+                      <View
+                        style={[
+                          styles.typeCardRadio,
+                          isSelected && styles.typeCardRadioSelected,
+                        ]}
+                      >
+                        {isSelected && <View style={styles.typeCardRadioInner} />}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        )}
 
         {/* Date & Time */}
         <View style={[styles.card, { marginTop: 16 }]}>
