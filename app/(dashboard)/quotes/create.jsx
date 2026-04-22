@@ -30,6 +30,7 @@ import {
   Alert,
   TextInput,
   Keyboard,
+  InputAccessoryView,
   Modal,
 } from "react-native";
 import { useEffect, useMemo, useState } from "react";
@@ -55,6 +56,15 @@ const VALIDATION = {
   ITEM_NAME_MAX: 200,
   ITEM_DESC_MAX: 500,
 };
+
+// Empty InputAccessoryView nativeID. iOS 17+ with the new RN
+// architecture will render its own default "Done" accessory bar
+// above the keyboard for numeric + multiline TextInputs that have
+// no app-defined accessory — visible in the simulator with a
+// hardware keyboard connected, and on some physical devices too.
+// Providing an accessory-with-nothing-in-it tells iOS we're
+// handling it, which suppresses the system Done bar.
+const EMPTY_ACCESSORY_ID = "builder-empty-accessory";
 
 /* ───────── helpers ───────── */
 
@@ -600,6 +610,7 @@ export default function Create() {
               multiline
               style={styles.noteInput}
               maxLength={VALIDATION.COMMENTS_MAX}
+              inputAccessoryViewID={Platform.OS === "ios" ? EMPTY_ACCESSORY_ID : undefined}
             />
           </View>
 
@@ -722,6 +733,16 @@ export default function Create() {
         comments={comments}
       />
 
+      {/* Empty iOS keyboard accessory — see EMPTY_ACCESSORY_ID comment
+          above. Zero-height View inside an InputAccessoryView tells
+          iOS not to render its default system Done bar when any of
+          our TextInputs is focused.                                 */}
+      {Platform.OS === "ios" && (
+        <InputAccessoryView nativeID={EMPTY_ACCESSORY_ID}>
+          <View style={{ height: 0 }} />
+        </InputAccessoryView>
+      )}
+
     </ThemedView>
   );
 }
@@ -755,6 +776,7 @@ function BuilderLine({
           placeholderTextColor={c.textFaint}
           returnKeyType="next"
           blurOnSubmit
+          inputAccessoryViewID={Platform.OS === "ios" ? EMPTY_ACCESSORY_ID : undefined}
         />
         {canRemove && (
           <Pressable
@@ -777,6 +799,7 @@ function BuilderLine({
         returnKeyType="done"
         blurOnSubmit
         multiline
+        inputAccessoryViewID={Platform.OS === "ios" ? EMPTY_ACCESSORY_ID : undefined}
       />
 
       <View style={styles.lineMathRow}>
@@ -788,10 +811,10 @@ function BuilderLine({
             placeholder="1"
             placeholderTextColor={c.textFaint}
             keyboardType="number-pad"
-            // No iOS inputAccessoryViewID — the floating Done blob
-            // was unwanted chrome; returnKeyType="done" on the
-            // keyboard still dismisses it, and the tap-outside
-            // gesture on the scroll container also works.
+            // Empty accessory suppresses iOS's auto-injected Done bar
+            // that appears on number-pad keyboards under the new arch.
+            // Dismissal: tap-outside, scroll-drag, or swipe keyboard.
+            inputAccessoryViewID={Platform.OS === "ios" ? EMPTY_ACCESSORY_ID : undefined}
             returnKeyType="done"
             accessibilityLabel="Quantity"
           />
@@ -807,6 +830,7 @@ function BuilderLine({
             placeholder="0"
             placeholderTextColor={c.textFaint}
             keyboardType="decimal-pad"
+            inputAccessoryViewID={Platform.OS === "ios" ? EMPTY_ACCESSORY_ID : undefined}
             returnKeyType="done"
             accessibilityLabel="Unit price"
           />
@@ -872,6 +896,7 @@ function TextPromptModal({
               style={styles.promptInput}
               returnKeyType="done"
               onSubmitEditing={() => onSave(value)}
+              inputAccessoryViewID={Platform.OS === "ios" ? EMPTY_ACCESSORY_ID : undefined}
             />
             {suffix && <ThemedText style={styles.promptSuffix}>{suffix}</ThemedText>}
           </View>
