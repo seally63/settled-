@@ -1390,10 +1390,15 @@ export default function ClientMyQuoteDetail() {
       {/* Sticky chevron back (replaces the old header row). */}
       <Pressable
         onPress={() => {
-          if (router.canGoBack?.()) {
-            router.back();
-          } else if (returnTo) {
+          // Prefer an explicit `returnTo` when the caller set one —
+          // that's opted-in navigation ("take me back here, don't
+          // walk the stack"). Covers the conversation → quote flow
+          // where the router.back() stack can contain stale quote
+          // detail entries from other tabs' pushes.
+          if (returnTo) {
             router.replace(returnTo);
+          } else if (router.canGoBack?.()) {
+            router.back();
           } else {
             router.replace("/(dashboard)/myquotes");
           }

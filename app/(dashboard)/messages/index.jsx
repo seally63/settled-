@@ -1,4 +1,18 @@
-//app(dashboard)/messages/index.jsx
+// app/(dashboard)/messages/index.jsx
+// Messages tab — party-grouped list. One row per person the user
+// has talked to, regardless of how many projects they share.
+//
+// Layout + typography match the Home / Projects / Profile tabs:
+//   · Public-Sans-Bold 32pt "Messages" title inside the ScrollView
+//     (no row wrapper, no block behind it)
+//   · Dark-mode aware via useTheme — no more hardcoded #FFF / #111
+//   · Pill-styled conversation rows with avatar, name, snippet, time
+//     and an unread dot
+//
+// Data source: rpc_list_conversations_by_party (new RPC added in
+// 20260425000000_party_based_conversations.sql). Falls back to the
+// original rpc_list_conversations + client-side grouping if the new
+// RPC isn't deployed yet, so the screen works across both states.
 
 import {
   StyleSheet,
@@ -6,126 +20,138 @@ import {
   Pressable,
   FlatList,
   RefreshControl,
-  Platform,
   Image,
 } from "react-native";
-import { useEffect, useState, useCallback } from "react";
-import { Ionicons } from "@expo/vector-icons";
+import { useState, useCallback } from "react";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../../../lib/supabase";
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { MessagesPageSkeleton } from "../../../components/Skeleton";
-import { Colors } from "../../../constants/Colors";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import { Colors } from "../../../constants/Colors";
+import { FontFamily } from "../../../constants/Typography";
 
-const TINT = Colors?.light?.tint || "#0ea5e9";
+const AVATAR_TINTS = [
+  Colors.primary,
+  Colors.status.scheduled,
+  Colors.status.accepted,
+  Colors.status.pending,
+  Colors.status.declined,
+];
 
-function formatWhen(d) {
-  if (!d) return "";
-  const dt = new Date(d);
+function formatWhen(iso) {
+  if (!iso) return "";
+  const dt = new Date(iso);
   const now = new Date();
-
   const sameDay =
     dt.getFullYear() === now.getFullYear() &&
     dt.getMonth() === now.getMonth() &&
     dt.getDate() === now.getDate();
-
   if (sameDay) {
-    return dt.toLocaleTimeString(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   }
-  return dt.toLocaleDateString();
+  const diffDays = Math.floor((now - dt) / (1000 * 60 * 60 * 24));
+  if (diffDays < 7) return dt.toLocaleDateString(undefined, { weekday: "short" });
+  return dt.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
 function getInitials(name) {
   if (!name) return "?";
-  const parts = String(name)
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "?";
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  return (
-    parts[0].charAt(0).toUpperCase() +
-    parts[parts.length - 1].charAt(0).toUpperCase()
-  );
+  return parts[0].charAt(0).toUpperCase() + parts[parts.length - 1].charAt(0).toUpperCase();
 }
 
-function ConversationCard({ item, onPress }) {
+function ConversationCard({ c, item, onPress }) {
   const title =
     item.other_party_name ||
-    (item.other_party_role === "trade" ? "Your trade" : "Your client");
+    (item.other_party_role === "trade" || item.other_party_role === "trades"
+      ? "Your trade"
+      : "Your client");
 
-  const snippet = item.last_message_body
-    ? item.last_message_body.length > 50
-      ? item.last_message_body.slice(0, 47) + "..."
-      : item.last_message_body
-    : "No messages yet.";
-
+  const snippetRaw = item.last_message_body || "No messages yet.";
+  const snippet = snippetRaw.length > 60 ? snippetRaw.slice(0, 57) + "…" : snippetRaw;
   const when = formatWhen(item.last_message_at);
   const hasUnread = item.has_unread === true;
 
   const avatarUrl = item.other_party_photo_url || null;
   const initials = getInitials(title);
-
-  // Generate a consistent color based on name
-  const avatarColors = ["#6849a7", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
-  const colorIndex = title ? title.charCodeAt(0) % avatarColors.length : 0;
-  const avatarBgColor = avatarColors[colorIndex];
+  const tint = AVATAR_TINTS[(title.charCodeAt(0) || 0) % AVATAR_TINTS.length];
 
   return (
-    <Pressable onPress={onPress} style={{ flex: 1 }}>
-      <ThemedView style={styles.card}>
-        <View style={styles.cardRow}>
-          {/* Avatar */}
-          <View style={styles.avatarWrap}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarBgColor }]}>
-                <ThemedText style={styles.avatarInitials}>
-                  {initials}
-                </ThemedText>
-              </View>
-            )}
-          </View>
-
-          {/* Text column */}
-          <View style={styles.cardMain}>
-            <View style={styles.cardHeaderRow}>
-              <ThemedText style={[styles.cardTitle, hasUnread && styles.cardTitleUnread]} numberOfLines={1}>
-                {title}
-              </ThemedText>
-              <View style={styles.cardTimeRow}>
-                {!!when && (
-                  <ThemedText style={[styles.cardTime, hasUnread && styles.cardTimeUnread]} variant="muted">
-                    {when}
-                  </ThemedText>
-                )}
-                {hasUnread && <View style={styles.unreadDot} />}
-              </View>
-            </View>
-
-            <Spacer height={2} />
-
-            <ThemedText
-              numberOfLines={1}
-              style={[styles.snippet, hasUnread && styles.snippetUnread]}
-              variant="muted"
-            >
-              {snippet}
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.card,
+        { backgroundColor: c.elevate2, borderColor: c.border },
+        pressed && { opacity: 0.75 },
+      ]}
+    >
+      <View style={styles.cardRow}>
+        {avatarUrl ? (
+          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+        ) : (
+          <View
+            style={[
+              styles.avatar,
+              styles.avatarFallback,
+              { backgroundColor: tint + "33" },
+            ]}
+          >
+            <ThemedText style={[styles.avatarInitials, { color: tint }]}>
+              {initials}
             </ThemedText>
           </View>
+        )}
+
+        <View style={styles.cardMain}>
+          <View style={styles.cardHeaderRow}>
+            <ThemedText
+              style={[
+                styles.cardTitle,
+                { color: c.text },
+                hasUnread && styles.cardTitleUnread,
+              ]}
+              numberOfLines={1}
+            >
+              {title}
+            </ThemedText>
+            <View style={styles.cardTimeRow}>
+              {!!when && (
+                <ThemedText
+                  style={[
+                    styles.cardTime,
+                    { color: hasUnread ? c.text : c.textMuted },
+                  ]}
+                >
+                  {when}
+                </ThemedText>
+              )}
+              {hasUnread && (
+                <View style={[styles.unreadDot, { backgroundColor: Colors.primary }]} />
+              )}
+            </View>
+          </View>
+          <ThemedText
+            numberOfLines={1}
+            style={[
+              styles.snippet,
+              { color: hasUnread ? c.text : c.textMid },
+              hasUnread && styles.snippetUnread,
+            ]}
+          >
+            {snippet}
+          </ThemedText>
         </View>
-      </ThemedView>
+      </View>
     </Pressable>
   );
 }
@@ -134,47 +160,96 @@ export default function MessagesIndex() {
   const { user } = useUser();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { colors: c } = useTheme();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [conversations, setConversations] = useState([]);
 
+  // Client-side fallback grouping for environments where the new
+  // party-based RPC isn't deployed yet. Takes the per-request rows
+  // from rpc_list_conversations and collapses them to per-party.
+  const groupByParty = useCallback((rows) => {
+    const byParty = new Map();
+    for (const row of rows || []) {
+      const key = row.other_party_id;
+      if (!key) continue;
+      const existing = byParty.get(key);
+      if (!existing) {
+        byParty.set(key, {
+          other_party_id: key,
+          other_party_name: row.other_party_name,
+          other_party_role: row.other_party_role,
+          other_party_photo_url: row.other_party_photo_url,
+          last_message_body: row.last_message_body,
+          last_message_at: row.last_message_at,
+          last_message_request_id: row.request_id,
+          has_unread: row.has_unread === true,
+          shared_request_count: 1,
+        });
+      } else {
+        existing.shared_request_count += 1;
+        existing.has_unread = existing.has_unread || row.has_unread === true;
+        const rowAt = row.last_message_at ? new Date(row.last_message_at).getTime() : 0;
+        const exAt = existing.last_message_at ? new Date(existing.last_message_at).getTime() : 0;
+        if (rowAt > exAt) {
+          existing.last_message_body = row.last_message_body;
+          existing.last_message_at = row.last_message_at;
+          existing.last_message_request_id = row.request_id;
+        }
+      }
+    }
+    return Array.from(byParty.values()).sort((a, b) => {
+      const aAt = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+      const bAt = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+      return bAt - aAt;
+    });
+  }, []);
+
   const load = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase.rpc("rpc_list_conversations", {
-        p_limit: 50,
+      // Preferred: new party-based RPC.
+      const { data, error } = await supabase.rpc("rpc_list_conversations_by_party", {
+        p_limit: 100,
       });
-      if (error) {
-        console.warn("rpc_list_conversations error:", error.message);
+      if (!error && Array.isArray(data)) {
+        const filtered = data.filter(
+          (conv) => conv.last_message_body && conv.last_message_body.trim().length > 0
+        );
+        setConversations(filtered);
+        return;
+      }
+
+      // Fallback: old per-request RPC + client-side grouping. Keeps
+      // the app usable if the new migration hasn't run yet.
+      const { data: legacy, error: legacyErr } = await supabase.rpc("rpc_list_conversations", {
+        p_limit: 100,
+      });
+      if (legacyErr) {
+        console.warn("rpc_list_conversations error:", legacyErr.message);
         setConversations([]);
         return;
       }
-      // Filter out conversations with no actual messages
-      // Only show conversations where communication has started
-      const filtered = (data || []).filter(
+      const filteredLegacy = (legacy || []).filter(
         (conv) => conv.last_message_body && conv.last_message_body.trim().length > 0
       );
-      setConversations(filtered);
+      setConversations(groupByParty(filteredLegacy));
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, groupByParty]);
 
   const onRefresh = useCallback(async () => {
     try {
       setRefreshing(true);
       await load();
-    } catch (e) {
-      console.warn("refresh messages failed:", e.message);
     } finally {
       setRefreshing(false);
     }
   }, [load]);
 
-  // Reload conversations whenever screen comes into focus
-  // This ensures read status is updated after viewing a conversation
   useFocusEffect(
     useCallback(() => {
       if (!user?.id) return;
@@ -184,45 +259,48 @@ export default function MessagesIndex() {
 
   const Empty = () => (
     <View style={styles.emptyWrap}>
-      <ThemedText style={styles.emptyTitle}>No messages yet.</ThemedText>
+      <ThemedText style={[styles.emptyTitle, { color: c.text }]}>
+        No messages yet.
+      </ThemedText>
       <Spacer height={8} />
-      <ThemedText variant="muted" style={styles.emptySubtitle}>
-        When you and a trade start chatting about a request, it will appear
-        here.
+      <ThemedText style={[styles.emptySubtitle, { color: c.textMid }]}>
+        When you and a trade start chatting about a request, it will appear here.
       </ThemedText>
     </View>
   );
 
   return (
-    <ThemedView style={styles.container}>
+    <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
       <ThemedStatusBar />
-      {/* Header - Profile-style */}
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <ThemedText style={styles.headerTitle}>Messages</ThemedText>
-      </View>
 
       <FlatList
         data={conversations}
-        keyExtractor={(item, index) => item.conversation_id ? String(item.conversation_id) : `${item.request_id}-${item.other_party_id || index}`}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        keyExtractor={(item, index) =>
+          item.other_party_id ? String(item.other_party_id) : `p-${index}`
         }
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: 130, flexGrow: 1 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        contentContainerStyle={{
+          paddingTop: 4,
+          paddingBottom: insets.bottom + 180,
+          flexGrow: 1,
+        }}
+        ListHeaderComponent={
+          <View style={styles.titleBlock}>
+            <ThemedText style={[styles.pageTitle, { color: c.text }]}>Messages</ThemedText>
+          </View>
+        }
         ListEmptyComponent={loading ? <MessagesPageSkeleton paddingTop={0} /> : <Empty />}
         renderItem={({ item }) => (
           <ConversationCard
+            c={c}
             item={item}
             onPress={() =>
               router.push({
                 pathname: "/(dashboard)/messages/[id]",
                 params: {
-                  id: String(item.request_id),
-                  name:
-                    item.other_party_name ||
-                    (item.other_party_role === "trade"
-                      ? "Your trade"
-                      : "Your client"),
-                  quoteId: item.quote_id ? String(item.quote_id) : "",
+                  id: String(item.other_party_id),
+                  kind: "party",
+                  name: item.other_party_name || "",
                   avatar: item.other_party_photo_url || "",
                 },
               })
@@ -235,57 +313,36 @@ export default function MessagesIndex() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "stretch",
-    backgroundColor: "#FFFFFF",
-  },
-  // Profile-style header
-  header: {
+  container: { flex: 1 },
+
+  titleBlock: {
+    paddingTop: 12,
+    paddingBottom: 14,
     paddingHorizontal: 20,
-    paddingBottom: 12,
-    backgroundColor: "#FFFFFF",
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: "700",
+  pageTitle: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 32,
+    lineHeight: 34,
+    letterSpacing: -0.8,
   },
 
   card: {
     borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 16,
+    borderRadius: 18,
     paddingVertical: 12,
     paddingHorizontal: 14,
     marginHorizontal: 16,
     marginBottom: 10,
-    backgroundColor: "#FFFFFF",
   },
-  cardRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  avatarWrap: {
-    marginRight: 12,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#E5E7EB",
-  },
-  avatarFallback: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  cardRow: { flexDirection: "row", alignItems: "center" },
+  avatar: { width: 48, height: 48, borderRadius: 24 },
+  avatarFallback: { alignItems: "center", justifyContent: "center" },
   avatarInitials: {
-    fontWeight: "700",
-    fontSize: 17,
-    color: "#FFFFFF",
+    fontFamily: FontFamily.headerBold,
+    fontSize: 16,
   },
-  cardMain: {
-    flex: 1,
-  },
+  cardMain: { flex: 1, marginLeft: 12, minWidth: 0 },
   cardHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -293,50 +350,29 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     flex: 1,
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 15,
-    fontWeight: "500",
-    color: "#111827",
+    letterSpacing: -0.1,
   },
   cardTitleUnread: {
-    fontWeight: "700",
+    fontFamily: FontFamily.headerBold,
   },
-  cardTimeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
+  cardTimeRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   cardTime: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 12,
-    color: "#9CA3AF",
   },
-  cardTimeUnread: {
-    color: "#6B7280",
-  },
-  unreadDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#3B82F6",
-  },
+  unreadDot: { width: 8, height: 8, borderRadius: 4 },
   snippet: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 14,
     marginTop: 3,
-    color: "#6B7280",
   },
   snippetUnread: {
-    color: "#374151",
-    fontWeight: "500",
+    fontFamily: FontFamily.bodyMedium,
   },
 
-  emptyWrap: {
-    paddingTop: 40,
-    paddingHorizontal: 40,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  emptySubtitle: {
-    fontSize: 13,
-  },
+  emptyWrap: { paddingTop: 40, paddingHorizontal: 40 },
+  emptyTitle: { fontFamily: FontFamily.headerSemibold, fontSize: 16 },
+  emptySubtitle: { fontFamily: FontFamily.bodyRegular, fontSize: 13, lineHeight: 19 },
 });

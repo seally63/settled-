@@ -18,6 +18,7 @@ import {
   Image,
   ActionSheetIOS,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -29,12 +30,16 @@ import ImageViewing from "react-native-image-viewing";
 
 import { supabase } from "../../../lib/supabase";
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
+import ThemedStatusBar from "../../../components/ThemedStatusBar";
 import Spacer from "../../../components/Spacer";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../../constants/Colors";
+import { FontFamily } from "../../../constants/Typography";
 
-const TINT = Colors?.light?.tint || "#0ea5e9";
+const TINT = Colors.primary;
 const MESSAGE_PHOTOS_BUCKET = "message-photos";
 
 function formatTime(iso) {
@@ -475,8 +480,14 @@ function AppointmentCard({ appointment, userRole, onAccept, onDecline, busy }) {
   const isProposed = appointment.status === "proposed";
   const isCancelled = appointment.status === "cancelled";
 
-  // Show action buttons for clients when appointment is proposed
-  const showClientActions = userRole === "client" && isProposed;
+  // Accept / Decline actions are NOT rendered in the conversation
+  // thread anymore — the chat is messaging-only. Status tracking +
+  // responses live on the project screen. We only show the inline
+  // buttons if callers explicitly pass both handlers; callers that
+  // omit them (the party-based MessageThread here) get a tappable
+  // read-only card instead.
+  const showClientActions =
+    userRole === "client" && isProposed && !!onAccept && !!onDecline;
 
   // Status badge colors
   const getStatusStyle = () => {
@@ -667,12 +678,285 @@ function QuoteHeader({ quote, displayName, serviceInfo, postcode, userRole }) {
   );
 }
 
+// Shared status palette for quote chips — used by both the inline
+// in-thread card and the bottom-sheet history rows.
+function quoteStatusMeta(status, c) {
+  const s = String(status || "draft").toLowerCase();
+  switch (s) {
+    case "accepted":
+    case "awaiting_completion":
+      return { label: "Accepted", fg: "#065F46", bg: "#D1FAE5" };
+    case "completed":
+      return { label: "Completed", fg: "#065F46", bg: "#D1FAE5" };
+    case "sent":
+    case "created":
+    case "quoted":
+      return { label: "Quote sent", fg: "#1E3A8A", bg: "#DBEAFE" };
+    case "declined":
+      return { label: "Declined", fg: "#991B1B", bg: "#FEE2E2" };
+    case "expired":
+      return { label: "Expired", fg: "#5C5C66", bg: c.elevate };
+    case "draft":
+    default:
+      return { label: "Draft", fg: "#92400E", bg: "#FEF3C7" };
+  }
+}
+
+function formatQuoteAmount(n) {
+  const v = Number(n || 0);
+  return `£${v.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+// Compact single-row inline quote card. ~48px tall, same horizontal
+// bleed as a message bubble. Title (truncated) · amount · status
+// chip. Whole row is tappable — the parent Pressable handles the
+// navigation.
+function InlineQuoteCard({ c, quote }) {
+  if (!quote) return null;
+  const meta = quoteStatusMeta(quote.status, c);
+  const title = quote.project_title || "Quote";
+  const amount = formatQuoteAmount(quote.grand_total);
+  return (
+    <View
+      style={{
+        marginHorizontal: 16,
+        marginVertical: 5,
+        height: 48,
+        paddingHorizontal: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        backgroundColor: c.elevate2,
+        borderColor: c.border,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+      }}
+    >
+      <Ionicons name="document-text-outline" size={16} color={c.textMid} />
+      <ThemedText
+        numberOfLines={1}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          fontFamily: FontFamily.bodyMedium,
+          fontSize: 14,
+          color: c.text,
+        }}
+      >
+        {title}
+      </ThemedText>
+      <ThemedText
+        style={{
+          fontFamily: FontFamily.headerSemibold,
+          fontSize: 14,
+          letterSpacing: -0.2,
+          color: c.text,
+        }}
+      >
+        {amount}
+      </ThemedText>
+      <View
+        style={{
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+          borderRadius: 999,
+          backgroundColor: meta.bg,
+        }}
+      >
+        <ThemedText
+          style={{
+            fontFamily: FontFamily.headerSemibold,
+            fontSize: 11,
+            color: meta.fg,
+          }}
+        >
+          {meta.label}
+        </ThemedText>
+      </View>
+    </View>
+  );
+}
+
+// Thin "N quotes with this trade" summary bar pinned below the
+// sticky header. Shown whenever there's at least one shared quote
+// with the contact — tapping opens the history sheet. Since quotes
+// no longer appear inline in the thread, this bar is the user's
+// only path to the quote record from the conversation.
+function QuoteHistoryBar({ c, count, onPress, userRole }) {
+  if (!count || count < 1) return null;
+  const noun = count === 1 ? "quote" : "quotes";
+  const contact = userRole === "trades" ? "this client" : "this trade";
+  const cta = count === 1 ? "View" : "View all";
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: c.border,
+          backgroundColor: c.elevate,
+        },
+        pressed && { opacity: 0.75 },
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel={`${count} ${noun} with ${contact}. Tap to view.`}
+    >
+      <Ionicons name="receipt-outline" size={14} color={c.textMid} />
+      <ThemedText
+        style={{
+          flex: 1,
+          fontFamily: FontFamily.bodyMedium,
+          fontSize: 13,
+          color: c.textMid,
+        }}
+        numberOfLines={1}
+      >
+        {count} {noun} with {contact}
+      </ThemedText>
+      <ThemedText
+        style={{
+          fontFamily: FontFamily.headerSemibold,
+          fontSize: 12,
+          color: c.text,
+        }}
+      >
+        {cta}
+      </ThemedText>
+      <Ionicons name="chevron-forward" size={14} color={c.textMuted} />
+    </Pressable>
+  );
+}
+
+// Bottom sheet that lists every shared quote as a compact row.
+// Re-uses the same row shape as the inline InlineQuoteCard so the
+// two surfaces feel the same.
+function QuoteHistorySheet({ c, visible, onClose, quotes, onPick, insets }) {
+  const items = useMemo(() => {
+    const list = (quotes || []).slice();
+    list.sort((a, b) => {
+      const aAt = new Date(a.issued_at || a.created_at || 0).getTime();
+      const bAt = new Date(b.issued_at || b.created_at || 0).getTime();
+      return bAt - aAt;
+    });
+    return list;
+  }, [quotes]);
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}>
+        <View
+          style={{
+            backgroundColor: c.background,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            paddingTop: 12,
+            paddingBottom: (insets?.bottom || 0) + 20,
+            height: "70%",
+          }}
+        >
+          <View
+            style={{
+              width: 36,
+              height: 4,
+              borderRadius: 2,
+              alignSelf: "center",
+              backgroundColor: c.borderStrong,
+              marginBottom: 14,
+            }}
+          />
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              paddingHorizontal: 20,
+              paddingBottom: 14,
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <ThemedText
+                style={{
+                  fontFamily: FontFamily.headerBold,
+                  fontSize: 11,
+                  letterSpacing: 1.2,
+                  textTransform: "uppercase",
+                  color: c.textMuted,
+                  marginBottom: 4,
+                }}
+              >
+                Quote history
+              </ThemedText>
+              <ThemedText
+                style={{
+                  fontFamily: FontFamily.headerBold,
+                  fontSize: 22,
+                  letterSpacing: -0.4,
+                  color: c.text,
+                }}
+              >
+                {items.length} quote{items.length !== 1 ? "s" : ""}
+              </ThemedText>
+            </View>
+            <Pressable
+              onPress={onClose}
+              hitSlop={10}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: c.border,
+                backgroundColor: c.elevate,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Ionicons name="close" size={18} color={c.text} />
+            </Pressable>
+          </View>
+          <View style={{ height: 1, marginHorizontal: 20, backgroundColor: c.border }} />
+          <FlatList
+            data={items}
+            keyExtractor={(q) => String(q.id)}
+            contentContainerStyle={{ paddingVertical: 8 }}
+            ItemSeparatorComponent={() => (
+              <View style={{ height: 8 }} />
+            )}
+            renderItem={({ item }) => (
+              <Pressable
+                onPress={() => onPick?.(item)}
+                style={({ pressed }) => [pressed && { opacity: 0.75 }]}
+              >
+                <InlineQuoteCard c={c} quote={item} />
+              </Pressable>
+            )}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function MessageThread() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const { user } = useUser();
+  const { colors: c, dark } = useTheme();
+  const insets = useSafeAreaInsets();
 
-  const requestId = Array.isArray(params.id) ? params.id[0] : params.id;
+  // `id` can be either a request_id (legacy callers) or an
+  // other_party_id (new caller from the Messages tab list, which
+  // passes `kind=party` explicitly). Either way we resolve to a
+  // canonical otherPartyId and auto-upgrade to party mode so every
+  // entry point lands on the same unified thread — one conversation
+  // per person, across all their shared projects.
+  const routeId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const kindParam = Array.isArray(params.kind) ? params.kind[0] : params.kind;
+  const routeIsParty = kindParam === "party";
+
   const tradeNameParam = Array.isArray(params.name)
     ? params.name[0]
     : params.name;
@@ -686,14 +970,43 @@ export default function MessageThread() {
     ? params.returnTo[0]
     : params.returnTo;
 
-  const tradeName = tradeNameParam || "Tradesperson";
+  // If the URL says party directly, use it. Otherwise a resolver
+  // effect below looks up the other party's user id from the
+  // request_id. Once that resolves, isPartyMode flips on and all
+  // loaders switch to the unified-thread path.
+  const [resolvedOtherPartyId, setResolvedOtherPartyId] = useState(
+    routeIsParty ? routeId : null
+  );
+  const otherPartyId = resolvedOtherPartyId;
+  const isPartyMode = routeIsParty || !!resolvedOtherPartyId;
+  // Legacy request-scoped id — only used during the brief window
+  // before the resolver has populated otherPartyId.
+  const requestId = routeIsParty ? null : routeId;
+
   const quoteId = quoteIdParam || null;
+
+  // Name + avatar for the sticky top bar. Start with whatever the
+  // caller passed in the URL params (fast initial render), then
+  // overwrite with whatever we fetch from the profiles table for
+  // the authoritative value.
+  const [fetchedPartyName, setFetchedPartyName] = useState(null);
+  const tradeName = fetchedPartyName || tradeNameParam || "Tradesperson";
   const avatarInitials = getInitials(tradeName);
 
   // Generate a consistent color based on name (same as index.jsx)
   const avatarColors = ["#6849a7", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
   const colorIndex = tradeName ? tradeName.charCodeAt(0) % avatarColors.length : 0;
   const avatarBgColor = avatarColors[colorIndex];
+
+  // Quotes between the two parties, keyed by quote id. Populated by
+  // loadQuotesByParty; used by renderItem to interleave inline quote
+  // cards into the message flow in chronological order.
+  const [quotesByParty, setQuotesByParty] = useState({});
+  // Quote-history bottom sheet — opens from the thin bar under the
+  // sticky top header when there's more than one quote between the
+  // two parties. Keeps the thread uncluttered while the full
+  // history is still one tap away.
+  const [quoteHistoryOpen, setQuoteHistoryOpen] = useState(false);
 
   const [messages, setMessages] = useState([]);
   const [sending, setSending] = useState(false);
@@ -930,6 +1243,27 @@ export default function MessageThread() {
   };
 
   const loadMessages = useCallback(async () => {
+    // Party mode: fetch every message between me and the other
+    // party across all shared requests (one unified thread).
+    if (isPartyMode && otherPartyId) {
+      try {
+        const { data, error } = await supabase.rpc("rpc_list_messages_by_party", {
+          p_other_party_id: otherPartyId,
+        });
+        if (error) {
+          console.warn("rpc_list_messages_by_party error:", error.message);
+          setMessages([]);
+          return;
+        }
+        setMessages(data || []);
+      } catch (e) {
+        console.warn("loadMessages (party) failed:", e?.message || e);
+        setMessages([]);
+      }
+      return;
+    }
+
+    // Legacy request-scoped mode.
     if (!requestId) return;
     try {
       const { data, error } = await supabase.rpc("rpc_list_messages", {
@@ -946,7 +1280,38 @@ export default function MessageThread() {
       console.warn("loadMessages failed:", e?.message || e);
       setMessages([]);
     }
-  }, [requestId]);
+  }, [requestId, isPartyMode, otherPartyId]);
+
+  // Load all quotes exchanged between me and the other party so we
+  // can render them as inline tappable cards interleaved into the
+  // message timeline. Skipped in legacy request-scoped mode (the
+  // pinned QuoteHeader handled that there — and is gone in party
+  // mode).
+  const loadQuotesByParty = useCallback(async () => {
+    if (!isPartyMode || !otherPartyId || !user?.id) {
+      setQuotesByParty({});
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("tradify_native_app_db")
+        .select("id, project_title, grand_total, status, issued_at, created_at, trade_id, client_id, request_id")
+        .or(
+          `and(trade_id.eq.${user.id},client_id.eq.${otherPartyId}),and(trade_id.eq.${otherPartyId},client_id.eq.${user.id})`
+        );
+      if (error) {
+        console.warn("loadQuotesByParty error:", error.message);
+        setQuotesByParty({});
+        return;
+      }
+      const map = {};
+      for (const q of data || []) map[q.id] = q;
+      setQuotesByParty(map);
+    } catch (e) {
+      console.warn("loadQuotesByParty failed:", e?.message || e);
+      setQuotesByParty({});
+    }
+  }, [isPartyMode, otherPartyId, user?.id]);
 
   const loadQuote = useCallback(async () => {
     try {
@@ -1012,12 +1377,37 @@ export default function MessageThread() {
     }
   }, [requestId]);
 
-  // Load all appointments for this request to display inline in conversation
+  // Load all appointments to display inline in the conversation.
+  // In legacy mode this filters by request_id. In party mode we pull
+  // appointments across every shared request so the card lookup works
+  // regardless of which project the appointment belongs to.
   const loadAppointments = useCallback(async () => {
-    if (!requestId) {
-      setAppointmentsById({});
+    if (isPartyMode) {
+      if (!otherPartyId || !user?.id) { setAppointmentsById({}); return; }
+      try {
+        const { data, error } = await supabase
+          .from("appointments")
+          .select("id, scheduled_at, title, location, status, request_id, quote_id")
+          .or(
+            `and(trade_id.eq.${user.id},client_id.eq.${otherPartyId}),and(trade_id.eq.${otherPartyId},client_id.eq.${user.id})`
+          )
+          .order("scheduled_at", { ascending: true });
+        if (error) {
+          console.warn("loadAppointments (party) failed:", error.message);
+          setAppointmentsById({});
+          return;
+        }
+        const byId = {};
+        (data || []).forEach((appt) => { byId[appt.id] = appt; });
+        setAppointmentsById(byId);
+      } catch (e) {
+        console.warn("loadAppointments (party) failed:", e?.message || e);
+        setAppointmentsById({});
+      }
       return;
     }
+
+    if (!requestId) { setAppointmentsById({}); return; }
     try {
       const { data, error } = await supabase
         .from("appointments")
@@ -1030,26 +1420,56 @@ export default function MessageThread() {
         setAppointmentsById({});
         return;
       }
-
-      // Store appointments by ID for quick lookup when rendering messages
       const byId = {};
-      (data || []).forEach(appt => {
-        byId[appt.id] = appt;
-      });
-
+      (data || []).forEach(appt => { byId[appt.id] = appt; });
       setAppointmentsById(byId);
     } catch (e) {
       console.warn("loadAppointments failed:", e?.message || e);
       setAppointmentsById({});
     }
-  }, [requestId]);
+  }, [requestId, isPartyMode, otherPartyId, user?.id]);
+
+  // Legacy fallback: when the screen is opened with a request_id
+  // (not a party id), resolve the other party's user id so downstream
+  // logic can still rely on otherPartyId when convenient. Runs once
+  // per request.
+  useEffect(() => {
+    if (isPartyMode || !requestId || resolvedOtherPartyId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const { data: qr } = await supabase
+          .from("quote_requests")
+          .select("requester_id")
+          .eq("id", requestId)
+          .maybeSingle();
+        if (!alive || !qr) return;
+        if (qr.requester_id && qr.requester_id !== user?.id) {
+          setResolvedOtherPartyId(qr.requester_id);
+          return;
+        }
+        // I'm the requester — the other party is the trade_target.
+        const { data: tgt } = await supabase
+          .from("request_targets")
+          .select("trade_id")
+          .eq("request_id", requestId)
+          .limit(1)
+          .maybeSingle();
+        if (alive && tgt?.trade_id) setResolvedOtherPartyId(tgt.trade_id);
+      } catch (e) {
+        console.warn("resolve party from request failed:", e?.message || e);
+      }
+    })();
+    return () => { alive = false; };
+  }, [isPartyMode, requestId, resolvedOtherPartyId, user?.id]);
 
   useEffect(() => {
     loadMessages();
     loadQuote();
     loadRequest();
     loadAppointments();
-  }, [loadMessages, loadQuote, loadRequest, loadAppointments]);
+    loadQuotesByParty();
+  }, [loadMessages, loadQuote, loadRequest, loadAppointments, loadQuotesByParty]);
 
   // Collect all image URLs from messages for the full-screen viewer
   // This allows swiping through all conversation images
@@ -1099,23 +1519,30 @@ export default function MessageThread() {
     setImageViewerVisible(true);
   }, []);
 
-  // Mark conversation as read when opening
+  // Mark conversation as read when opening. In party mode we mark
+  // every shared request at once (via rpc_mark_party_read); legacy
+  // mode keeps the per-request call.
   useEffect(() => {
-    if (!requestId || !user?.id) return;
+    if (!user?.id) return;
 
-    const markAsRead = async () => {
+    (async () => {
       try {
-        await supabase.rpc("rpc_mark_conversation_read", {
-          p_request_id: requestId,
-        });
+        if (isPartyMode && otherPartyId) {
+          await supabase.rpc("rpc_mark_party_read", {
+            p_other_party_id: otherPartyId,
+          });
+          return;
+        }
+        if (requestId) {
+          await supabase.rpc("rpc_mark_conversation_read", {
+            p_request_id: requestId,
+          });
+        }
       } catch (e) {
-        // Silently fail - not critical
         console.warn("Failed to mark conversation as read:", e?.message);
       }
-    };
-
-    markAsRead();
-  }, [requestId, user?.id]);
+    })();
+  }, [requestId, user?.id, isPartyMode, otherPartyId]);
 
   // Fetch user role
   useEffect(() => {
@@ -1143,64 +1570,41 @@ export default function MessageThread() {
     };
   }, [user?.id]);
 
-  // Fetch other party's avatar if not provided as param
+  // Load the other party's authoritative name + avatar from the
+  // profiles table. Runs as soon as we have an otherPartyId (either
+  // passed directly in party mode or resolved from request_id). The
+  // URL-provided name/avatar show first for zero-flash initial
+  // render, then this effect overwrites with the canonical values.
+  // For trades we prefer business_name over full_name.
   useEffect(() => {
-    if (avatarParam || !requestId || !user?.id || !userRole) return;
-
+    if (!otherPartyId) return;
     let mounted = true;
-
     (async () => {
       try {
-        // Determine who the other party is based on user role
-        if (userRole === 'trades') {
-          // Trade viewing: fetch client (requester) photo
-          const { data: reqData } = await supabase
-            .from('quote_requests')
-            .select('requester_id')
-            .eq('id', requestId)
-            .maybeSingle();
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("business_name, full_name, role, photo_url")
+          .eq("id", otherPartyId)
+          .maybeSingle();
+        if (!mounted || !profileData) return;
 
-          if (reqData?.requester_id && mounted) {
-            const { data: profileData } = await supabase
-              .from('profiles')
-              .select('photo_url')
-              .eq('id', reqData.requester_id)
-              .maybeSingle();
+        const isTradeProfile =
+          String(profileData.role || "").toLowerCase() === "trades" ||
+          String(profileData.role || "").toLowerCase() === "trade";
+        const resolvedName = isTradeProfile
+          ? (profileData.business_name || profileData.full_name || null)
+          : (profileData.full_name || profileData.business_name || null);
 
-            if (mounted && profileData?.photo_url) {
-              setFetchedAvatarUrl(profileData.photo_url);
-            }
-          }
-        } else {
-          // Client viewing: fetch trade photo from request_targets
-          const { data: targetData } = await supabase
-            .from('request_targets')
-            .select('trade_id')
-            .eq('request_id', requestId)
-            .limit(1)
-            .maybeSingle();
-
-          if (targetData?.trade_id && mounted) {
-            const { data: profileData } = await supabase
-              .from('profiles')
-              .select('photo_url')
-              .eq('id', targetData.trade_id)
-              .maybeSingle();
-
-            if (mounted && profileData?.photo_url) {
-              setFetchedAvatarUrl(profileData.photo_url);
-            }
-          }
-        }
+        if (resolvedName) setFetchedPartyName(resolvedName);
+        if (profileData.photo_url) setFetchedAvatarUrl(profileData.photo_url);
       } catch (e) {
-        console.warn('Failed to fetch other party avatar:', e?.message || e);
+        console.warn("Failed to fetch other party profile:", e?.message || e);
       }
     })();
-
     return () => {
       mounted = false;
     };
-  }, [avatarParam, requestId, user?.id, userRole]);
+  }, [otherPartyId]);
 
   const handleRespondToAppointment = useCallback(async (appointmentId, response) => {
     if (apptBusy || !appointmentId) return;
@@ -1257,13 +1661,16 @@ export default function MessageThread() {
 
     // Need either text or images to send
     if (!body && !hasImages) return;
-    if (!requestId || !user?.id) return;
+    if (!user?.id) return;
+    // Party mode needs an otherPartyId; legacy mode needs a requestId.
+    if (isPartyMode && !otherPartyId) return;
+    if (!isPartyMode && !requestId) return;
 
     // Create optimistic message for instant display
     const optimisticId = `optimistic-${Date.now()}`;
     const optimisticMessage = {
       id: optimisticId,
-      request_id: requestId,
+      request_id: requestId || null,
       sender_id: user.id,
       body: body || null,
       message_type: "text",
@@ -1297,32 +1704,44 @@ export default function MessageThread() {
         }
       }
 
-      const { error } = await supabase.rpc("rpc_send_message", {
-        p_request_id: requestId,
-        p_quote_id: null,
-        p_body: body || "",
-        p_paths: imagePaths,
-      });
+      // Party mode: send via the RPC that auto-picks the most recent
+      // shared request between the two parties. Legacy mode still
+      // uses per-request send.
+      let sendErr = null;
+      if (isPartyMode) {
+        const { error } = await supabase.rpc("rpc_send_message_to_party", {
+          p_other_party_id: otherPartyId,
+          p_body: body || "",
+          p_paths: imagePaths,
+          p_quote_id: null,
+        });
+        sendErr = error;
+      } else {
+        const { error } = await supabase.rpc("rpc_send_message", {
+          p_request_id: requestId,
+          p_quote_id: null,
+          p_body: body || "",
+          p_paths: imagePaths,
+        });
+        sendErr = error;
+      }
 
-      if (error) {
-        // Remove optimistic message on failure
+      if (sendErr) {
         setMessages(prev => prev.filter(m => m.id !== optimisticId));
-        Alert.alert("Send failed", error.message);
+        Alert.alert("Send failed", sendErr.message);
         return;
       }
 
       // Reload messages to get the real message from server
-      // This will replace the optimistic message
       await loadMessages();
     } catch (e) {
-      // Remove optimistic message on failure
       setMessages(prev => prev.filter(m => m.id !== optimisticId));
       Alert.alert("Send failed", e?.message || "Unknown error");
     } finally {
       setSending(false);
       setUploadingImages(false);
     }
-  }, [input, selectedImages, requestId, user?.id, loadMessages]);
+  }, [input, selectedImages, requestId, isPartyMode, otherPartyId, user?.id, loadMessages]);
 
   // Calculate image start index for each message (for the image viewer)
   const messageImageStartIndex = useMemo(() => {
@@ -1345,34 +1764,109 @@ export default function MessageThread() {
     return indexMap;
   }, [messages]);
 
+  // List of quotes between the two parties that surface in the
+  // thread (drafts are hidden — those are a trade-only concern).
+  // Used by both the interleave memo below and the history bar /
+  // sheet so counts + contents stay in sync.
+  const visibleQuoteList = useMemo(() => {
+    if (!isPartyMode) return [];
+    return Object.values(quotesByParty || {}).filter((q) => {
+      const s = String(q.status || "").toLowerCase();
+      return s && s !== "draft";
+    });
+  }, [quotesByParty, isPartyMode]);
+
+  // Thread shows messages only — quotes are surfaced through the
+  // QuoteHistoryBar at the top + the QuoteHistorySheet bottom sheet.
+  // Keeping them out of the message flow means the conversation
+  // stays focused on actual communication, and the quote record is
+  // always a single tap away.
+  const threadData = useMemo(() => {
+    return [...messages].sort((a, b) => {
+      const ta = new Date(a.created_at || 0).getTime();
+      const tb = new Date(b.created_at || 0).getTime();
+      return ta - tb;
+    });
+  }, [messages]);
+
+  // Navigation helper for tapping inline quote / appointment cards —
+  // the conversation is now messaging-only, so actions happen on the
+  // project screen. Tapping a card routes to the quote detail view
+  // for the current user's role.
+  //
+  // We pass an explicit `returnTo` that points straight back at the
+  // current conversation URL. The destination back handlers prefer
+  // `returnTo` over `router.back()` (see the fix on myquotes/[id] +
+  // quotes/[id] in this branch), so the user doesn't detour through
+  // stale stack entries from earlier navigations on the same tab.
+  const conversationReturnUrl = useMemo(() => {
+    if (!otherPartyId) return null;
+    return `/(dashboard)/messages/${encodeURIComponent(otherPartyId)}?kind=party`;
+  }, [otherPartyId]);
+
+  const openQuoteDetail = useCallback((qId) => {
+    if (!qId) return;
+    const params = { id: String(qId) };
+    if (conversationReturnUrl) params.returnTo = conversationReturnUrl;
+    if (userRole === "trades") {
+      router.push({ pathname: "/quotes/[id]", params });
+    } else {
+      router.push({ pathname: "/(dashboard)/myquotes/[id]", params });
+    }
+  }, [router, userRole, conversationReturnUrl]);
+
+  const openAppointmentDetail = useCallback((appt) => {
+    if (appt?.quote_id) {
+      openQuoteDetail(appt.quote_id);
+      return;
+    }
+    const reqId = appt?.request_id;
+    if (!reqId) return;
+    const params = { id: String(reqId) };
+    if (conversationReturnUrl) params.returnTo = conversationReturnUrl;
+    if (userRole === "trades") {
+      router.push({ pathname: "/quotes/request/[id]", params });
+    } else {
+      router.push({
+        pathname: "/(dashboard)/client/myquotes/request/[id]",
+        params,
+      });
+    }
+  }, [router, userRole, openQuoteDetail, conversationReturnUrl]);
+
   const renderItem = ({ item }) => {
     const isMine = item.sender_id === user?.id;
 
-    // Render appointment messages as inline cards in the conversation flow
+    // Inline appointment cards — tap-to-navigate only. Accept /
+    // Decline actions live on the project screen now; the thread is
+    // messaging-only.
     if (item.message_type === 'appointment') {
       const appointmentId = item.appointment_id;
       const appointment = appointmentId ? appointmentsById[appointmentId] : null;
-
-      if (!appointment) {
-        return null;
-      }
-
+      if (!appointment) return null;
       return (
-        <View style={styles.inlineAppointmentWrap}>
+        <Pressable
+          onPress={() => openAppointmentDetail(appointment)}
+          style={({ pressed }) => [
+            styles.inlineAppointmentWrap,
+            pressed && { opacity: 0.85 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="View appointment details"
+        >
           <AppointmentCard
             appointment={appointment}
             userRole={userRole}
-            onAccept={() => handleRespondToAppointment(appointment.id, 'confirmed')}
-            onDecline={() => handleRespondToAppointment(appointment.id, 'cancelled')}
+            /* onAccept / onDecline intentionally omitted —
+               AppointmentCard handles the null case below. */
             busy={apptBusy}
           />
-        </View>
+        </Pressable>
       );
     }
 
-    // Regular text message with image viewer support
+    // Regular text / image message.
     const imageStartIndex = messageImageStartIndex[item.id] ?? -1;
-
     return (
       <MessageBubble
         message={item}
@@ -1462,43 +1956,82 @@ export default function MessageThread() {
   }, [userRole, tradeName]);
 
   return (
-    // No safe prop → no extra safe-area padding at the bottom
-    <ThemedView style={styles.container}>
-      {/* Top bar with avatar + name */}
-      <View style={styles.topBar}>
+    // safe-area top padded via inset; themed bg through ThemedView.
+    <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
+      <ThemedStatusBar />
+      {/* Sticky top bar — chevron back (same shape/size as the
+          Client Request page iconBtn), avatar + name inline. Themed
+          via useTheme so dark mode looks right. The bar stays on
+          top of the scrolling content so the user can always go
+          back from any scroll position. */}
+      <View
+        style={[
+          styles.topBar,
+          { backgroundColor: c.background, borderBottomColor: c.border },
+        ]}
+      >
         <Pressable
           onPress={() => {
-            // If returnTo param exists, navigate there directly
             if (returnToParam) {
               router.navigate(returnToParam);
             } else if (router.canGoBack()) {
-              router.back(); // gives you the proper "back" animation
+              router.back();
             } else {
               router.navigate("/(dashboard)/messages");
             }
           }}
           hitSlop={10}
+          style={({ pressed }) => [
+            styles.topBarChevron,
+            { backgroundColor: c.elevate, borderColor: c.border },
+            pressed && { opacity: 0.6 },
+          ]}
+          accessibilityLabel="Back"
         >
-          <Ionicons name="chevron-back" size={22} color="#0F172A" />
+          <Ionicons name="chevron-back" size={18} color={c.text} />
         </Pressable>
 
         <View style={styles.topBarCenter}>
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.topBarAvatar} />
           ) : (
-            <View style={[styles.topBarAvatar, styles.topBarAvatarFallback, { backgroundColor: avatarBgColor }]}>
+            <View
+              style={[
+                styles.topBarAvatar,
+                styles.topBarAvatarFallback,
+                { backgroundColor: avatarBgColor },
+              ]}
+            >
               <ThemedText style={styles.topBarAvatarInitials}>
                 {avatarInitials}
               </ThemedText>
             </View>
           )}
-          <ThemedText title style={styles.topBarName} numberOfLines={1}>
+          <ThemedText
+            style={[styles.topBarName, { color: c.text }]}
+            numberOfLines={1}
+          >
             {tradeName}
           </ThemedText>
         </View>
 
-        <View style={{ width: 22 }} />
+        {/* Right-side spacer — keeps the avatar+name block centred
+            visually with the chevron on the left. */}
+        <View style={{ width: 36 }} />
       </View>
+
+      {/* Quote-history summary bar — shown in party mode whenever
+          the pair has at least one shared quote. Tap opens the
+          history sheet. Quotes are no longer rendered inline in
+          the thread; this bar is the single affordance. */}
+      {isPartyMode && (
+        <QuoteHistoryBar
+          c={c}
+          count={visibleQuoteList.length}
+          onPress={() => setQuoteHistoryOpen(true)}
+          userRole={userRole}
+        />
+      )}
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -1507,23 +2040,15 @@ export default function MessageThread() {
       >
         <View style={styles.flex}>
           <FlatList
-            data={messages}
+            data={threadData}
             keyExtractor={(item) => String(item.id)}
             renderItem={renderItem}
             contentContainerStyle={styles.listContent}
-            ListHeaderComponent={
-              // Only show QuoteHeader when quote exists and is in a visible state
-              // Hide for drafts - only show when quote has been sent/accepted/completed
-              quoteSummary && quoteSummary.status && !['draft', 'withdrawn'].includes(quoteSummary.status.toLowerCase()) ? (
-                <QuoteHeader
-                  quote={quoteSummary}
-                  displayName={heroDisplayName}
-                  serviceInfo={serviceInfo}
-                  postcode={postcode}
-                  userRole={userRole}
-                />
-              ) : null
-            }
+            /* QuoteHeader intentionally removed — in party mode
+               quotes are rendered as inline tappable InlineQuoteCard
+               items interleaved by timestamp (see threadData memo).
+               Legacy request-scoped callers that used to rely on the
+               hero card no longer pin it; consistency across modes. */
           />
         </View>
 
@@ -1545,9 +2070,22 @@ export default function MessageThread() {
           </View>
         )}
 
-        {/* Input bar */}
-        <View style={styles.inputBar}>
-          {/* Attachment button */}
+        {/* Input bar — themed, safe-area aware. Lifts above the iOS
+            home-indicator gesture zone so the "swipe up to go home"
+            and "swipe-from-edge to go back" don't collide with the
+            text field / send button. bottom pad = insets.bottom + 10
+            on physical devices, minimum 20 so the simulator still
+            has visible padding.                                     */}
+        <View
+          style={[
+            styles.inputBar,
+            {
+              backgroundColor: c.background,
+              borderTopColor: c.border,
+              paddingBottom: Math.max(insets.bottom + 10, 20),
+            },
+          ]}
+        >
           <Pressable
             onPress={showImagePickerOptions}
             disabled={sending || selectedImages.length >= 5}
@@ -1557,35 +2095,50 @@ export default function MessageThread() {
                 opacity: sending || selectedImages.length >= 5 ? 0.4 : pressed ? 0.7 : 1,
               },
             ]}
+            hitSlop={6}
+            accessibilityLabel="Attach image"
           >
-            <Ionicons name="image-outline" size={24} color="#6B7280" />
+            <Ionicons name="image-outline" size={22} color={c.textMid} />
           </Pressable>
 
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              {
+                backgroundColor: c.elevate,
+                borderColor: c.border,
+                color: c.text,
+              },
+            ]}
             placeholder="Type a message…"
+            placeholderTextColor={c.textMuted}
             value={input}
             onChangeText={setInput}
             editable={!sending}
             multiline
           />
 
-          {/* Send button with loading indicator */}
           <Pressable
             onPress={handleSend}
             disabled={sending || (!input.trim() && selectedImages.length === 0)}
             style={({ pressed }) => [
               styles.sendBtn,
               {
+                backgroundColor: Colors.primary,
                 opacity:
-                  sending || (!input.trim() && selectedImages.length === 0) ? 0.4 : pressed ? 0.8 : 1,
+                  sending || (!input.trim() && selectedImages.length === 0)
+                    ? 0.4
+                    : pressed
+                    ? 0.85
+                    : 1,
               },
             ]}
+            accessibilityLabel="Send message"
           >
             {uploadingImages ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Ionicons name="send" size={18} color="#FFFFFF" />
+              <Ionicons name="send" size={17} color="#FFFFFF" />
             )}
           </Pressable>
         </View>
@@ -1600,6 +2153,19 @@ export default function MessageThread() {
         swipeToCloseEnabled={true}
         doubleTapToZoomEnabled={true}
       />
+
+      {/* Quote history sheet — opened from the summary bar. */}
+      <QuoteHistorySheet
+        c={c}
+        visible={quoteHistoryOpen}
+        onClose={() => setQuoteHistoryOpen(false)}
+        quotes={visibleQuoteList}
+        onPick={(q) => {
+          setQuoteHistoryOpen(false);
+          openQuoteDetail(q.id);
+        }}
+        insets={insets}
+      />
     </ThemedView>
   );
 }
@@ -1608,9 +2174,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-    // manual safe-area for the notch; no bottom padding so no blob
-    paddingTop: Platform.OS === "ios" ? 56 : 0,
+    // Themed by ThemedView. No hardcoded bg — and no fake manual
+    // safe-area: we consume insets.top on the container padding.
   },
   topBar: {
     flexDirection: "row",
@@ -1618,7 +2183,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 10,
-    backgroundColor: "#FFFFFF",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  topBarChevron: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   topBarCenter: {
     flex: 1,
@@ -1628,9 +2201,9 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   topBarAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: "#E5E7EB",
   },
   topBarAvatarFallback: {
@@ -1638,13 +2211,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   topBarAvatarInitials: {
-    fontSize: 12,
-    fontWeight: "700",
+    fontFamily: FontFamily.headerBold,
+    fontSize: 13,
     color: "#FFFFFF",
   },
   topBarName: {
-    marginLeft: 8,
-    fontSize: 17,
+    marginLeft: 10,
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 16,
+    letterSpacing: -0.2,
     textAlign: "left",
   },
 
@@ -2021,38 +2596,38 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingTop: 10,
+    // paddingBottom set inline from insets for safe-area lift.
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(148,163,184,0.5)",
-    backgroundColor: "#FFFFFF",
+    // backgroundColor + borderTopColor set inline from useTheme.
   },
   attachBtn: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 4,
+    marginRight: 2,
   },
   input: {
     flex: 1,
-    minHeight: 36,
-    maxHeight: 120,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 18,
+    minHeight: 40,
+    maxHeight: 140,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.15)",
-    backgroundColor: "#FFFFFF",
-    fontSize: 14,
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 15,
+    // bg / border / text colors set inline from useTheme.
   },
   sendBtn: {
     marginLeft: 8,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: TINT,
+    // bg set inline to Colors.primary for consistency across themes.
   },
 
   // Appointment message styles - Compact design
