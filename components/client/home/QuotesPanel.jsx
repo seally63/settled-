@@ -132,9 +132,15 @@ export default function QuotesPanel() {
     }, [load])
   );
 
+  // Always point the header at the client Projects tab (myquotes) —
+  // tapping "Quotes ›" from the home screen lands the user there
+  // regardless of state (loading / empty / populated). Previously the
+  // chevron rendered in loading + empty states but did nothing.
+  const goToProjects = () => router.push("/(dashboard)/myquotes");
+
   if (loading) {
     return (
-      <Panel title="Quotes" chevron>
+      <Panel title="Quotes" chevron onPress={goToProjects}>
         <View style={{ padding: 14 }}>
           <ThemedText
             style={{ ...TypeVariants.bodySm, color: c.textMuted }}
@@ -148,7 +154,7 @@ export default function QuotesPanel() {
 
   if (quotes.length === 0) {
     return (
-      <Panel title="Quotes" chevron>
+      <Panel title="Quotes" chevron onPress={goToProjects}>
         <View style={{ padding: 14 }}>
           <ThemedText
             style={{ ...TypeVariants.bodySm, color: c.textMid }}
@@ -161,11 +167,7 @@ export default function QuotesPanel() {
   }
 
   return (
-    <Panel
-      title="Quotes"
-      chevron
-      onPress={() => router.push("/(dashboard)/myquotes")}
-    >
+    <Panel title="Quotes" chevron onPress={goToProjects}>
       {quotes.map((q, idx) => (
         <React.Fragment key={q.id}>
           {idx > 0 ? (

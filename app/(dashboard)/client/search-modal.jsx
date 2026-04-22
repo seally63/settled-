@@ -31,6 +31,10 @@ import {
   defaultServiceTypeIcon,
 } from "../../../assets/icons";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
+import { useTheme } from "../../../hooks/useTheme";
+import { FontFamily } from "../../../constants/Typography";
+import { Colors } from "../../../constants/Colors";
+import { useMemo } from "react";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -141,10 +145,8 @@ function searchServices(query) {
 }
 
 // Result item component
-function ServiceResultItem({ item, onPress }) {
-  // Prefer service-specific icon, fallback to category icon, then default
+function ServiceResultItem({ item, onPress, styles, c }) {
   const iconSource = item.serviceIconSource || item.iconSource || defaultServiceTypeIcon;
-
   return (
     <Pressable
       style={({ pressed }) => [
@@ -153,7 +155,11 @@ function ServiceResultItem({ item, onPress }) {
       ]}
       onPress={onPress}
     >
-      <Image source={iconSource} style={styles.resultIconImage} resizeMode="contain" />
+      {/* Icon tile — fixed light fill so the black-line assets stay
+          readable on dark mode. Same treatment on the category rows. */}
+      <View style={styles.iconTile}>
+        <Image source={iconSource} style={styles.iconTileImage} resizeMode="contain" />
+      </View>
       <View style={styles.resultText}>
         <ThemedText style={styles.resultService}>{item.service}</ThemedText>
         <ThemedText style={styles.resultCategory}>{item.category}</ThemedText>
@@ -163,9 +169,8 @@ function ServiceResultItem({ item, onPress }) {
 }
 
 // Category list item
-function CategoryListItem({ category, onPress }) {
+function CategoryListItem({ category, onPress, styles, c }) {
   const iconSource = getCategoryIconSource(category.name) || defaultCategoryIcon;
-
   return (
     <Pressable
       style={({ pressed }) => [
@@ -174,15 +179,17 @@ function CategoryListItem({ category, onPress }) {
       ]}
       onPress={onPress}
     >
-      <Image source={iconSource} style={styles.categoryIconImage} resizeMode="contain" />
+      <View style={styles.iconTile}>
+        <Image source={iconSource} style={styles.iconTileImage} resizeMode="contain" />
+      </View>
       <ThemedText style={styles.categoryName}>{category.name}</ThemedText>
-      <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+      <Ionicons name="chevron-forward" size={20} color={c.textMuted} />
     </Pressable>
   );
 }
 
 // Recent search item
-function RecentSearchItem({ term, onPress, onRemove }) {
+function RecentSearchItem({ term, onPress, onRemove, styles, c }) {
   return (
     <View style={styles.recentItemRow}>
       <Pressable
@@ -192,7 +199,7 @@ function RecentSearchItem({ term, onPress, onRemove }) {
         ]}
         onPress={onPress}
       >
-        <Ionicons name="time-outline" size={18} color="#9CA3AF" />
+        <Ionicons name="time-outline" size={18} color={c.textMuted} />
         <ThemedText style={styles.recentText}>{term}</ThemedText>
       </Pressable>
       <Pressable
@@ -203,18 +210,17 @@ function RecentSearchItem({ term, onPress, onRemove }) {
         onPress={onRemove}
         hitSlop={8}
       >
-        <Ionicons name="close" size={18} color="#9CA3AF" />
+        <Ionicons name="close" size={18} color={c.textMuted} />
       </Pressable>
     </View>
   );
 }
 
 // Trade result item
-function TradeResultItem({ trade, onPress }) {
+function TradeResultItem({ trade, onPress, styles, c }) {
   const displayName = trade.business_name || trade.full_name || "Unknown Trade";
   const subtitle = trade.trade_title || "";
   const location = trade.town_city || "";
-
   return (
     <Pressable
       style={({ pressed }) => [
@@ -227,7 +233,7 @@ function TradeResultItem({ trade, onPress }) {
         <Image source={{ uri: trade.photo_url }} style={styles.tradeAvatar} />
       ) : (
         <View style={styles.tradeAvatarPlaceholder}>
-          <Ionicons name="person" size={20} color="#9CA3AF" />
+          <Ionicons name="person" size={20} color={c.textMuted} />
         </View>
       )}
       <View style={styles.tradeInfo}>
@@ -245,7 +251,7 @@ function TradeResultItem({ trade, onPress }) {
           </ThemedText>
         ) : null}
       </View>
-      <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+      <Ionicons name="chevron-forward" size={20} color={c.textMuted} />
     </Pressable>
   );
 }
@@ -254,6 +260,8 @@ export default function SearchModal() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const inputRef = useRef(null);
+  const { colors: c, dark } = useTheme();
+  const styles = useMemo(() => makeStyles(c, dark), [c, dark]);
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
@@ -385,12 +393,12 @@ export default function SearchModal() {
       {/* Search header */}
       <View style={styles.header}>
         <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#9CA3AF" />
+          <Ionicons name="search" size={20} color={c.textMuted} />
           <TextInput
             ref={inputRef}
             style={styles.input}
             placeholder="Search for a service..."
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={c.textMuted}
             value={query}
             onChangeText={setQuery}
             returnKeyType="search"
@@ -399,7 +407,7 @@ export default function SearchModal() {
           />
           {hasQuery && (
             <Pressable onPress={handleClear} hitSlop={8}>
-              <Ionicons name="close-circle" size={20} color="#9CA3AF" />
+              <Ionicons name="close-circle" size={20} color={c.textMuted} />
             </Pressable>
           )}
         </View>
@@ -416,7 +424,6 @@ export default function SearchModal() {
         {/* Empty state: Recent searches + All services */}
         {!hasQuery && (
           <>
-            {/* Recent searches */}
             {recentSearches.length > 0 && (
               <View style={styles.section}>
                 <ThemedText style={styles.sectionTitle}>
@@ -428,12 +435,13 @@ export default function SearchModal() {
                     term={term}
                     onPress={() => handleRecentSearch(term)}
                     onRemove={() => handleRemoveRecentSearch(term)}
+                    styles={styles}
+                    c={c}
                   />
                 ))}
               </View>
             )}
 
-            {/* All services */}
             <View style={styles.section}>
               <ThemedText style={styles.sectionTitle}>All Services</ThemedText>
               {CATEGORIES.map((category) => (
@@ -441,13 +449,14 @@ export default function SearchModal() {
                   key={category.id}
                   category={category}
                   onPress={() => handleSelectCategory(category)}
+                  styles={styles}
+                  c={c}
                 />
               ))}
             </View>
           </>
         )}
 
-        {/* Service results */}
         {hasQuery && hasServiceResults && (
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>Services</ThemedText>
@@ -456,12 +465,13 @@ export default function SearchModal() {
                 key={`${item.category}:${item.service}`}
                 item={item}
                 onPress={() => handleSelectService(item.category, item.service)}
+                styles={styles}
+                c={c}
               />
             ))}
           </View>
         )}
 
-        {/* Trade results */}
         {hasQuery && hasTradeResults && (
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>Trades</ThemedText>
@@ -470,6 +480,8 @@ export default function SearchModal() {
                 key={trade.id}
                 trade={trade}
                 onPress={() => handleSelectTrade(trade)}
+                styles={styles}
+                c={c}
               />
             ))}
           </View>
@@ -502,10 +514,13 @@ export default function SearchModal() {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c, dark) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // Themed by ThemedView — but set explicitly too so the modal
+    // doesn't flash white before ThemedView hydrates.
+    backgroundColor: c.background,
   },
   header: {
     flexDirection: "row",
@@ -514,13 +529,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
+    borderBottomColor: c.border,
   },
   searchContainer: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate,
+    borderWidth: 1,
+    borderColor: c.border,
     borderRadius: 12,
     paddingHorizontal: 12,
     height: 44,
@@ -528,16 +545,17 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 16,
-    color: "#1F2937",
+    color: c.text,
   },
   cancelButton: {
     padding: 4,
   },
   cancelText: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 16,
-    color: "#6849a7",
-    fontWeight: "500",
+    color: Colors.primary,
   },
   content: {
     flex: 1,
@@ -547,11 +565,11 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#6B7280",
+    fontFamily: FontFamily.headerBold,
+    fontSize: 11,
+    color: c.textMuted,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 1.2,
     marginBottom: 8,
   },
   // Recent search item
@@ -570,8 +588,9 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   recentText: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 16,
-    color: "#1F2937",
+    color: c.text,
   },
   recentRemoveButton: {
     padding: 8,
@@ -585,20 +604,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: c.border,
   },
   categoryItemPressed: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate,
   },
   categoryIconImage: {
     width: 24,
     height: 24,
     marginRight: 12,
   },
+  // Icon tile — fixed light fill that stays light in dark mode too so
+  // the category / service icon (which is a black-line asset) is
+  // always readable. 36px rounded square, 22px icon inside.
+  iconTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  iconTileImage: {
+    width: 22,
+    height: 22,
+  },
   categoryName: {
     flex: 1,
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 16,
-    color: "#1F2937",
+    color: c.text,
   },
   // Search result item
   resultItem: {
@@ -606,10 +642,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: c.border,
   },
   resultItemPressed: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate,
   },
   resultIconImage: {
     width: 24,
@@ -620,19 +656,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   resultService: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 16,
-    color: "#1F2937",
-    fontWeight: "500",
+    color: c.text,
   },
   resultCategory: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 2,
   },
   // No results
   noResults: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 16,
-    color: "#6B7280",
+    color: c.textMid,
     textAlign: "center",
     paddingVertical: 20,
   },
@@ -642,23 +680,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: c.border,
     gap: 12,
   },
   tradeItemPressed: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: c.elevate,
   },
   tradeAvatar: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate,
   },
   tradeAvatarPlaceholder: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: c.elevate,
+    borderWidth: 1,
+    borderColor: c.border,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -666,24 +706,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tradeName: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 16,
-    color: "#1F2937",
-    fontWeight: "500",
+    color: c.text,
   },
   tradeSubtitle: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 13,
-    color: "#6B7280",
+    color: c.textMid,
     marginTop: 2,
   },
   tradeLocation: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 12,
-    color: "#9CA3AF",
+    color: c.textMuted,
     marginTop: 2,
   },
   // Divider
   divider: {
     height: 1,
-    backgroundColor: "#E5E7EB",
+    backgroundColor: c.border,
     marginVertical: 8,
   },
   // Describe problem option
@@ -700,7 +742,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
   describeText: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 16,
-    color: "#6B7280",
+    color: c.textMid,
   },
-});
+  });
+}
