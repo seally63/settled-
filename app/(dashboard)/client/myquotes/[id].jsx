@@ -5,13 +5,15 @@ import {
   ScrollView,
   Pressable,
   Alert,
-  Image,
   Dimensions,
   Platform,
   Modal,
   KeyboardAvoidingView,
   TextInput,
 } from "react-native";
+// expo-image — memory+disk cached decodes for the attachment
+// thumbnails, review photos, and trade avatar on this screen.
+import { Image } from "expo-image";
 import ImageViewing from "react-native-image-viewing";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -31,7 +33,7 @@ import { QuoteOverviewSkeleton } from "../../../../components/Skeleton";
 import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../../components/KeyboardDoneButton";
 import { Colors } from "../../../../constants/Colors";
 import { FontFamily, Radius } from "../../../../constants/Typography";
-import { listRequestImagePaths, getSignedUrls } from "../../../../lib/api/attachments";
+import { getRequestAttachmentUrlsCached } from "../../../../lib/api/attachments";
 const CELL = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -348,19 +350,14 @@ export default function ClientMyQuoteDetail() {
 
   const loadAttachments = useCallback(async (requestId) => {
     try {
-      const paths = await listRequestImagePaths(String(requestId));
-      const p = Array.isArray(paths) ? paths : [];
-      setAttachmentsCount(p.length);
-
-      if (!p.length) {
-        setAttachments([]);
-        return;
-      }
-
-      // Use signed URLs for secure access
-      const signed = await getSignedUrls(p, 3600);
-      const urls = (signed || []).map((s) => s.url).filter(Boolean);
-
+      // Memoised: repeated entries within the 3500 s TTL skip
+      // both the path RPC and the signing round trip. Cache is
+      // keyed by requestId and invalidated automatically when
+      // new images are attached.
+      const { paths, urls } = await getRequestAttachmentUrlsCached(
+        String(requestId)
+      );
+      setAttachmentsCount(paths.length);
       setAttachments(urls);
     } catch (e) {
       console.warn("attachments/load error (client quote):", e?.message || e);
@@ -1390,15 +1387,19 @@ export default function ClientMyQuoteDetail() {
       {/* Sticky chevron back (replaces the old header row). */}
       <Pressable
         onPress={() => {
-          // Prefer an explicit `returnTo` when the caller set one —
-          // that's opted-in navigation ("take me back here, don't
-          // walk the stack"). Covers the conversation → quote flow
-          // where the router.back() stack can contain stale quote
-          // detail entries from other tabs' pushes.
-          if (returnTo) {
-            router.replace(returnTo);
-          } else if (router.canGoBack?.()) {
+          // Prefer a natural stack pop whenever one's available —
+          // that's the common case (Recent Activity → this screen,
+          // bottom-sheet → this screen). `router.replace(returnTo)`
+          // was pushing a FRESH parent Client Request onto the stack
+          // on top of the existing one, producing the duplicate
+          // "forward animation" users reported. Falling back to
+          // `returnTo` only when there's genuinely nothing to pop
+          // (deep-link entry) keeps the conversation → quote flow
+          // working too.
+          if (router.canGoBack?.()) {
             router.back();
+          } else if (returnTo) {
+            router.replace(returnTo);
           } else {
             router.replace("/(dashboard)/myquotes");
           }
@@ -1738,7 +1739,13 @@ export default function ClientMyQuoteDetail() {
                     {/* Trade Avatar + Name */}
                     <View style={styles.reviewTradeRow}>
                       {trade?.photo_url ? (
-                        <Image source={{ uri: trade.photo_url }} style={styles.reviewTradeAvatar} />
+                        <Image
+                          source={{ uri: trade.photo_url }}
+                          style={styles.reviewTradeAvatar}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          transition={120}
+                        />
                       ) : (
                         <View style={styles.reviewTradeAvatarPlaceholder}>
                           <ThemedText style={styles.reviewTradeAvatarText}>
@@ -1809,6 +1816,9 @@ export default function ClientMyQuoteDetail() {
                               key={idx}
                               source={{ uri: photoUrl }}
                               style={styles.reviewPhoto}
+                              contentFit="cover"
+                              cachePolicy="memory-disk"
+                              transition={120}
                             />
                           ))}
                         </View>
@@ -2150,7 +2160,9 @@ export default function ClientMyQuoteDetail() {
                           <Image
                             source={{ uri: url }}
                             style={{ width: "100%", height: "100%" }}
-                            resizeMode="cover"
+                            contentFit="cover"
+                            cachePolicy="memory-disk"
+                            transition={120}
                           />
                         </Pressable>
                       ))}

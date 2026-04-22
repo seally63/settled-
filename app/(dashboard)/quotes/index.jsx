@@ -25,6 +25,7 @@ import { useUser } from "../../../hooks/useUser";
 import { useTheme } from "../../../hooks/useTheme";
 import { supabase } from "../../../lib/supabase";
 import { acceptRequest, declineRequest } from "../../../lib/api/requests";
+import { getRequestAttachmentUrlsCached } from "../../../lib/api/attachments";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
 import { IconBtn, FilterPills, ProjectRow } from "../../../components/design";
 import {
@@ -110,6 +111,17 @@ function resolveServiceCategory(item) {
   };
 }
 
+// Detect a Start Job appointment. Prefer the `kind` column when the
+// appointments RPC returns it (post 2026-04-28 migration); fall back
+// to a title heuristic so older RPC builds still flip the card to
+// "In progress" after the scheduled datetime passes.
+function isStartJobKind(a) {
+  if (!a) return false;
+  if (a.kind) return String(a.kind).toLowerCase() === "start_job";
+  const t = String(a.title || "").toLowerCase();
+  return t.includes("start job") || t.includes("start work");
+}
+
 // Calculate trade progress position
 // ProgressBar stage dots at: 12.5%, 37.5%, 62.5%, 87.5%
 // Progress fills from 0% left toward 100% right
@@ -135,6 +147,7 @@ function getTradeProgressPosition(stage, subStatus) {
       if (subStatus === "issue_reported") return 68;
       if (subStatus === "work_in_progress") return 65;
       if (subStatus === "work_confirmed") return 62.5; // Work scheduled - reached Work stage
+      if (subStatus === "work_awaiting_start") return 58; // Start Job proposed, awaiting client confirmation
       if (subStatus === "work_proposed") return 55;
       if (subStatus === "accepted_no_appt") return 45; // Quote accepted, need to schedule work
       return 50; // Default: working toward Work stage
@@ -774,7 +787,12 @@ export default function TradesmanProjects() {
           title: a.title || a.project_title,
           status: a.status,
           location: a.postcode || a.job_outcode,
-          type: a.type, // survey or work
+          type: a.type, // survey or work (legacy)
+          // New kind column (survey / design / start_job / followup /
+          // final). Older RPC builds that don't yet select this column
+          // will pass `undefined` through — the start_job detection
+          // helper below falls back to a title heuristic in that case.
+          kind: a.kind ?? null,
         };
 
         if (normalized.quote_id) {
@@ -957,6 +975,18 @@ export default function TradesmanProjects() {
             .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
           const nextAppointment = upcomingAppointments[0] || null;
 
+          // Start-job appointments for this quote — the canonical
+          // signal for "work has been booked". We use them (not
+          // survey/design appts) to flip the card between Awaiting
+          // start confirmation / Scheduled / In progress. `kind` is
+          // the new source-of-truth column; older RPCs that don't
+          // select it fall back to a title heuristic.
+          const startJobAppts = allQuoteAppointments
+            .filter((a) => isStartJobKind(a))
+            .filter((a) => String(a.status || "").toLowerCase() !== "cancelled")
+            .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+          const latestStartJobAppt = startJobAppts[startJobAppts.length - 1] || null;
+
           const contactInfo = clientContactByRequestId[requestId] || {};
           const clientFullName =
             contactInfo.name || clientNameByRequestId[requestId] || null;
@@ -1011,6 +1041,8 @@ export default function TradesmanProjects() {
             daysSinceIssued,
             clientNotResponding,
             nextAppointment,
+            startJobAppts,
+            latestStartJobAppt,
             workStartedAt,
           };
         }
@@ -1386,14 +1418,32 @@ export default function TradesmanProjects() {
         stage = "WORK";
         stageIndex = 2;
 
-        // Work-started short-circuit. Once the trade has tapped Start
-        // Work, the project is unambiguously "in progress" regardless
-        // of what the next upcoming appointment says. Skip the
-        // appointment-status cascade below in that case.
-        if (item.workStartedAt) {
+        // "In progress" is now DERIVED from the Start Job appointment:
+        // once the scheduled datetime has passed (and the appt isn't
+        // cancelled), the project is automatically in progress — no
+        // explicit Start Work button tap needed. `workStartedAt` is
+        // kept as a fallback for data written before this change.
+        const startJobs = item.startJobAppts || [];
+        const nowT = Date.now();
+        const nonCancelledStartJobs = startJobs.filter(
+          (a) => String(a.status || "").toLowerCase() !== "cancelled"
+        );
+        const startedStartJob = nonCancelledStartJobs.find(
+          (a) => a.scheduled_at && new Date(a.scheduled_at).getTime() <= nowT
+        );
+        const futureStartJob = nonCancelledStartJobs
+          .filter((a) => a.scheduled_at && new Date(a.scheduled_at).getTime() > nowT)
+          .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))[0] || null;
+        const futureStartJobStatus = futureStartJob
+          ? String(futureStartJob.status || "").toLowerCase()
+          : null;
+
+        if (startedStartJob || item.workStartedAt) {
           statusType = "scheduled";
           statusText = "In progress";
-          statusDetail = `Started ${formatDate(item.workStartedAt)}`;
+          statusDetail = startedStartJob
+            ? `Started ${formatDate(startedStartJob.scheduled_at)}`
+            : `Started ${formatDate(item.workStartedAt)}`;
           subStatus = "work_in_progress";
           actions = [
             {
@@ -1402,24 +1452,32 @@ export default function TradesmanProjects() {
               onPress: () => router.push(`/quotes/${item.acceptedQuoteId || item.id}`),
             },
           ];
-        } else {
-
-        // For accepted quotes, only look at WORK appointments (linked to quote_id)
-        // Survey appointments (quote_id: null, title contains "Survey") should be ignored
-        const isWorkAppointment = item.nextAppointment?.quote_id != null ||
-          (item.nextAppointment?.title && !item.nextAppointment.title.toLowerCase().includes("survey"));
-        const workApptStatus = isWorkAppointment ? apptStatus : null;
-
-        if (workApptStatus === "proposed") {
+        } else if (futureStartJobStatus === "proposed") {
+          // Start Job booked but client hasn't confirmed yet — this is
+          // the "Awaiting start confirmation" state; card stays amber.
           statusType = "waiting";
-          statusText = "Work visit proposed";
-          statusDetail = `${formatDate(item.nextAppointment.scheduled_at)} · Awaiting client`;
-          subStatus = "work_proposed";
-        } else if (workApptStatus === "confirmed" || workApptStatus === "accepted") {
-          // Both "confirmed" and "accepted" mean the client approved the appointment
+          statusText = "Awaiting start confirmation";
+          statusDetail = `${formatDate(futureStartJob.scheduled_at)}, ${formatTime(futureStartJob.scheduled_at)}`;
+          subStatus = "work_awaiting_start";
+          actions = [
+            {
+              label: "Message",
+              primary: false,
+              onPress: () =>
+                router.push({
+                  pathname: "/(dashboard)/messages/[id]",
+                  params: { id: item.request_id, quoteId: item.id },
+                }),
+            },
+          ];
+        } else if (
+          futureStartJobStatus === "confirmed" ||
+          futureStartJobStatus === "accepted" ||
+          futureStartJobStatus === "reschedule_pending"
+        ) {
           statusType = "scheduled";
           statusText = "Work scheduled";
-          statusDetail = `${formatDate(item.nextAppointment.scheduled_at)}, ${formatTime(item.nextAppointment.scheduled_at)}`;
+          statusDetail = `${formatDate(futureStartJob.scheduled_at)}, ${formatTime(futureStartJob.scheduled_at)}`;
           subStatus = "work_confirmed";
           actions = [
             {
@@ -1431,14 +1489,9 @@ export default function TradesmanProjects() {
                   params: { id: item.request_id, quoteId: item.id },
                 }),
             },
-            {
-              label: "Mark Complete",
-              primary: true,
-              onPress: () => router.push(`/quotes/${item.acceptedQuoteId || item.id}`),
-            },
           ];
         } else {
-          // No work appointment scheduled yet - prompt to schedule work
+          // No Start Job booked yet — still prompt to schedule work.
           statusType = "action";
           statusText = "Schedule work visit";
           statusDetail = `Accepted ${item.daysSinceIssued || 0} days ago`;
@@ -1458,7 +1511,6 @@ export default function TradesmanProjects() {
             },
           ];
         }
-        } // close work-not-yet-started else-branch
       } else if (status === "awaiting_completion") {
         stage = "WORK";
         stageIndex = 2;
@@ -1556,8 +1608,15 @@ export default function TradesmanProjects() {
         // Start Work via the Client Request page appointment sheet.
         workStartedAt: item.workStartedAt ?? null,
         // Next upcoming appointment (if any) — handy for the card
-        // sub-detail line ("Thu 24 Apr, 09:00").
-        nextAppointment: item.nextAppointment ?? null,
+        // sub-detail line ("Thu 24 Apr, 09:00"). For WORK-stage
+        // states we prefer the Start Job appointment so the date
+        // shown lines up with "Awaiting start confirmation" /
+        // "Scheduled" / "In progress" copy rather than an earlier
+        // unrelated survey visit.
+        nextAppointment:
+          stage === "WORK" && item.latestStartJobAppt
+            ? item.latestStartJobAppt
+            : item.nextAppointment ?? null,
         progressPosition: getTradeProgressPosition(stage, subStatus),
         requestId: item.request_id,
         quoteId: item.acceptedQuoteId || item.id,
@@ -1759,6 +1818,17 @@ export default function TradesmanProjects() {
                   <ProjectRow
                     {...row}
                     onPress={() => {
+                      // Pre-warm the attachments memo so the
+                      // Client Request screen's photo strip lands
+                      // with zero extra delay. Fire-and-forget —
+                      // the cache fills in the background while
+                      // the navigation + hero render happens. The
+                      // helper swallows its own errors.
+                      if (project.requestId) {
+                        getRequestAttachmentUrlsCached(
+                          String(project.requestId)
+                        ).catch(() => {});
+                      }
                       // New rule: every project card routes to the
                       // Client Request page regardless of quote status.
                       // Quotes (draft, sent, accepted, etc.) are
@@ -1870,19 +1940,22 @@ const TRADE_STATE = {
   ENQUIRY_DECLINED:    "ENQUIRY_DECLINED",     // #3  Declined by you         / Red
   // Quoting stage
   QUOTE_DRAFTED:       "QUOTE_DRAFTED",        // #4  Quote drafted           / Amber
-  QUOTE_NEEDED:        "QUOTE_NEEDED",         // #5  Draft a quote           / Blue
+  QUOTE_NEEDED:        "QUOTE_NEEDED",         // #5  Respond to enquiry      / Blue (trade accepted, no action yet)
+  SURVEY_PROPOSED:     "SURVEY_PROPOSED",      // #5a Survey proposed         / Blue
+  SURVEY_CONFIRMED:    "SURVEY_CONFIRMED",     // #5b Survey scheduled        / Teal
   QUOTE_SENT:          "QUOTE_SENT",           // #6  Quote sent              / Blue
   QUOTE_NO_RESPONSE:   "QUOTE_NO_RESPONSE",    // #7  No response             / Gray
   QUOTE_DECLINED:      "QUOTE_DECLINED",       // #8  Quote declined          / Red
   // Work stage
-  WORK_NEEDS_APPT:     "WORK_NEEDS_APPT",      // #9  Schedule work           / Amber
-  WORK_APPT_PROPOSED:  "WORK_APPT_PROPOSED",   // #10 Visit proposed          / Blue
-  WORK_SCHEDULED:      "WORK_SCHEDULED",       // #11 Scheduled               / Teal
-  WORK_IN_PROGRESS:    "WORK_IN_PROGRESS",     // #12 In progress             / Amber
-  WORK_AWAITING:       "WORK_AWAITING",        // #13 Awaiting confirmation   / Amber
-  WORK_ISSUE:          "WORK_ISSUE",           // #14 Issue reported          / Coral
-  WORK_RESOLUTION:     "WORK_RESOLUTION",      // #15 Resolution sent         / Amber
-  COMPLETED:           "COMPLETED",            // #16 Completed               / Green
+  WORK_NEEDS_APPT:       "WORK_NEEDS_APPT",       // #9  Schedule work               / Amber
+  WORK_APPT_PROPOSED:    "WORK_APPT_PROPOSED",    // #10 Visit proposed              / Blue
+  WORK_AWAITING_START:   "WORK_AWAITING_START",   // #10b Awaiting start confirmation / Amber
+  WORK_SCHEDULED:        "WORK_SCHEDULED",        // #11 Scheduled                   / Teal
+  WORK_IN_PROGRESS:      "WORK_IN_PROGRESS",      // #12 In progress                 / Amber
+  WORK_AWAITING:         "WORK_AWAITING",         // #13 Awaiting confirmation       / Amber
+  WORK_ISSUE:            "WORK_ISSUE",            // #14 Issue reported              / Coral
+  WORK_RESOLUTION:       "WORK_RESOLUTION",       // #15 Resolution sent             / Amber
+  COMPLETED:             "COMPLETED",             // #16 Completed                   / Green
 };
 
 // Days-ago helper for the sub-detail copy. 0 → "today", 1 → "1d ago".
@@ -1937,8 +2010,14 @@ function deriveTradeCanonicalState(project) {
 
   if (stage === "QUOTE") {
     if (status === "draft") return TRADE_STATE.QUOTE_DRAFTED;
-    // Accepted the enquiry but no quote row yet (inbox "accepted" type),
-    // OR the sent-mapper emitted a quote with project.type === "accepted".
+    // Survey sub-states need to win BEFORE the accepted-no-quote
+    // fallback below — otherwise scheduling a survey wouldn't
+    // change the chip from "Respond to enquiry".
+    if (sub === "survey_proposed") return TRADE_STATE.SURVEY_PROPOSED;
+    if (sub === "survey_confirmed") return TRADE_STATE.SURVEY_CONFIRMED;
+    // Accepted the enquiry but no quote / no appt / no survey yet
+    // (inbox "accepted" type). This is the "Respond to enquiry"
+    // explicit state. Handled here rather than falling through.
     if (project.type === "accepted" || (!project.quoteAmount && status !== "sent" && status !== "created")) {
       return TRADE_STATE.QUOTE_NEEDED;
     }
@@ -1960,6 +2039,7 @@ function deriveTradeCanonicalState(project) {
     if (sub === "issue_resolved_pending" || status === "issue_resolved_pending") {
       return TRADE_STATE.WORK_RESOLUTION;
     }
+    if (sub === "work_awaiting_start") return TRADE_STATE.WORK_AWAITING_START;
     if (sub === "work_proposed") return TRADE_STATE.WORK_APPT_PROPOSED;
     if (sub === "work_confirmed") return TRADE_STATE.WORK_SCHEDULED;
     if (sub === "accepted_no_appt") return TRADE_STATE.WORK_NEEDS_APPT;
@@ -2008,11 +2088,31 @@ function tradeStateMeta(state, project, formatNum) {
         rightBot: "Not yet sent",
       };
     case TRADE_STATE.QUOTE_NEEDED:
+      // "Respond to enquiry" — trade has accepted the enquiry but
+      // hasn't sent a quote, scheduled an appointment, or otherwise
+      // taken a project-state-changing action. Sending a message does
+      // NOT move the card out of this state. Sending a quote bumps it
+      // to QUOTE_SENT; scheduling a visit bumps it to SURVEY_PROPOSED
+      // or SURVEY_CONFIRMED (handled above in deriveTradeCanonicalState).
       return {
         color: StatusColor.QUOTING,
-        label: "Draft a quote",
+        label: "Respond to enquiry",
         rightTop: "Accepted",
-        rightBot: `Accepted ${daysAgoText(project.acceptedAt) || `${project.daysSinceSent || 0}d ago`}`,
+        rightBot: "Send quote or schedule visit",
+      };
+    case TRADE_STATE.SURVEY_PROPOSED:
+      return {
+        color: StatusColor.QUOTING,
+        label: "Survey proposed",
+        rightTop: "Awaiting client",
+        rightBot: apptDate ? `${apptDate} awaiting client` : "Awaiting client",
+      };
+    case TRADE_STATE.SURVEY_CONFIRMED:
+      return {
+        color: StatusColor.HIRED,
+        label: "Survey scheduled",
+        rightTop: "Scheduled",
+        rightBot: apptDate && apptTime ? `${apptDate}, ${apptTime}` : apptDate || "Scheduled",
       };
     case TRADE_STATE.QUOTE_SENT:
       return {
@@ -2048,6 +2148,13 @@ function tradeStateMeta(state, project, formatNum) {
         label: "Visit proposed",
         rightTop: project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : "—",
         rightBot: apptDate ? `${apptDate} awaiting client` : "Awaiting client",
+      };
+    case TRADE_STATE.WORK_AWAITING_START:
+      return {
+        color: StatusColor.IN_PROGRESS,
+        label: "Awaiting start confirmation",
+        rightTop: project.quoteAmount ? `£${formatNum(project.quoteAmount)}` : "—",
+        rightBot: apptDate && apptTime ? `${apptDate}, ${apptTime}` : apptDate || "Awaiting client",
       };
     case TRADE_STATE.WORK_SCHEDULED:
       return {

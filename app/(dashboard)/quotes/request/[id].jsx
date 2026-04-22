@@ -5,11 +5,16 @@ import {
   ScrollView,
   Pressable,
   Alert,
-  Image,
   Modal,
   FlatList,
   Dimensions,
 } from "react-native";
+// expo-image gives us a memory+disk decode cache so re-entering
+// the Client Request screen doesn't pay the full JPEG decode cost
+// every time. Used for both the thumbnail strip and the full-
+// screen viewer — `cachePolicy="memory-disk"` keeps the decoded
+// bitmaps across screen mounts.
+import { Image } from "expo-image";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -29,7 +34,7 @@ import { supabase } from "../../../../lib/supabase";
 
 // RPC wrappers
 import { acceptRequest, declineRequest } from "../../../../lib/api/requests";
-import { listRequestImagePaths, getSignedUrls } from "../../../../lib/api/attachments";
+import { getRequestAttachmentUrlsCached } from "../../../../lib/api/attachments";
 const CELL = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -96,6 +101,30 @@ const trvStyles = StyleSheet.create({
   },
   clientMeta: { fontSize: 12, fontFamily: "DMSans_400Regular", marginTop: 2 },
   distanceText: { fontSize: 12, fontFamily: "PublicSans_600SemiBold" },
+  // Small primary-tinted pill that sits below the client row with the
+  // property type (Flat, Detached house…). Mirrors the compact
+  // specialty/trade-category pill used elsewhere in the app.
+  propertyTagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 20,
+    marginTop: 12,
+  },
+  propertyTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  propertyTagText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 12,
+    letterSpacing: 0.1,
+  },
   factsRow: {
     flexDirection: "row",
     gap: 10,
@@ -371,6 +400,17 @@ function useStyles() {
   return { styles, quoteStyles, colors: c, dark };
 }
 
+// Known metadata prefixes the client-side request composer may emit.
+// Any line that DOESN'T start with one of these is treated as free-text
+// description (see the find-business wizard path, which writes the
+// description as the first raw line with no prefix).
+const PARSE_KNOWN_PREFIXES = [
+  "category:", "service:", "description:", "property:",
+  "postcode:", "budget:", "timing:", "emergency:",
+  "direct request to:", "note:", "start:", "address:",
+  "main:", "refit:", "notes:",
+];
+
 function parseDetails(details) {
   const res = {
     title: null,
@@ -391,7 +431,8 @@ function parseDetails(details) {
   if (!details) return res;
   const lines = String(details)
     .split("\n")
-    .map((s) => s.trim());
+    .map((s) => s.trim())
+    .filter(Boolean);
   res.title = lines[0] || "Request";
   for (const ln of lines) {
     const [k, ...rest] = ln.split(":");
@@ -412,6 +453,17 @@ function parseDetails(details) {
     else if (key === "main") res.main = v;
     else if (key.includes("refit")) res.refit = v;
     else if (key.includes("notes")) res.notes = v;
+  }
+  // Fallback: the find-business direct-quote wizard writes the raw
+  // description as the first line with NO "Description:" prefix. If
+  // the explicit key wasn't found, collect every prefix-less line
+  // into description so it still surfaces on this screen.
+  if (!res.description) {
+    const rawLines = lines.filter((ln) => {
+      const lower = ln.toLowerCase();
+      return !PARSE_KNOWN_PREFIXES.some((p) => lower.startsWith(p));
+    });
+    if (rawLines.length) res.description = rawLines.join("\n");
   }
   return res;
 }
@@ -582,6 +634,36 @@ function RecentActivitySection({ styles, c, appointments, quotes, onActivityPres
   );
 }
 
+// Appointment type meta — icon + display label per stored `kind`.
+// Kept inline rather than imported from schedule.jsx so this file
+// stays self-contained (schedule.jsx is a route, not a module).
+const APPT_KIND_META = {
+  survey:    { label: "Survey",             icon: "search-outline" },
+  design:    { label: "Design consultation",icon: "color-palette-outline" },
+  start_job: { label: "Start Job",          icon: "hammer-outline" },
+  followup:  { label: "Follow-up visit",    icon: "refresh-outline" },
+  final:     { label: "Final inspection",   icon: "checkmark-done-outline" },
+};
+function apptMeta(d) {
+  return APPT_KIND_META[d?.kind] || { label: d?.title || "Appointment", icon: "calendar-outline" };
+}
+
+// Infer the appointment kind from its title string for legacy rows or
+// when the RPC we're calling doesn't return the `kind` column yet
+// (rpc_trade_list_appointments predates the 2026-04-28 migration).
+// Returning `null` when we genuinely can't tell lets apptMeta fall
+// back cleanly to the generic calendar icon + title, rather than
+// mis-branding every unmapped appt as "survey".
+function inferKindFromTitle(title) {
+  const t = String(title || "").toLowerCase();
+  if (t.includes("start job") || t.includes("start work")) return "start_job";
+  if (t.includes("final inspection") || t.includes("final")) return "final";
+  if (t.includes("follow-up") || t.includes("follow up") || t.includes("followup")) return "followup";
+  if (t.includes("design consultation") || t.includes("design")) return "design";
+  if (t.includes("survey") || t.includes("assessment")) return "survey";
+  return null;
+}
+
 function ActivityRow({ styles, c, item, onPress, clientName, workStartedAt, hasConfirmedWorkAppt }) {
   const { kind, data } = item;
   if (kind === "appointment") {
@@ -600,13 +682,18 @@ function ActivityRow({ styles, c, item, onPress, clientName, workStartedAt, hasC
         ? Colors.status.scheduled
         : data.status === "proposed"
         ? Colors.status.pending
+        : data.status === "reschedule_pending"
+        ? Colors.status.pending
         : Colors.status.declined;
-    // Subtitle prompt (A+B-agreed hint): a confirmed appointment that's
-    // today or past, with no Start Work stamp, should nudge the trade
-    // to tap and fire it.
-    const apptIsConfirmed = data.status === "confirmed" || data.status === "accepted";
-    const apptDue = Number.isFinite(scheduled.getTime()) && scheduled.getTime() <= Date.now();
-    const promptStart = apptIsConfirmed && apptDue && !workStartedAt;
+
+    // Title format: "{Type Label} for Quote #XXXX" when linked to a
+    // quote; just the type label otherwise. Icon reflects the kind.
+    const meta = apptMeta(data);
+    const shortQuote = data.quote_id ? quoteShortId(data.quote_id) : null;
+    const title = shortQuote
+      ? `${meta.label} for Quote #${shortQuote}`
+      : meta.label;
+
     return (
       <Pressable
         onPress={onPress}
@@ -614,15 +701,14 @@ function ActivityRow({ styles, c, item, onPress, clientName, workStartedAt, hasC
         accessibilityRole="button"
       >
         <View style={[styles.activityIcon, { backgroundColor: c.elevate2 }]}>
-          <Ionicons name="calendar-outline" size={18} color={c.text} />
+          <Ionicons name={meta.icon} size={18} color={c.text} />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <ThemedText style={[styles.activityTitle, { color: c.text }]} numberOfLines={1}>
-            {data.title || "Appointment"}
+            {title}
           </ThemedText>
           <ThemedText style={[styles.activityMeta, { color: c.textMuted }]} numberOfLines={1}>
             {dateStr} · {timeStr}
-            {promptStart ? "  ·  tap to start work" : ""}
           </ThemedText>
         </View>
         <View style={[styles.activityBadge, { backgroundColor: statusTone + "22", borderColor: statusTone }]}>
@@ -631,6 +717,8 @@ function ActivityRow({ styles, c, item, onPress, clientName, workStartedAt, hasC
               ? "Confirmed"
               : data.status === "proposed"
               ? "Awaiting"
+              : data.status === "reschedule_pending"
+              ? "Reschedule"
               : "Cancelled"}
           </ThemedText>
         </View>
@@ -698,24 +786,63 @@ function RecentActivityBottomSheet({
   onReschedule,
   onCancelAppt,
   onOpenQuote,
-  // Start-work props (optional — only meaningful on the trade side).
-  canStartWork,
-  workStartedAt,
-  canUndoStartWork,
-  onStartWork,
-  onUndoStartWork,
+  // Available quotes so we can render a tappable "linked quote"
+  // card inside the appointment sheet.
+  quotes,
 }) {
   const visible = !!activity;
   const kind = activity?.kind;
   const data = activity?.data;
-  // Only surface Start Work inside the appointment sheet when the
-  // activity being viewed is an appointment. Avoids bleeding the
-  // action into the quote sheet.
+
+  // Appointment metadata (kind-aware icon + label)
+  const meta = kind === "appointment" ? apptMeta(data) : null;
   const apptStatus = String(data?.status || "").toLowerCase();
-  const isConfirmedAppt = kind === "appointment" &&
-    (apptStatus === "confirmed" || apptStatus === "accepted");
-  const showStartWork = isConfirmedAppt && canStartWork && !workStartedAt;
-  const showStartedBadge = isConfirmedAppt && !!workStartedAt;
+
+  // Find the quote this appointment is linked to (if any).
+  const linkedQuote =
+    kind === "appointment" && data?.quote_id && Array.isArray(quotes)
+      ? quotes.find((q) => q.id === data.quote_id)
+      : null;
+  // IMPORTANT: use the shared `quoteShortId` helper here — the
+  // Recent Activity row and this sheet MUST display the same short
+  // id for the same quote. The sheet used to slice the first 8
+  // chars while the row sliced the last 4, so tapping a card that
+  // read "Quote #EH5D8" opened a sheet labelled "Quote #23ED1EDE"
+  // for the exact same appointment.
+  const linkedQuoteShort = linkedQuote ? quoteShortId(linkedQuote.id) : null;
+
+  // Sheet title: "{Type} for Quote #XXXX" when linked, else just the type.
+  const sheetTitle =
+    kind === "appointment" && meta
+      ? linkedQuoteShort
+        ? `${meta.label} for Quote #${linkedQuoteShort}`
+        : meta.label
+      : null;
+
+  // Status pill colour — aligns with ActivityRow.
+  const statusTone =
+    apptStatus === "confirmed"
+      ? Colors.status.scheduled
+      : apptStatus === "proposed"
+      ? Colors.status.pending
+      : apptStatus === "reschedule_pending"
+      ? Colors.status.pending
+      : apptStatus === "cancelled"
+      ? Colors.status.declined
+      : c.textMuted;
+  const statusLabel =
+    apptStatus === "confirmed"
+      ? "Confirmed"
+      : apptStatus === "proposed"
+      ? "Awaiting confirmation"
+      : apptStatus === "reschedule_pending"
+      ? "Reschedule proposed"
+      : apptStatus === "cancelled"
+      ? "Cancelled"
+      : apptStatus
+      ? apptStatus.charAt(0).toUpperCase() + apptStatus.slice(1)
+      : "";
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={sheetStyles.backdrop} onPress={onClose}>
@@ -733,10 +860,43 @@ function RecentActivityBottomSheet({
           <View style={[sheetStyles.handle, { backgroundColor: c.borderStrong }]} />
           {kind === "appointment" && data ? (
             <>
-              <ThemedText style={[sheetStyles.title, { color: c.text }]}>
-                {data.title || "Appointment"}
-              </ThemedText>
-              <ThemedText style={[sheetStyles.subtitle, { color: c.textMuted }]}>
+              {/* Kind-aware header: icon pill + title + status chip */}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                <View
+                  style={{
+                    width: 36, height: 36, borderRadius: 10,
+                    alignItems: "center", justifyContent: "center",
+                    backgroundColor: c.elevate,
+                    borderWidth: 1, borderColor: c.border,
+                  }}
+                >
+                  <Ionicons name={meta.icon} size={18} color={c.text} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <ThemedText
+                    style={[sheetStyles.title, { color: c.text, marginBottom: 0 }]}
+                    numberOfLines={2}
+                  >
+                    {sheetTitle}
+                  </ThemedText>
+                </View>
+                {statusLabel ? (
+                  <View
+                    style={{
+                      paddingHorizontal: 10, paddingVertical: 4,
+                      borderRadius: 999,
+                      backgroundColor: c.elevate,
+                      borderWidth: 1, borderColor: c.border,
+                    }}
+                  >
+                    <ThemedText style={{ color: statusTone, fontSize: 12, fontFamily: "PublicSans_600SemiBold" }}>
+                      {statusLabel}
+                    </ThemedText>
+                  </View>
+                ) : null}
+              </View>
+
+              <ThemedText style={[sheetStyles.subtitle, { color: c.textMuted, marginTop: 8 }]}>
                 {new Date(data.scheduled_at).toLocaleString(undefined, {
                   weekday: "long",
                   day: "numeric",
@@ -751,17 +911,11 @@ function RecentActivityBottomSheet({
                 </ThemedText>
               ) : null}
 
-              {/* Work-started banner — only on a confirmed appointment
-                  belonging to the accepted quote. While inside the 5-min
-                  window the trade can also Undo the stamp. After that
-                  window the banner stays for reference but Undo is hidden.  */}
-              {showStartedBadge && (
+              {/* Reschedule-pending notice — shows the proposed new time. */}
+              {apptStatus === "reschedule_pending" && data.proposed_scheduled_at ? (
                 <View
                   style={{
                     marginTop: 12,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
                     paddingHorizontal: 12,
                     paddingVertical: 10,
                     borderRadius: 12,
@@ -770,71 +924,115 @@ function RecentActivityBottomSheet({
                     borderColor: c.border,
                   }}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-                    <Ionicons name="play-circle" size={18} color={Colors.status?.pending || "#F4B740"} />
-                    <ThemedText style={{ color: c.text, fontFamily: "PublicSans_600SemiBold", fontSize: 14 }} numberOfLines={1}>
-                      Work started
+                  <ThemedText style={{ color: c.textMuted, fontSize: 12 }}>
+                    Proposed new time
+                  </ThemedText>
+                  <ThemedText style={{ color: c.text, fontSize: 14, fontFamily: "PublicSans_600SemiBold", marginTop: 2 }}>
+                    {new Date(data.proposed_scheduled_at).toLocaleString(undefined, {
+                      weekday: "long", day: "numeric", month: "long",
+                      hour: "2-digit", minute: "2-digit",
+                    })}
+                  </ThemedText>
+                </View>
+              ) : null}
+
+              {/* Linked quote card — tap opens the Quote Overview. */}
+              {linkedQuote ? (
+                <Pressable
+                  onPress={() => onOpenQuote(linkedQuote)}
+                  style={({ pressed }) => [
+                    {
+                      marginTop: 12,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      borderRadius: 12,
+                      backgroundColor: c.elevate,
+                      borderWidth: 1,
+                      borderColor: c.border,
+                    },
+                    pressed && { opacity: 0.8 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open quote ${linkedQuoteShort}`}
+                >
+                  <View
+                    style={{
+                      width: 32, height: 32, borderRadius: 8,
+                      alignItems: "center", justifyContent: "center",
+                      backgroundColor: Colors.primaryTint,
+                    }}
+                  >
+                    <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <ThemedText
+                      style={{ color: c.text, fontSize: 13, fontFamily: "PublicSans_600SemiBold" }}
+                      numberOfLines={1}
+                    >
+                      Quote #{linkedQuoteShort}
                     </ThemedText>
-                    <ThemedText style={{ color: c.textMuted, fontSize: 12 }} numberOfLines={1}>
-                      · {new Date(workStartedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                    <ThemedText
+                      style={{ color: c.textMuted, fontSize: 12, marginTop: 2 }}
+                      numberOfLines={1}
+                    >
+                      £{Number(linkedQuote.grand_total || 0).toFixed(2)}
+                      {linkedQuote.status ? " · " + (linkedQuote.status.charAt(0).toUpperCase() + linkedQuote.status.slice(1)) : ""}
                     </ThemedText>
                   </View>
-                  {canUndoStartWork && (
-                    <Pressable onPress={onUndoStartWork} hitSlop={8}>
-                      <ThemedText style={{ color: Colors.primary, fontFamily: "PublicSans_600SemiBold", fontSize: 13 }}>
-                        Undo
-                      </ThemedText>
-                    </Pressable>
-                  )}
-                </View>
-              )}
+                  <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
+                </Pressable>
+              ) : null}
 
               <View style={sheetStyles.actions}>
-                {showStartWork && (
+                {/* Cancelled appointments render read-only (no actions). */}
+                {apptStatus !== "cancelled" ? (
+                  <>
+                    <Pressable
+                      onPress={() => onReschedule(data)}
+                      style={({ pressed }) => [
+                        sheetStyles.actionGhost,
+                        { backgroundColor: c.elevate, borderColor: c.border },
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Ionicons name="calendar-outline" size={18} color={c.text} />
+                      <ThemedText style={[sheetStyles.actionGhostText, { color: c.text }]}>
+                        Reschedule
+                      </ThemedText>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => onCancelAppt(data)}
+                      style={({ pressed }) => [
+                        sheetStyles.actionGhost,
+                        { backgroundColor: c.elevate, borderColor: c.border },
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Ionicons name="close-circle-outline" size={18} color={Colors.status.declined} />
+                      <ThemedText
+                        style={[sheetStyles.actionGhostText, { color: Colors.status.declined }]}
+                      >
+                        Cancel
+                      </ThemedText>
+                    </Pressable>
+                  </>
+                ) : (
                   <Pressable
-                    onPress={onStartWork}
+                    onPress={onClose}
                     style={({ pressed }) => [
-                      sheetStyles.actionPrimary,
-                      { backgroundColor: Colors.primary, flex: 1 },
-                      pressed && { opacity: 0.85 },
+                      sheetStyles.actionGhost,
+                      { backgroundColor: c.elevate, borderColor: c.border, flex: 1 },
+                      pressed && { opacity: 0.7 },
                     ]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Start work"
                   >
-                    <Ionicons name="play" size={16} color="#fff" />
-                    <ThemedText style={sheetStyles.actionPrimaryText}>
-                      Start work
+                    <ThemedText style={[sheetStyles.actionGhostText, { color: c.text }]}>
+                      Close
                     </ThemedText>
                   </Pressable>
                 )}
-                <Pressable
-                  onPress={() => onReschedule(data)}
-                  style={({ pressed }) => [
-                    sheetStyles.actionGhost,
-                    { backgroundColor: c.elevate, borderColor: c.border },
-                    pressed && { opacity: 0.7 },
-                  ]}
-                >
-                  <Ionicons name="calendar-outline" size={18} color={c.text} />
-                  <ThemedText style={[sheetStyles.actionGhostText, { color: c.text }]}>
-                    Reschedule
-                  </ThemedText>
-                </Pressable>
-                <Pressable
-                  onPress={() => onCancelAppt(data)}
-                  style={({ pressed }) => [
-                    sheetStyles.actionGhost,
-                    { backgroundColor: c.elevate, borderColor: c.border },
-                    pressed && { opacity: 0.7 },
-                  ]}
-                >
-                  <Ionicons name="close-circle-outline" size={18} color={Colors.status.declined} />
-                  <ThemedText
-                    style={[sheetStyles.actionGhostText, { color: Colors.status.declined }]}
-                  >
-                    Cancel
-                  </ThemedText>
-                </Pressable>
               </View>
             </>
           ) : kind === "quote" && data ? (
@@ -1565,19 +1763,14 @@ export default function RequestDetails() {
 
   const loadAttachments = useCallback(async (requestId) => {
     try {
-      const paths = await listRequestImagePaths(String(requestId));
-      const p = Array.isArray(paths) ? paths : [];
-      setAttachmentsCount(p.length);
-
-      if (!p.length) {
-        setAttachments([]);
-        return;
-      }
-
-      // Use signed URLs for secure access
-      const signed = await getSignedUrls(p, 3600);
-      const urls = (signed || []).map((s) => s.url).filter(Boolean);
-
+      // Memoised: re-entering the screen within the 3500 s TTL
+      // returns the signed URLs instantly without a round trip.
+      // The cache is keyed by requestId and invalidated
+      // automatically whenever new images are attached.
+      const { paths, urls } = await getRequestAttachmentUrlsCached(
+        String(requestId)
+      );
+      setAttachmentsCount(paths.length);
       setAttachments(urls);
     } catch (e) {
       console.warn("attachments/load error:", e?.message || e);
@@ -1642,100 +1835,126 @@ export default function RequestDetails() {
         setClientName(profile?.full_name || null);
       }
 
-      await loadAttachments(id);
+      // Kick off attachments + appointments in parallel so neither
+      // blocks the other (or the header render). Each setter inside
+      // these runs independently, so the screen progressively fills
+      // in rather than all-or-nothing. We don't await these at the
+      // top level — the finally block below flips loading=false as
+      // soon as the core req / target / quotes are in place, and the
+      // peripheral data lands on its own timeline.
+      loadAttachments(id).catch((e) =>
+        console.warn("attachments/load error:", e?.message || e)
+      );
 
-      // Fetch ALL appointments for this request (survey visits before quote)
-      // Try multiple methods to find appointments
-      try {
-        let appointmentsToUse = [];
-
-        // Method 1: Try rpc_trade_list_appointments
+      (async () => {
         try {
-          const { data: allAppts, error: apptErr } = await supabase.rpc(
-            "rpc_trade_list_appointments",
-            { p_only_upcoming: false }
-          );
+          let appointmentsToUse = [];
 
-          if (!apptErr && allAppts && allAppts.length > 0) {
-            const filtered = (Array.isArray(allAppts) ? allAppts : [])
-              .filter((a) => a.request_id === id);
-
-            if (filtered.length > 0) {
-              appointmentsToUse = filtered.map((a) => ({
-                id: a.appointment_id,
-                scheduled_at: a.scheduled_at,
-                status: a.status,
-                // Prioritize the appointment's own title (e.g., "Initial survey") over project title
-                title: a.title || a.project_title || "Survey visit",
-                location: a.postcode || a.location,
-                notes: a.notes,
-              }));
-            }
-          }
-        } catch (e) {
-          // Method 1 failed, continue to fallback
-        }
-
-        // Method 2: If Method 1 didn't find any, query appointments directly for this request
-        if (appointmentsToUse.length === 0) {
+          // Method 1: rpc_trade_list_appointments
           try {
-            const { data: directAppts, error: directErr } = await supabase
-              .from("appointments")
-              .select("*")
-              .eq("request_id", id);
-
-            if (!directErr && directAppts && directAppts.length > 0) {
-              appointmentsToUse = directAppts.map((a) => ({
-                id: a.id,
-                scheduled_at: a.scheduled_at,
-                status: a.status,
-                title: a.title || "Survey visit",
-                location: a.location,
-                notes: a.notes,
-              }));
-            }
-          } catch (e) {
-            // Method 2 failed, continue to fallback
-          }
-        }
-
-        // Method 3: If still nothing, try via rpc_get_latest_request_appointment
-        if (appointmentsToUse.length === 0) {
-          try {
-            const { data: latestAppt, error: latestErr } = await supabase.rpc(
-              "rpc_get_latest_request_appointment",
-              { p_request_id: id }
+            const { data: allAppts, error: apptErr } = await supabase.rpc(
+              "rpc_trade_list_appointments",
+              { p_only_upcoming: false }
             );
-
-            if (!latestErr && latestAppt) {
-              // Handle nested arrays like [[{...}]]
-              let appt = latestAppt;
-              while (Array.isArray(appt)) {
-                if (appt.length === 0) break;
-                appt = appt[0];
-              }
-
-              if (appt && appt.id) {
-                appointmentsToUse = [{
-                  id: appt.id,
-                  scheduled_at: appt.scheduled_at,
-                  status: appt.status,
-                  title: appt.title || "Survey visit",
-                  location: appt.location,
-                  notes: appt.notes,
-                }];
+            if (!apptErr && allAppts && allAppts.length > 0) {
+              const filtered = (Array.isArray(allAppts) ? allAppts : [])
+                .filter((a) => a.request_id === id);
+              if (filtered.length > 0) {
+                appointmentsToUse = filtered.map((a) => {
+                  const title = a.title || a.project_title || "Appointment";
+                  return {
+                    id: a.appointment_id,
+                    scheduled_at: a.scheduled_at,
+                    status: a.status,
+                    title,
+                    location: a.postcode || a.location,
+                    notes: a.notes,
+                    // rpc_trade_list_appointments predates the `kind`
+                    // column migration, so it usually returns
+                    // undefined here. Infer from the title string
+                    // when that's the case — force-defaulting to
+                    // "survey" was branding every Start Job /
+                    // Follow-up as a survey on the trade side.
+                    kind: a.kind || inferKindFromTitle(title) || null,
+                    quote_id: a.quote_id || null,
+                    reschedule_requested_by: a.reschedule_requested_by || null,
+                    proposed_scheduled_at: a.proposed_scheduled_at || null,
+                  };
+                });
               }
             }
           } catch (e) {
-            // Method 3 failed
+            // Method 1 failed, fall through
           }
-        }
 
-        setAppointments(appointmentsToUse);
-      } catch (apptErr) {
-        console.warn("appointments/load error:", apptErr?.message || apptErr);
-        setAppointments([]);
-      }
+          // Method 2: direct query
+          if (appointmentsToUse.length === 0) {
+            try {
+              const { data: directAppts, error: directErr } = await supabase
+                .from("appointments")
+                .select("*")
+                .eq("request_id", id);
+              if (!directErr && directAppts && directAppts.length > 0) {
+                appointmentsToUse = directAppts.map((a) => {
+                  const title = a.title || "Appointment";
+                  return {
+                    id: a.id,
+                    scheduled_at: a.scheduled_at,
+                    status: a.status,
+                    title,
+                    location: a.location,
+                    notes: a.notes,
+                    // Direct `select *` should include the `kind`
+                    // column once the migration has run — but fall
+                    // back to title inference for any legacy rows
+                    // written before it did.
+                    kind: a.kind || inferKindFromTitle(title) || null,
+                    quote_id: a.quote_id || null,
+                    reschedule_requested_by: a.reschedule_requested_by || null,
+                    proposed_scheduled_at: a.proposed_scheduled_at || null,
+                  };
+                });
+              }
+            } catch (e) {
+              // Method 2 failed, fall through
+            }
+          }
+
+          // Method 3: rpc_get_latest_request_appointment
+          if (appointmentsToUse.length === 0) {
+            try {
+              const { data: latestAppt, error: latestErr } = await supabase.rpc(
+                "rpc_get_latest_request_appointment",
+                { p_request_id: id }
+              );
+              if (!latestErr && latestAppt) {
+                let appt = latestAppt;
+                while (Array.isArray(appt)) {
+                  if (appt.length === 0) break;
+                  appt = appt[0];
+                }
+                if (appt && appt.id) {
+                  appointmentsToUse = [{
+                    id: appt.id,
+                    scheduled_at: appt.scheduled_at,
+                    status: appt.status,
+                    title: appt.title || "Survey visit",
+                    location: appt.location,
+                    notes: appt.notes,
+                  }];
+                }
+              }
+            } catch (e) {
+              // Method 3 failed
+            }
+          }
+
+          setAppointments(appointmentsToUse);
+        } catch (apptErr) {
+          console.warn("appointments/load error:", apptErr?.message || apptErr);
+          setAppointments([]);
+        }
+      })();
     } catch (e) {
       setErr(e?.message || String(e));
       setAttachments([]);
@@ -1921,11 +2140,12 @@ export default function RequestDetails() {
 
   const hasAttachments = attachments.length > 0;
 
-  // Work-started machinery. `workStartedAt` flips the project into
-  // "In progress" on both POVs; `canStartWork` guards the action
-  // (needs accepted quote + confirmed appointment for the quote);
-  // `canUndoStartWork` mirrors the 5-minute RPC window so the chip
-  // only renders while the RPC will still accept it.
+  // Work-started machinery. Post-redesign, "In progress" is DERIVED
+  // from a non-cancelled start_job appointment whose scheduled_at
+  // has passed — no explicit Start Work button. `workStartedAt` is
+  // still computed for back-compat with rows written before this
+  // change so ActivityRow can still show a "Started" badge in place
+  // of the old scheduled-row copy.
   const acceptedQuote = (quotes || []).find(
     (q) => String(q?.status || "").toLowerCase() === "accepted"
   ) || null;
@@ -1939,13 +2159,6 @@ export default function RequestDetails() {
     const title = String(a?.title || "").toLowerCase();
     return !title.includes("survey");
   });
-  const canStartWork =
-    !!acceptedQuote && !workStartedAt && hasConfirmedWorkAppt;
-  const workStartedMsAgo = workStartedAt
-    ? Date.now() - new Date(workStartedAt).getTime()
-    : null;
-  const canUndoStartWork =
-    !!workStartedAt && workStartedMsAgo != null && workStartedMsAgo < 5 * 60 * 1000;
 
   // === Derived values for the redesigned hero ===
   const reqTitle =
@@ -2126,6 +2339,35 @@ export default function RequestDetails() {
             )}
           </View>
 
+          {/* Property type tag — compact primary-tinted pill sitting
+              below the avatar row. Sourced from the joined
+              property_types row (set at quote-request Step 3), with
+              the parsed details `Property:` line as a fallback for
+              older rows written before the column existed.          */}
+          {(() => {
+            const propertyName =
+              req?.property_types?.name || parsed.property || null;
+            if (!propertyName) return null;
+            return (
+              <View style={trvStyles.propertyTagRow}>
+                <View
+                  style={[
+                    trvStyles.propertyTag,
+                    { backgroundColor: Colors.primaryTint },
+                  ]}
+                >
+                  <Ionicons name="home-outline" size={12} color={Colors.primary} />
+                  <ThemedText
+                    style={[trvStyles.propertyTagText, { color: Colors.primary }]}
+                    numberOfLines={1}
+                  >
+                    {propertyName}
+                  </ThemedText>
+                </View>
+              </View>
+            );
+          })()}
+
           {/* Job description — same visual treatment as the Budget /
               Timing fact pills: label inside a bordered container with
               matching radius + padding. Always rendered with a
@@ -2201,7 +2443,9 @@ export default function RequestDetails() {
                     <Image
                       source={{ uri: url }}
                       style={{ width: "100%", height: "100%" }}
-                      resizeMode="cover"
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      transition={120}
                     />
                   </Pressable>
                 ))}
@@ -2355,70 +2599,8 @@ export default function RequestDetails() {
         insets={insets}
         c={c}
         activity={activitySheet}
+        quotes={quotes}
         onClose={() => setActivitySheet(null)}
-        canStartWork={canStartWork}
-        workStartedAt={workStartedAt}
-        canUndoStartWork={canUndoStartWork}
-        onStartWork={async () => {
-          if (!acceptedQuote?.id) return;
-          // Soft guard: if the appointment is >7 days out, ask again.
-          const appt = activitySheet?.kind === "appointment" ? activitySheet.data : null;
-          const ms = appt?.scheduled_at
-            ? new Date(appt.scheduled_at).getTime() - Date.now()
-            : 0;
-          const farOut = ms > 7 * 24 * 60 * 60 * 1000;
-          const dateLabel = appt?.scheduled_at
-            ? new Date(appt.scheduled_at).toLocaleDateString(undefined, {
-                day: "numeric",
-                month: "long",
-              })
-            : null;
-          const doStart = async () => {
-            try {
-              const { error } = await supabase.rpc("rpc_trade_start_work", {
-                p_quote_id: acceptedQuote.id,
-              });
-              if (error) throw error;
-              setActivitySheet(null);
-              load();
-            } catch (e) {
-              Alert.alert("Could not start work", e?.message || "Please try again.");
-            }
-          };
-          const clientFirst = (clientName || "Client").split(" ")[0];
-          if (farOut && dateLabel) {
-            Alert.alert(
-              "Start work early?",
-              `This appointment isn't until ${dateLabel}. Start anyway? ${clientFirst} will be notified.`,
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Start anyway", style: "destructive", onPress: doStart },
-              ]
-            );
-          } else {
-            Alert.alert(
-              "Start work",
-              `Start this job now? ${clientFirst} will be notified that work has begun.`,
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Start work", onPress: doStart },
-              ]
-            );
-          }
-        }}
-        onUndoStartWork={async () => {
-          if (!acceptedQuote?.id) return;
-          try {
-            const { error } = await supabase.rpc("rpc_trade_undo_start_work", {
-              p_quote_id: acceptedQuote.id,
-            });
-            if (error) throw error;
-            setActivitySheet(null);
-            load();
-          } catch (e) {
-            Alert.alert("Could not undo", e?.message || "Undo window has passed.");
-          }
-        }}
         onReschedule={(appt) => {
           setActivitySheet(null);
           router.push({
@@ -2547,12 +2729,14 @@ export default function RequestDetails() {
                   <Image
                     source={{ uri: url }}
                     style={styles.modalImage}
-                    resizeMode="contain"
+                    contentFit="contain"
+                    cachePolicy="memory-disk"
+                    transition={120}
                     onError={(e) =>
                       console.warn(
                         "preview error:",
                         url,
-                        e?.nativeEvent?.error
+                        e?.error || e?.nativeEvent?.error || e
                       )
                     }
                   />

@@ -1097,10 +1097,27 @@ export default function TradesmanHome() {
       const dayAfterTomorrow = new Date(today);
       dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
 
+      // "Scheduled" for the home-screen Today / Tomorrow strip means
+      // the CLIENT has actually committed to the time slot. `proposed`
+      // (trade sent, client hasn't responded yet) should NOT count —
+      // those still live on the Projects / Client Request screens as
+      // pending actions, not on the day's schedule. `cancelled` is
+      // obviously excluded. `reschedule_pending` is kept because the
+      // original scheduled_at is still the confirmed time; the
+      // proposal is a separate field.
+      const isScheduledForHome = (status) => {
+        const s = String(status || "").toLowerCase();
+        return s === "confirmed" || s === "accepted" || s === "reschedule_pending";
+      };
+
       const todayAppts = (apptData || [])
         .filter((a) => {
           const apptDate = new Date(a.scheduled_at);
-          return apptDate >= today && apptDate < tomorrow && a.status !== "cancelled";
+          return (
+            apptDate >= today &&
+            apptDate < tomorrow &&
+            isScheduledForHome(a.status)
+          );
         })
         .map((a) => {
           const req = reqById[a.request_id];
@@ -1122,7 +1139,11 @@ export default function TradesmanHome() {
       const tomorrowAppts = (apptData || [])
         .filter((a) => {
           const apptDate = new Date(a.scheduled_at);
-          return apptDate >= tomorrow && apptDate < dayAfterTomorrow && a.status !== "cancelled";
+          return (
+            apptDate >= tomorrow &&
+            apptDate < dayAfterTomorrow &&
+            isScheduledForHome(a.status)
+          );
         })
         .map((a) => {
           const req = reqById[a.request_id];
@@ -1340,9 +1361,13 @@ export default function TradesmanHome() {
       });
 
       // Calculate pipeline stages
-      // Calculate scheduled count (upcoming appointments)
+      // Calculate scheduled count (upcoming appointments that the
+      // CLIENT has confirmed — proposed-but-unanswered appointments
+      // don't count here, same rule as the Today / Tomorrow strip).
       const upcomingApptsCount = allFutureAppointments.filter(
-        (a) => new Date(a.scheduled_at) >= today
+        (a) =>
+          new Date(a.scheduled_at) >= today &&
+          isScheduledForHome(a.status)
       ).length;
 
       // Calculate performance stats

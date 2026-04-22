@@ -15,6 +15,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../../../../lib/supabase";
+import { getRequestAttachmentUrlsCached } from "../../../../lib/api/attachments";
 import { useUser } from "../../../../hooks/useUser";
 import { useTheme } from "../../../../hooks/useTheme";
 
@@ -89,6 +90,17 @@ function parseTitle(suggestedTitle) {
   return { service: cleanTitle, category: "" };
 }
 
+// Detect a Start Job appointment. Prefer the `kind` column when the
+// appointments source returns it (post 2026-04-28 migration); fall
+// back to a title heuristic so older RPC builds still flip the card
+// to "In progress" after the scheduled datetime passes.
+function isStartJobKind(a) {
+  if (!a) return false;
+  if (a.kind) return String(a.kind).toLowerCase() === "start_job";
+  const t = String(a.title || "").toLowerCase();
+  return t.includes("start job") || t.includes("start work");
+}
+
 // Calculate client progress position
 // ProgressBar stage dots at: 12.5%, 37.5%, 62.5%, 87.5%
 // Progress fills from 0% left toward 100% right
@@ -114,6 +126,7 @@ function getClientProgressPosition(stage, subStatus) {
       if (subStatus === "issue_reported") return 68;
       if (subStatus === "work_in_progress") return 65;
       if (subStatus === "work_confirmed") return 62.5; // Reached Hired stage
+      if (subStatus === "work_awaiting_start") return 58;
       if (subStatus === "work_pending") return 55;
       return 50; // Default: working toward Hired stage
     case "DONE":
@@ -924,6 +937,12 @@ export default function ClientProjects() {
         type: "request",
         stage: "POSTED",
         stageIndex: 0,
+        // IMPORTANT: surface subStatus on the row so the canonical
+        // state mapper (deriveClientCanonicalState) can branch on
+        // `appointment_pending` / `appointment_confirmed` /
+        // `preparing` — without this the card always falls through
+        // to the generic ENQUIRY_SENT / QUOTE_PREPARING label.
+        subStatus,
         progressPosition: getClientProgressPosition("POSTED", subStatus),
         requestId: req.id,
         title: req.suggested_title || "Untitled job",
@@ -1008,11 +1027,22 @@ export default function ClientProjects() {
         (p) => p.type === "request" && p.requestId === group.requestId
       );
       if (existingRequest) {
-        // Update existing with preparing info
+        // Update existing with preparing info. Preserve the
+        // appointment-based subStatus if the request already has
+        // one (survey visit trumps the generic "preparing" label);
+        // otherwise default to "preparing" so the card renders as
+        // "Trade accepted / Awaiting next steps".
+        const existingSub = existingRequest.subStatus || null;
+        const nextSub =
+          existingSub === "appointment_pending" ||
+          existingSub === "appointment_confirmed"
+            ? existingSub
+            : "preparing";
         existingRequest.contextLine = contextLine;
         existingRequest.stage = "QUOTES";
         existingRequest.stageIndex = 1;
-        existingRequest.progressPosition = getClientProgressPosition("QUOTES", "preparing");
+        existingRequest.subStatus = nextSub;
+        existingRequest.progressPosition = getClientProgressPosition("QUOTES", nextSub);
         return;
       }
 
@@ -1082,6 +1112,10 @@ export default function ClientProjects() {
         type: "preparing",
         stage: "QUOTES",
         stageIndex: 1,
+        // Surface subStatus so the canonical state mapper can flip
+        // between "Trade accepted" (preparing) / "Survey proposed"
+        // (appointment_pending) / "Survey scheduled" (confirmed).
+        subStatus,
         progressPosition: getClientProgressPosition("QUOTES", subStatus),
         requestId: group.requestId,
         title: group.title,
@@ -1379,6 +1413,23 @@ export default function ClientProjects() {
       const nextAppt = relatedAppointments[0];
       const apptStatus = nextAppt?.status?.toLowerCase();
 
+      // Start-job appointments on this accepted quote — these drive
+      // the "Awaiting start confirmation" / "Scheduled" / "In
+      // progress" cascade. Survey / design visits are ignored here.
+      const nowT = Date.now();
+      const startJobAppts = relatedAppointments
+        .filter((a) => isStartJobKind(a))
+        .filter((a) => String(a.status || "").toLowerCase() !== "cancelled");
+      const startedStartJob = startJobAppts.find(
+        (a) => a.scheduled_at && new Date(a.scheduled_at).getTime() <= nowT
+      );
+      const futureStartJob = startJobAppts
+        .filter((a) => a.scheduled_at && new Date(a.scheduled_at).getTime() > nowT)
+        .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))[0] || null;
+      const futureStartJobStatus = futureStartJob
+        ? String(futureStartJob.status || "").toLowerCase()
+        : null;
+
       let statusType = "scheduled";
       let statusText = "Quote accepted";
       let statusDetail = "Waiting for work schedule";
@@ -1457,7 +1508,41 @@ export default function ClientProjects() {
               }),
           },
         ];
+      } else if (futureStartJobStatus === "proposed") {
+        // Trade has proposed a Start Job but client hasn't confirmed
+        // yet — action state, card stays amber until confirmed.
+        statusType = "action";
+        statusText = "Confirm start of work";
+        statusDetail = `${formatDate(futureStartJob.scheduled_at)}, ${formatTime(futureStartJob.scheduled_at)}`;
+        subStatus = "work_awaiting_start";
+        actions = [
+          {
+            label: "Suggest Time",
+            primary: false,
+            onPress: () =>
+              router.push({
+                pathname: "/(dashboard)/myquotes/appointment-response",
+                params: { appointmentId: futureStartJob.id, quoteId: group.quoteId },
+              }),
+          },
+          {
+            label: "Confirm",
+            primary: true,
+            onPress: () =>
+              router.push(`/(dashboard)/myquotes/${group.quoteId}`),
+          },
+        ];
+      } else if (
+        futureStartJobStatus === "confirmed" ||
+        futureStartJobStatus === "reschedule_pending"
+      ) {
+        statusType = "scheduled";
+        statusText = "Work scheduled";
+        statusDetail = `${formatDate(futureStartJob.scheduled_at)}, ${formatTime(futureStartJob.scheduled_at)}`;
+        subStatus = "work_confirmed";
       } else if (apptStatus === "proposed") {
+        // Non-start_job visit proposed (survey / design / follow-up).
+        // Keep the old label so the client can still respond.
         statusType = "action";
         statusText = "Confirm work visit";
         statusDetail = `${formatDate(nextAppt.scheduled_at)}, ${formatTime(nextAppt.scheduled_at)}`;
@@ -1486,13 +1571,16 @@ export default function ClientProjects() {
         subStatus = "work_confirmed";
       }
 
-      // Work-started override — any confirmed-or-not state flips to
-      // "In progress" once the trade has tapped Start Work. Matches
-      // the trade-side short-circuit in quotes/index.jsx.
-      if (group.workStartedAt) {
+      // "In progress" override — derived from the Start Job's
+      // scheduled datetime passing (no explicit Start Work button
+      // tap needed). `workStartedAt` stays as a fallback for data
+      // written before this change.
+      if (startedStartJob || group.workStartedAt) {
         statusType = "scheduled";
         statusText = "In progress";
-        statusDetail = `Started ${formatDate(group.workStartedAt)}`;
+        statusDetail = startedStartJob
+          ? `Started ${formatDate(startedStartJob.scheduled_at)}`
+          : `Started ${formatDate(group.workStartedAt)}`;
         subStatus = "work_in_progress";
       }
 
@@ -1503,17 +1591,30 @@ export default function ClientProjects() {
         stageIndex: 2,
         subStatus,
         workStartedAt: group.workStartedAt || null,
-        nextAppointment: nextAppt || null,
+        // For HIRED-stage states we prefer the Start Job appointment
+        // so the date shown on the card aligns with "Awaiting start
+        // confirmation" / "Scheduled" / "In progress" copy rather
+        // than an earlier unrelated survey visit.
+        nextAppointment: (startedStartJob || futureStartJob) ?? nextAppt ?? null,
         progressPosition: getClientProgressPosition("HIRED", subStatus),
         requestId: group.requestId,
         quoteId: group.quoteId,
         title: group.title,
         requestType: "direct",
-        contextLine: `${group.tradeName} · £${formatNumber(group.amount)}`,
+        // Subtitle = trade name only. Previously we concatenated
+        // "Name · £amount" which truncated to "£…" on narrow
+        // screens; the amount now lives in the right-column
+        // `priceInfo` slot where it has its own space.
+        contextLine: group.tradeName || "Trade",
         statusType,
         statusText,
         statusDetail,
-        priceInfo: null,
+        // Surface the accepted-quote price on the right column so
+        // the AWAITING_START / SCHEDULED / IN_PROGRESS states don't
+        // render "—" as their headline number. Falls through to the
+        // state-specific fallback ("Scheduled" / "Active" / etc.)
+        // only if amount is genuinely absent.
+        priceInfo: group.amount != null ? `£${formatNumber(group.amount)}` : null,
         tradeName: group.tradeName,
         actions,
         sortPriority:
@@ -1677,6 +1778,17 @@ export default function ClientProjects() {
                   <ProjectRow
                     {...row}
                     onPress={() => {
+                      // Pre-warm the attachments memo so the Your
+                      // Request screen's photo strip lands with zero
+                      // extra delay. Fire-and-forget — the cache
+                      // fills in the background while the
+                      // navigation + hero render happens. The
+                      // helper swallows its own errors.
+                      if (project.requestId) {
+                        getRequestAttachmentUrlsCached(
+                          String(project.requestId)
+                        ).catch(() => {});
+                      }
                       // Every card routes to the Your Request page —
                       // never directly to the Quote Overview. The user
                       // reaches specific quotes / appointments from that
@@ -1766,12 +1878,16 @@ const CLIENT_STATE = {
   ENQUIRY_SENT:       "ENQUIRY_SENT",        // #1  Purple
   ENQUIRY_NO_RESPONSE:"ENQUIRY_NO_RESPONSE", // #2  Gray
   TRADE_UNAVAILABLE:  "TRADE_UNAVAILABLE",   // #3  Gray
+  TRADE_ACCEPTED:     "TRADE_ACCEPTED",      // #3b Blue – trade accepted, no action yet
+  SURVEY_PROPOSED:    "SURVEY_PROPOSED",     // #3c Blue – survey visit proposed by trade
+  SURVEY_SCHEDULED:   "SURVEY_SCHEDULED",    // #3d Teal – survey visit confirmed
   QUOTE_PREPARING:    "QUOTE_PREPARING",     // #4  Blue
   QUOTE_RECEIVED:     "QUOTE_RECEIVED",      // #5  Blue
   QUOTE_EXPIRED:      "QUOTE_EXPIRED",       // #6  Gray
   QUOTE_DECLINED:     "QUOTE_DECLINED",      // #7  Red
   AWAITING_SCHEDULE:  "AWAITING_SCHEDULE",   // #8  Amber
   VISIT_PROPOSED:     "VISIT_PROPOSED",      // #9  Blue
+  AWAITING_START:     "AWAITING_START",      // #9b Amber – Start Job proposed, client to confirm
   SCHEDULED:          "SCHEDULED",           // #10 Teal
   IN_PROGRESS:        "IN_PROGRESS",         // #11 Amber
   CONFIRM_COMPLETION: "CONFIRM_COMPLETION",  // #12 Amber
@@ -1792,7 +1908,11 @@ function clientDaysAgoText(iso) {
 function clientCardDate(iso) {
   if (!iso) return null;
   try {
-    return new Date(iso).toLocaleDateString(undefined, {
+    // Force en-GB so the output is reliably "DD MMM" with a space
+    // between numeric day and short month — some device locales
+    // were producing "30Apr" with no space, which mashed into the
+    // next line of copy and looked broken.
+    return new Date(iso).toLocaleDateString("en-GB", {
       day: "numeric",
       month: "short",
     });
@@ -1802,7 +1922,9 @@ function clientCardDate(iso) {
 function clientCardTime(iso) {
   if (!iso) return null;
   try {
-    return new Date(iso).toLocaleTimeString(undefined, {
+    // Same locale pin as clientCardDate — 24h HH:MM, no AM/PM
+    // swapping depending on device language.
+    return new Date(iso).toLocaleTimeString("en-GB", {
       hour: "2-digit",
       minute: "2-digit",
     });
@@ -1832,7 +1954,17 @@ function deriveClientCanonicalState(project) {
   if (stage === "POSTED") return CLIENT_STATE.ENQUIRY_SENT;
 
   if (stage === "QUOTES") {
-    return project.priceInfo ? CLIENT_STATE.QUOTE_RECEIVED : CLIENT_STATE.QUOTE_PREPARING;
+    // A real quote has come back with pricing — ready to decide.
+    if (project.priceInfo) return CLIENT_STATE.QUOTE_RECEIVED;
+    // Survey appt states — trade has responded + booked a visit.
+    if (sub === "appointment_pending") return CLIENT_STATE.SURVEY_PROPOSED;
+    if (sub === "appointment_confirmed") return CLIENT_STATE.SURVEY_SCHEDULED;
+    // Trade accepted the enquiry but hasn't sent a quote or booked
+    // a visit yet. Sending a message alone doesn't move this state
+    // — the card stays as "Trade accepted / Awaiting next steps".
+    if (sub === "preparing") return CLIENT_STATE.TRADE_ACCEPTED;
+    // Fallback — shouldn't hit in practice.
+    return CLIENT_STATE.QUOTE_PREPARING;
   }
 
   if (stage === "HIRED") {
@@ -1844,6 +1976,7 @@ function deriveClientCanonicalState(project) {
     if (sub === "issue_resolved_pending" || status === "issue_resolved_pending") {
       return CLIENT_STATE.RESOLUTION_RECEIVED;
     }
+    if (sub === "work_awaiting_start") return CLIENT_STATE.AWAITING_START;
     if (sub === "work_pending") return CLIENT_STATE.VISIT_PROPOSED;
     if (sub === "work_confirmed") return CLIENT_STATE.SCHEDULED;
     return CLIENT_STATE.AWAITING_SCHEDULE;
@@ -1882,6 +2015,33 @@ function clientStateMeta(state, project) {
         label: "Trade unavailable",
         rightTop: "—",
         rightBot: clientDaysAgoText(project.updated_at) || "—",
+      };
+    case CLIENT_STATE.TRADE_ACCEPTED:
+      // "Trade accepted" — the trade has taken the enquiry but
+      // hasn't yet sent a quote, booked a visit, or otherwise
+      // moved the project forward. Messaging does NOT change this
+      // state (conversation only, no status flip). As soon as the
+      // trade sends a quote or schedules a visit, the canonical
+      // mapping above swaps us to QUOTE_RECEIVED / SURVEY_*.
+      return {
+        color: StatusColor.QUOTING,
+        label: "Trade accepted",
+        rightTop: "Accepted",
+        rightBot: "Awaiting next steps",
+      };
+    case CLIENT_STATE.SURVEY_PROPOSED:
+      return {
+        color: StatusColor.QUOTING,
+        label: "Survey proposed",
+        rightTop: "Confirm visit",
+        rightBot: apptDate && apptTime ? `${apptDate}, ${apptTime}` : apptDate || "Confirm or reschedule",
+      };
+    case CLIENT_STATE.SURVEY_SCHEDULED:
+      return {
+        color: StatusColor.HIRED,
+        label: "Survey scheduled",
+        rightTop: "Scheduled",
+        rightBot: apptDate && apptTime ? `${apptDate}, ${apptTime}` : apptDate || "Scheduled",
       };
     case CLIENT_STATE.QUOTE_PREPARING:
       return {
@@ -1924,6 +2084,21 @@ function clientStateMeta(state, project) {
         label: "Visit proposed",
         rightTop: project.priceInfo || "—",
         rightBot: apptDate ? `${apptDate} confirm or reschedule` : "Confirm or reschedule",
+      };
+    case CLIENT_STATE.AWAITING_START:
+      return {
+        color: StatusColor.IN_PROGRESS,
+        label: "Confirm start of work",
+        // rightTop: quote amount when we have it, otherwise a short
+        // state label. Previously this fell through to an em-dash
+        // because active-job rows set priceInfo=null; the loader
+        // now populates it from group.amount.
+        rightTop: project.priceInfo || "Awaiting",
+        // rightBot: the proposed datetime (DD MMM, HH:MM). Falls
+        // back to the date alone if we only have that, or empty
+        // if neither — the statusLabel on the left already carries
+        // the "Confirm start of work" prompt.
+        rightBot: apptDate && apptTime ? `${apptDate}, ${apptTime}` : apptDate || "",
       };
     case CLIENT_STATE.SCHEDULED:
       return {

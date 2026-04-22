@@ -6,10 +6,13 @@ import {
   ScrollView,
   Pressable,
   Alert,
-  Image,
   Dimensions,
   Modal,
 } from "react-native";
+// expo-image gives us a memory+disk decode cache so re-entering
+// the Your Request screen doesn't pay the full JPEG decode cost
+// every time. Used for the attachment thumbnail strip.
+import { Image } from "expo-image";
 import ImageViewing from "react-native-image-viewing";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -24,7 +27,7 @@ import { Colors } from "../../../../../constants/Colors";
 import { useUser } from "../../../../../hooks/useUser";
 import { useTheme } from "../../../../../hooks/useTheme";
 import { supabase } from "../../../../../lib/supabase";
-import { listRequestImagePaths, getSignedUrls } from "../../../../../lib/api/attachments";
+import { getRequestAttachmentUrlsCached } from "../../../../../lib/api/attachments";
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
 // Client Request page shell — mirrors the trade-side Client Request
@@ -96,6 +99,29 @@ const clientReqStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 8,
+  },
+  /* Property type tag — compact primary-tinted pill sitting below the
+     trade row. Mirrors the trade-category tag styling used elsewhere. */
+  propertyTagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 20,
+    marginTop: 12,
+  },
+  propertyTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  propertyTagText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 12,
+    letterSpacing: 0.1,
   },
   /* facts (budget · timing) */
   factsRow: {
@@ -266,8 +292,27 @@ const clientReqStyles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   sheetActions: { flexDirection: "row", gap: 10, marginTop: 18 },
+  // Column variant — full-width buttons stacked vertically. Used
+  // for proposed appointments where Reschedule + Decline + Confirm
+  // all need to be visible together without cramping the labels.
+  sheetActionsColumn: {
+    flexDirection: "column",
+    gap: 10,
+    marginTop: 18,
+  },
   sheetGhost: {
     flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  // Full-width (non-flex-1) variants for the stacked-column layout.
+  sheetGhostFull: {
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -279,6 +324,15 @@ const clientReqStyles = StyleSheet.create({
   sheetGhostText: { fontFamily: "PublicSans_600SemiBold", fontSize: 15 },
   sheetPrimary: {
     flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  sheetPrimaryFull: {
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -301,6 +355,30 @@ function getQuoteShortId(quoteId) {
   return idStr.slice(-4).toUpperCase();
 }
 
+// Appointment type meta — matches the trade Client Request page so
+// both POVs render identical Recent Activity cards.
+const APPT_KIND_META = {
+  survey:    { label: "Survey",             icon: "search-outline" },
+  design:    { label: "Design consultation",icon: "color-palette-outline" },
+  start_job: { label: "Start Job",          icon: "hammer-outline" },
+  followup:  { label: "Follow-up visit",    icon: "refresh-outline" },
+  final:     { label: "Final inspection",   icon: "checkmark-done-outline" },
+};
+function apptMeta(d) {
+  return APPT_KIND_META[d?.kind] || { label: d?.title || "Appointment", icon: "calendar-outline" };
+}
+
+// Known metadata prefixes the client-side request composer may emit.
+// Any line that DOESN'T start with one of these is treated as free-text
+// description (see the find-business wizard path, which writes the
+// description as the first raw line with no prefix).
+const PARSE_KNOWN_PREFIXES = [
+  "category:", "service:", "description:", "property:",
+  "postcode:", "budget:", "timing:", "emergency:",
+  "direct request to:", "note:", "start:", "address:",
+  "main:", "refit:", "notes:",
+];
+
 function parseDetails(details) {
   const res = {
     title: null,
@@ -321,7 +399,8 @@ function parseDetails(details) {
   if (!details) return res;
   const lines = String(details)
     .split("\n")
-    .map((s) => s.trim());
+    .map((s) => s.trim())
+    .filter(Boolean);
   res.title = lines[0] || "Request";
   for (const ln of lines) {
     const [k, ...rest] = ln.split(":");
@@ -341,6 +420,17 @@ function parseDetails(details) {
     else if (key === "main") res.main = v;
     else if (key.includes("refit")) res.refit = v;
     else if (key.includes("notes")) res.notes = v;
+  }
+  // Fallback: the find-business direct-quote wizard writes the raw
+  // description as the first line with NO "Description:" prefix. If
+  // the explicit key wasn't found, collect every prefix-less line
+  // into description so it still surfaces on this screen.
+  if (!res.description) {
+    const rawLines = lines.filter((ln) => {
+      const lower = ln.toLowerCase();
+      return !PARSE_KNOWN_PREFIXES.some((p) => lower.startsWith(p));
+    });
+    if (rawLines.length) res.description = rawLines.join("\n");
   }
   return res;
 }
@@ -414,19 +504,14 @@ export default function ClientRequestDetails() {
 
   const loadAttachments = useCallback(async (requestId) => {
     try {
-      const paths = await listRequestImagePaths(String(requestId));
-      const p = Array.isArray(paths) ? paths : [];
-      setAttachmentsCount(p.length);
-
-      if (!p.length) {
-        setAttachments([]);
-        return;
-      }
-
-      // Use signed URLs for secure access
-      const signed = await getSignedUrls(p, 3600);
-      const urls = (signed || []).map((s) => s.url).filter(Boolean);
-
+      // Memoised: re-entering the screen within the 3500 s TTL
+      // returns the signed URLs instantly without a round trip.
+      // Cache is keyed by requestId and invalidated automatically
+      // when new images are attached.
+      const { paths, urls } = await getRequestAttachmentUrlsCached(
+        String(requestId)
+      );
+      setAttachmentsCount(paths.length);
       setAttachments(urls);
     } catch (e) {
       console.warn("attachments/load error:", e?.message || e);
@@ -483,8 +568,16 @@ export default function ClientRequestDetails() {
         setTargetTrade(tradeProfile);
       }
 
-      await loadAttachments(id);
+      // Kick off attachments, appointments, and quotes in parallel
+      // so none of them blocks the others (or the header render).
+      // Each block calls its own setter as data lands, so the page
+      // progressively fills in instead of waiting for the slowest
+      // fetch before anything appears.
+      loadAttachments(id).catch((e) =>
+        console.warn("attachments/load error:", e?.message || e)
+      );
 
+      (async () => {
       // Fetch appointments for this request using multiple methods
       // Priority: Direct query first (works in main index), then RPCs as fallback
       try {
@@ -628,7 +721,12 @@ export default function ClientRequestDetails() {
         console.warn("appointments/load error:", apptErr?.message || apptErr);
         setAppointments([]);
       }
+      })();
 
+      // Quotes block runs in parallel with appointments above so the
+      // Recent Activity card can start rendering as soon as EITHER
+      // finishes, instead of waiting for both.
+      (async () => {
       // Load quotes for this request (exclude drafts - clients should not see them)
       try {
         const { data: quotesData, error: quotesErr } = await supabase
@@ -670,6 +768,7 @@ export default function ClientRequestDetails() {
         console.warn("quotes/load error:", quotesErr?.message || quotesErr);
         setQuotes([]);
       }
+      })();
     } catch (e) {
       setErr(e?.message || String(e));
       setAttachments([]);
@@ -776,6 +875,59 @@ export default function ClientRequestDetails() {
         },
       ]
     );
+  };
+
+  // Cancel an appointment (both parties allowed).
+  const handleCancelAppointment = async (appt) => {
+    if (!appt?.id || apptBusy) return;
+    Alert.alert(
+      "Cancel appointment?",
+      "Both you and the tradesperson will see it as cancelled.",
+      [
+        { text: "Keep it", style: "cancel" },
+        {
+          text: "Cancel appointment",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setApptBusy(true);
+              const { error } = await supabase
+                .from("appointments")
+                .update({ status: "cancelled" })
+                .eq("id", appt.id);
+              if (error) {
+                Alert.alert("Could not cancel", error.message || "Please try again.");
+                return;
+              }
+              load();
+            } catch (e) {
+              Alert.alert("Error", e?.message || "Something went wrong");
+            } finally {
+              setApptBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Open the Quote Overview so the client can action reschedule via
+  // the existing picker there — we don't duplicate the date/time UI
+  // on this screen. (The trade's quote detail screen has the
+  // matching picker wired up to rpc_request_appointment_reschedule.)
+  const handleOpenAppointmentReschedule = (appt) => {
+    const qid = appt?.quote_id;
+    if (!qid) {
+      Alert.alert(
+        "Link a quote first",
+        "Reschedule is available from the linked quote's detail screen."
+      );
+      return;
+    }
+    router.push({
+      pathname: "/(dashboard)/myquotes/[id]",
+      params: { id: String(qid), returnTo: `/myquotes/request/${id}` },
+    });
   };
 
   function statusTone(s) {
@@ -949,6 +1101,35 @@ export default function ClientRequestDetails() {
             ) : null;
           })()}
 
+          {/* Property type tag — compact primary-tinted pill sitting
+              below the trade row. Sourced from the joined
+              property_types row (set at quote-request Step 3), with
+              the parsed details `Property:` line as a fallback for
+              older rows written before the column existed.          */}
+          {(() => {
+            const propertyName =
+              req?.property_types?.name || parsed.property || null;
+            if (!propertyName) return null;
+            return (
+              <View style={clientReqStyles.propertyTagRow}>
+                <View
+                  style={[
+                    clientReqStyles.propertyTag,
+                    { backgroundColor: Colors.primaryTint },
+                  ]}
+                >
+                  <Ionicons name="home-outline" size={12} color={Colors.primary} />
+                  <ThemedText
+                    style={[clientReqStyles.propertyTagText, { color: Colors.primary }]}
+                    numberOfLines={1}
+                  >
+                    {propertyName}
+                  </ThemedText>
+                </View>
+              </View>
+            );
+          })()}
+
           {/* Job description — same visual treatment as Budget /
               Timing pills below: label inside a bordered container.
               Always rendered with a placeholder when empty.         */}
@@ -1042,7 +1223,9 @@ export default function ClientRequestDetails() {
                     <Image
                       source={{ uri: url }}
                       style={{ width: "100%", height: "100%" }}
-                      resizeMode="cover"
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      transition={120}
                     />
                   </Pressable>
                 ))}
@@ -1119,13 +1302,24 @@ export default function ClientRequestDetails() {
                               ? Colors.status.scheduled
                               : it.data.status === "proposed"
                               ? Colors.status.pending
+                              : it.data.status === "reschedule_pending"
+                              ? Colors.status.pending
                               : Colors.status.declined;
                           const label =
                             it.data.status === "confirmed"
                               ? "Confirmed"
                               : it.data.status === "proposed"
                               ? "Review"
+                              : it.data.status === "reschedule_pending"
+                              ? "Reschedule"
                               : "Cancelled";
+                          const meta = apptMeta(it.data);
+                          const shortQuote = it.data.quote_id
+                            ? getQuoteShortId(it.data.quote_id)
+                            : null;
+                          const title = shortQuote
+                            ? `${meta.label} for Quote #${shortQuote}`
+                            : meta.label;
                           return (
                             <Pressable
                               onPress={() => setActivitySheet(it)}
@@ -1140,14 +1334,14 @@ export default function ClientRequestDetails() {
                                   { backgroundColor: c.elevate2 ?? c.background },
                                 ]}
                               >
-                                <Ionicons name="calendar-outline" size={18} color={c.text} />
+                                <Ionicons name={meta.icon} size={18} color={c.text} />
                               </View>
                               <View style={{ flex: 1, minWidth: 0 }}>
                                 <ThemedText
                                   style={[clientReqStyles.activityTitle, { color: c.text }]}
                                   numberOfLines={1}
                                 >
-                                  {it.data.title || "Appointment"}
+                                  {title}
                                 </ThemedText>
                                 <ThemedText
                                   style={[clientReqStyles.activityMeta, { color: c.textMuted }]}
@@ -1321,22 +1515,56 @@ export default function ClientRequestDetails() {
                     </View>
                   )}
 
-                  {/* Accept/Decline buttons for proposed appointments */}
+                  {/* Reschedule / Decline / Confirm — stacked
+                      vertically so all three full labels remain
+                      legible on narrow screens. Confirm sits at the
+                      bottom as the primary action. */}
                   {isProposed && (
-                    <View style={styles.appointmentCardActions}>
+                    <View style={styles.appointmentCardActionsColumn}>
                       <Pressable
-                        onPress={() => handleDeclineAppointment(appt.id)}
-                        style={styles.appointmentDeclineBtn}
+                        onPress={() => handleOpenAppointmentReschedule(appt)}
+                        style={styles.appointmentRescheduleBtn}
                         disabled={apptBusy}
                       >
-                        <ThemedText style={styles.appointmentDeclineBtnText}>Decline</ThemedText>
+                        <Ionicons
+                          name="calendar-outline"
+                          size={16}
+                          color="#374151"
+                          style={{ marginRight: 6 }}
+                        />
+                        <ThemedText style={styles.appointmentRescheduleBtnText}>
+                          Reschedule
+                        </ThemedText>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => handleDeclineAppointment(appt.id)}
+                        style={styles.appointmentDeclineBtnFull}
+                        disabled={apptBusy}
+                      >
+                        <Ionicons
+                          name="close-circle-outline"
+                          size={16}
+                          color="#B42318"
+                          style={{ marginRight: 6 }}
+                        />
+                        <ThemedText style={styles.appointmentDeclineBtnTextFull}>
+                          Decline
+                        </ThemedText>
                       </Pressable>
                       <Pressable
                         onPress={() => handleConfirmAppointment(appt.id)}
-                        style={styles.appointmentAcceptBtn}
+                        style={styles.appointmentAcceptBtnFull}
                         disabled={apptBusy}
                       >
-                        <ThemedText style={styles.appointmentAcceptBtnText}>Accept</ThemedText>
+                        <Ionicons
+                          name="checkmark"
+                          size={16}
+                          color="#FFFFFF"
+                          style={{ marginRight: 6 }}
+                        />
+                        <ThemedText style={styles.appointmentAcceptBtnText}>
+                          Confirm
+                        </ThemedText>
                       </Pressable>
                     </View>
                   )}
@@ -1573,7 +1801,9 @@ export default function ClientRequestDetails() {
                     <Image
                       source={{ uri: url }}
                       style={styles.photoImg}
-                      resizeMode="cover"
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      transition={120}
                     />
                   </Pressable>
                 ))}
@@ -1670,84 +1900,310 @@ export default function ClientRequestDetails() {
                 { backgroundColor: c.borderStrong },
               ]}
             />
-            {activitySheet?.kind === "appointment" && activitySheet.data && (
-              <>
-                <ThemedText style={[clientReqStyles.sheetTitle, { color: c.text }]}>
-                  {activitySheet.data.title || "Appointment"}
-                </ThemedText>
-                <ThemedText
-                  style={[clientReqStyles.sheetSubtitle, { color: c.textMuted }]}
-                >
-                  {new Date(activitySheet.data.scheduled_at).toLocaleString(undefined, {
-                    weekday: "long",
-                    day: "numeric",
-                    month: "long",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </ThemedText>
-                {activitySheet.data.status === "proposed" ? (
-                  <View style={clientReqStyles.sheetActions}>
+            {activitySheet?.kind === "appointment" && activitySheet.data && (() => {
+              const d = activitySheet.data;
+              const meta = apptMeta(d);
+              const aStatus = String(d.status || "").toLowerCase();
+              const linkedQuote = d.quote_id
+                ? quotes.find((q) => q.id === d.quote_id)
+                : null;
+              const linkedShort = linkedQuote
+                ? getQuoteShortId(linkedQuote.id)
+                : null;
+              const titleText = linkedShort
+                ? `${meta.label} for Quote #${linkedShort}`
+                : meta.label;
+
+              const statusPillTone =
+                aStatus === "confirmed"
+                  ? Colors.status.scheduled
+                  : aStatus === "proposed"
+                  ? Colors.status.pending
+                  : aStatus === "reschedule_pending"
+                  ? Colors.status.pending
+                  : aStatus === "cancelled"
+                  ? Colors.status.declined
+                  : c.textMuted;
+              const statusPillText =
+                aStatus === "confirmed"
+                  ? "Confirmed"
+                  : aStatus === "proposed"
+                  ? "Awaiting confirmation"
+                  : aStatus === "reschedule_pending"
+                  ? "Reschedule proposed"
+                  : aStatus === "cancelled"
+                  ? "Cancelled"
+                  : aStatus
+                  ? aStatus.charAt(0).toUpperCase() + aStatus.slice(1)
+                  : "";
+
+              return (
+                <>
+                  {/* Kind-aware header */}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                    <View
+                      style={{
+                        width: 36, height: 36, borderRadius: 10,
+                        alignItems: "center", justifyContent: "center",
+                        backgroundColor: c.elevate,
+                        borderWidth: 1, borderColor: c.border,
+                      }}
+                    >
+                      <Ionicons name={meta.icon} size={18} color={c.text} />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <ThemedText
+                        style={[clientReqStyles.sheetTitle, { color: c.text, marginBottom: 0 }]}
+                        numberOfLines={2}
+                      >
+                        {titleText}
+                      </ThemedText>
+                    </View>
+                    {statusPillText ? (
+                      <View
+                        style={{
+                          paddingHorizontal: 10, paddingVertical: 4,
+                          borderRadius: 999,
+                          backgroundColor: c.elevate,
+                          borderWidth: 1, borderColor: c.border,
+                        }}
+                      >
+                        <ThemedText style={{ color: statusPillTone, fontSize: 12, fontFamily: "PublicSans_600SemiBold" }}>
+                          {statusPillText}
+                        </ThemedText>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  <ThemedText
+                    style={[clientReqStyles.sheetSubtitle, { color: c.textMuted, marginTop: 8 }]}
+                  >
+                    {new Date(d.scheduled_at).toLocaleString(undefined, {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "long",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </ThemedText>
+
+                  {/* Reschedule-pending notice */}
+                  {aStatus === "reschedule_pending" && d.proposed_scheduled_at ? (
+                    <View
+                      style={{
+                        marginTop: 12,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        borderRadius: 12,
+                        backgroundColor: c.elevate,
+                        borderWidth: 1,
+                        borderColor: c.border,
+                      }}
+                    >
+                      <ThemedText style={{ color: c.textMuted, fontSize: 12 }}>
+                        Proposed new time
+                      </ThemedText>
+                      <ThemedText style={{ color: c.text, fontSize: 14, fontFamily: "PublicSans_600SemiBold", marginTop: 2 }}>
+                        {new Date(d.proposed_scheduled_at).toLocaleString(undefined, {
+                          weekday: "long", day: "numeric", month: "long",
+                          hour: "2-digit", minute: "2-digit",
+                        })}
+                      </ThemedText>
+                    </View>
+                  ) : null}
+
+                  {/* Linked quote card — tap opens the Quote Overview. */}
+                  {linkedQuote ? (
                     <Pressable
-                      onPress={async () => {
-                        const appt = activitySheet.data;
+                      onPress={() => {
                         setActivitySheet(null);
-                        await handleDeclineAppointment(appt.id);
+                        router.push({
+                          pathname: "/(dashboard)/myquotes/[id]",
+                          params: {
+                            id: String(linkedQuote.id),
+                            returnTo: `/myquotes/request/${id}`,
+                          },
+                        });
                       }}
                       style={({ pressed }) => [
-                        clientReqStyles.sheetGhost,
-                        { backgroundColor: c.elevate, borderColor: c.border },
-                        pressed && { opacity: 0.75 },
+                        {
+                          marginTop: 12,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 10,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          borderRadius: 12,
+                          backgroundColor: c.elevate,
+                          borderWidth: 1,
+                          borderColor: c.border,
+                        },
+                        pressed && { opacity: 0.8 },
                       ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open quote ${linkedShort}`}
                     >
-                      <Ionicons
-                        name="close-circle-outline"
-                        size={18}
-                        color={Colors.status.declined}
-                      />
-                      <ThemedText
-                        style={[
-                          clientReqStyles.sheetGhostText,
-                          { color: Colors.status.declined },
+                      <View
+                        style={{
+                          width: 32, height: 32, borderRadius: 8,
+                          alignItems: "center", justifyContent: "center",
+                          backgroundColor: Colors.primaryTint,
+                        }}
+                      >
+                        <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <ThemedText
+                          style={{ color: c.text, fontSize: 13, fontFamily: "PublicSans_600SemiBold" }}
+                          numberOfLines={1}
+                        >
+                          Quote #{linkedShort}
+                        </ThemedText>
+                        <ThemedText
+                          style={{ color: c.textMuted, fontSize: 12, marginTop: 2 }}
+                          numberOfLines={1}
+                        >
+                          £{Number(linkedQuote.grand_total || 0).toFixed(2)}
+                          {linkedQuote.status ? " · " + (linkedQuote.status.charAt(0).toUpperCase() + linkedQuote.status.slice(1)) : ""}
+                        </ThemedText>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
+                    </Pressable>
+                  ) : null}
+
+                  {/* Action row: varies by status. */}
+                  {aStatus === "proposed" ? (
+                    // Trade proposed — client can Reschedule, Decline,
+                    // or Confirm. Stacked vertically so all three full
+                    // labels read clearly without being cropped on
+                    // small screens; Confirm sits at the bottom as the
+                    // primary action closest to the user's thumb.
+                    <View style={clientReqStyles.sheetActionsColumn}>
+                      <Pressable
+                        onPress={() => {
+                          setActivitySheet(null);
+                          handleOpenAppointmentReschedule(d);
+                        }}
+                        style={({ pressed }) => [
+                          clientReqStyles.sheetGhostFull,
+                          { backgroundColor: c.elevate, borderColor: c.border },
+                          pressed && { opacity: 0.75 },
                         ]}
                       >
-                        Decline
-                      </ThemedText>
-                    </Pressable>
-                    <Pressable
-                      onPress={async () => {
-                        const appt = activitySheet.data;
-                        setActivitySheet(null);
-                        await handleConfirmAppointment(appt.id);
-                      }}
-                      style={({ pressed }) => [
-                        clientReqStyles.sheetPrimary,
-                        { backgroundColor: Colors.primary },
-                        pressed && { opacity: 0.85 },
-                      ]}
-                    >
-                      <Ionicons name="checkmark" size={18} color="#fff" />
-                      <ThemedText style={clientReqStyles.sheetPrimaryText}>Confirm</ThemedText>
-                    </Pressable>
-                  </View>
-                ) : (
-                  <View style={clientReqStyles.sheetActions}>
-                    <Pressable
-                      onPress={() => setActivitySheet(null)}
-                      style={({ pressed }) => [
-                        clientReqStyles.sheetGhost,
-                        { backgroundColor: c.elevate, borderColor: c.border },
-                        pressed && { opacity: 0.75 },
-                      ]}
-                    >
-                      <ThemedText style={[clientReqStyles.sheetGhostText, { color: c.text }]}>
-                        Close
-                      </ThemedText>
-                    </Pressable>
-                  </View>
-                )}
-              </>
-            )}
+                        <Ionicons name="calendar-outline" size={18} color={c.text} />
+                        <ThemedText
+                          style={[clientReqStyles.sheetGhostText, { color: c.text }]}
+                        >
+                          Reschedule
+                        </ThemedText>
+                      </Pressable>
+                      <Pressable
+                        onPress={async () => {
+                          setActivitySheet(null);
+                          await handleDeclineAppointment(d.id);
+                        }}
+                        style={({ pressed }) => [
+                          clientReqStyles.sheetGhostFull,
+                          { backgroundColor: c.elevate, borderColor: c.border },
+                          pressed && { opacity: 0.75 },
+                        ]}
+                      >
+                        <Ionicons
+                          name="close-circle-outline"
+                          size={18}
+                          color={Colors.status.declined}
+                        />
+                        <ThemedText
+                          style={[
+                            clientReqStyles.sheetGhostText,
+                            { color: Colors.status.declined },
+                          ]}
+                        >
+                          Decline
+                        </ThemedText>
+                      </Pressable>
+                      <Pressable
+                        onPress={async () => {
+                          setActivitySheet(null);
+                          await handleConfirmAppointment(d.id);
+                        }}
+                        style={({ pressed }) => [
+                          clientReqStyles.sheetPrimaryFull,
+                          { backgroundColor: Colors.primary },
+                          pressed && { opacity: 0.85 },
+                        ]}
+                      >
+                        <Ionicons name="checkmark" size={18} color="#fff" />
+                        <ThemedText style={clientReqStyles.sheetPrimaryText}>Confirm</ThemedText>
+                      </Pressable>
+                    </View>
+                  ) : aStatus === "cancelled" ? (
+                    <View style={clientReqStyles.sheetActions}>
+                      <Pressable
+                        onPress={() => setActivitySheet(null)}
+                        style={({ pressed }) => [
+                          clientReqStyles.sheetGhost,
+                          { backgroundColor: c.elevate, borderColor: c.border, flex: 1 },
+                          pressed && { opacity: 0.75 },
+                        ]}
+                      >
+                        <ThemedText style={[clientReqStyles.sheetGhostText, { color: c.text }]}>
+                          Close
+                        </ThemedText>
+                      </Pressable>
+                    </View>
+                  ) : (
+                    // Confirmed or reschedule_pending — either party can
+                    // reschedule or cancel. Reschedule flow lives on the
+                    // Quote Overview screen (shared picker UI).
+                    <View style={clientReqStyles.sheetActions}>
+                      <Pressable
+                        onPress={() => {
+                          setActivitySheet(null);
+                          handleOpenAppointmentReschedule(d);
+                        }}
+                        style={({ pressed }) => [
+                          clientReqStyles.sheetGhost,
+                          { backgroundColor: c.elevate, borderColor: c.border },
+                          pressed && { opacity: 0.75 },
+                        ]}
+                      >
+                        <Ionicons name="calendar-outline" size={18} color={c.text} />
+                        <ThemedText style={[clientReqStyles.sheetGhostText, { color: c.text }]}>
+                          Reschedule
+                        </ThemedText>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          const appt = d;
+                          setActivitySheet(null);
+                          handleCancelAppointment(appt);
+                        }}
+                        style={({ pressed }) => [
+                          clientReqStyles.sheetGhost,
+                          { backgroundColor: c.elevate, borderColor: c.border },
+                          pressed && { opacity: 0.75 },
+                        ]}
+                      >
+                        <Ionicons
+                          name="close-circle-outline"
+                          size={18}
+                          color={Colors.status.declined}
+                        />
+                        <ThemedText
+                          style={[
+                            clientReqStyles.sheetGhostText,
+                            { color: Colors.status.declined },
+                          ]}
+                        >
+                          Cancel
+                        </ThemedText>
+                      </Pressable>
+                    </View>
+                  )}
+                </>
+              );
+            })()}
             {activitySheet?.kind === "quote" && activitySheet.data && (
               <>
                 <ThemedText style={[clientReqStyles.sheetTitle, { color: c.text }]}>
@@ -2027,6 +2483,15 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 16,
   },
+  // Stacked variant — Reschedule + Decline + Confirm rendered
+  // top-to-bottom so every label fits comfortably on narrow
+  // screens. Gap between rows is slightly tighter than the
+  // horizontal variant to keep the card compact.
+  appointmentCardActionsColumn: {
+    flexDirection: "column",
+    gap: 10,
+    marginTop: 16,
+  },
   appointmentDeclineBtn: {
     flex: 1,
     alignItems: "center",
@@ -2040,8 +2505,46 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#374151",
   },
+  // Full-width variants used inside appointmentCardActionsColumn.
+  appointmentRescheduleBtn: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#F3F4F6",
+  },
+  appointmentRescheduleBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  appointmentDeclineBtnFull: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#FEE2E2",
+  },
+  appointmentDeclineBtnTextFull: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#B42318",
+  },
   appointmentAcceptBtn: {
     flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#10B981",
+  },
+  appointmentAcceptBtnFull: {
+    width: "100%",
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 12,

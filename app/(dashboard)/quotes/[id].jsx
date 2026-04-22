@@ -5,7 +5,6 @@ import {
   ScrollView,
   Pressable,
   useColorScheme,
-  Image,
   Platform,
   Alert,
   TextInput,
@@ -14,6 +13,10 @@ import {
   KeyboardAvoidingView,
   Keyboard,
 } from "react-native";
+// expo-image — memory+disk cached decodes for the attachment
+// thumbnails and the avatar on this screen. Trade and client
+// render paths both flow through here.
+import { Image } from "expo-image";
 import ImageViewing from "react-native-image-viewing";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
@@ -31,10 +34,7 @@ import Spacer from "../../../components/Spacer";
 import { QuoteOverviewSkeleton } from "../../../components/Skeleton";
 import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
 import { FontFamily, Radius } from "../../../constants/Typography";
-import {
-  listRequestImagePaths,
-  getSignedUrls,
-} from "../../../lib/api/attachments";
+import { getRequestAttachmentUrlsCached } from "../../../lib/api/attachments";
 
 function getInitials(name) {
   if (!name) return "?";
@@ -122,6 +122,23 @@ function getQuoteShortId(quoteId) {
   if (!quoteId) return "0000";
   const idStr = String(quoteId);
   return idStr.slice(-4).toUpperCase();
+}
+
+// Infer appointment kind from its title string — used as a backfill
+// whenever the fetch path returns an appointment row without an
+// explicit `kind` column (the RPC predates the 2026-04-28 migration,
+// and older direct queries used a narrow SELECT list that omitted
+// it). Returning `null` when we can't tell keeps the gate for
+// "Mark as complete" honest — it only fires for rows we're
+// confident are Start Job appointments.
+function inferKindFromTitle(title) {
+  const t = String(title || "").toLowerCase();
+  if (t.includes("start job") || t.includes("start work")) return "start_job";
+  if (t.includes("final inspection") || t.includes("final")) return "final";
+  if (t.includes("follow-up") || t.includes("follow up") || t.includes("followup")) return "followup";
+  if (t.includes("design consultation") || t.includes("design")) return "design";
+  if (t.includes("survey") || t.includes("assessment")) return "survey";
+  return null;
 }
 
 export default function QuoteDetails() {
@@ -344,19 +361,16 @@ export default function QuoteDetails() {
           }
         }
 
-        // 3) Load attachments
+        // 3) Load attachments (memoised — repeated entries within
+        //    the 3500 s TTL skip both the path RPC and the signing
+        //    round trip).
         try {
-          const paths = await listRequestImagePaths(String(reqId));
+          const { paths, urls } = await getRequestAttachmentUrlsCached(
+            String(reqId)
+          );
           if (!mounted) return;
-          const p = Array.isArray(paths) ? paths : [];
-          setAttachmentsCount(p.length || 0);
-          if (p.length) {
-            const signed = await getSignedUrls(p, 3600);
-            const urls = (signed || []).map((s) => s.url).filter(Boolean);
-            setAttachments(urls);
-          } else {
-            setAttachments([]);
-          }
+          setAttachmentsCount(paths.length || 0);
+          setAttachments(urls);
         } catch (e) {
           console.warn("attachments load failed", e?.message || e);
           if (mounted) {
@@ -384,20 +398,30 @@ export default function QuoteDetails() {
               .filter((a) => a.request_id === reqId || a.quote_id === quoteId);
 
             // Map to the expected format
-            finalAppointments = filtered.map((a) => ({
-              id: a.id,
-              request_id: a.request_id,
-              quote_id: a.quote_id,
-              scheduled_at: a.scheduled_at,
-              title: a.title || "Appointment",
-              status: a.status,
-              location: a.location,
-            }));
+            finalAppointments = filtered.map((a) => {
+              const title = a.title || "Appointment";
+              return {
+                id: a.id,
+                request_id: a.request_id,
+                quote_id: a.quote_id,
+                scheduled_at: a.scheduled_at,
+                title,
+                status: a.status,
+                location: a.location,
+                // Critical for the Mark-as-complete gate + bottom
+                // sheet icon/title. rpc_trade_list_appointments
+                // doesn't return `kind` yet, so fall back to
+                // inferring it from the title string when missing.
+                kind: a.kind || inferKindFromTitle(title) || null,
+                reschedule_requested_by: a.reschedule_requested_by || null,
+                proposed_scheduled_at: a.proposed_scheduled_at || null,
+              };
+            });
           } else {
             // Fallback: direct query (may not work due to RLS)
             const { data: directAppts, error: directErr } = await supabase
               .from("appointments")
-              .select("id, request_id, quote_id, scheduled_at, title, status, location")
+              .select("id, request_id, quote_id, scheduled_at, title, status, location, kind, reschedule_requested_by, proposed_scheduled_at")
               .or(`request_id.eq.${reqId},quote_id.eq.${quoteId}`)
               .order("scheduled_at", { ascending: true });
 
@@ -543,20 +567,26 @@ export default function QuoteDetails() {
               const filtered = (Array.isArray(allAppts) ? allAppts : [])
                 .filter((a) => a.request_id === reqId || a.quote_id === quoteId);
 
-              finalAppointments = filtered.map((a) => ({
-                id: a.id,
-                request_id: a.request_id,
-                quote_id: a.quote_id,
-                scheduled_at: a.scheduled_at,
-                title: a.title || "Appointment",
-                status: a.status,
-                location: a.location,
-              }));
+              finalAppointments = filtered.map((a) => {
+                const title = a.title || "Appointment";
+                return {
+                  id: a.id,
+                  request_id: a.request_id,
+                  quote_id: a.quote_id,
+                  scheduled_at: a.scheduled_at,
+                  title,
+                  status: a.status,
+                  location: a.location,
+                  kind: a.kind || inferKindFromTitle(title) || null,
+                  reschedule_requested_by: a.reschedule_requested_by || null,
+                  proposed_scheduled_at: a.proposed_scheduled_at || null,
+                };
+              });
             } else {
               // Fallback: direct query
               const { data: directAppts, error: directErr } = await supabase
                 .from("appointments")
-                .select("id, request_id, quote_id, scheduled_at, title, status, location")
+                .select("id, request_id, quote_id, scheduled_at, title, status, location, kind, reschedule_requested_by, proposed_scheduled_at")
                 .or(`request_id.eq.${reqId},quote_id.eq.${quoteId}`)
                 .order("scheduled_at", { ascending: true });
 
@@ -604,19 +634,29 @@ export default function QuoteDetails() {
             const filtered = (Array.isArray(allAppts) ? allAppts : [])
               .filter((a) => a.request_id === reqId || a.quote_id === quoteId);
 
-            finalAppointments = filtered.map((a) => ({
-              id: a.id,
-              request_id: a.request_id,
-              quote_id: a.quote_id,
-              scheduled_at: a.scheduled_at,
-              title: a.title || "Appointment",
-              status: a.status,
-              location: a.location,
-            }));
+            finalAppointments = filtered.map((a) => {
+              const title = a.title || "Appointment";
+              return {
+                id: a.id,
+                request_id: a.request_id,
+                quote_id: a.quote_id,
+                scheduled_at: a.scheduled_at,
+                title,
+                status: a.status,
+                location: a.location,
+                // Critical for the Mark-as-complete gate + bottom
+                // sheet icon/title. rpc_trade_list_appointments
+                // doesn't return `kind` yet, so fall back to
+                // inferring it from the title string when missing.
+                kind: a.kind || inferKindFromTitle(title) || null,
+                reschedule_requested_by: a.reschedule_requested_by || null,
+                proposed_scheduled_at: a.proposed_scheduled_at || null,
+              };
+            });
           } else {
             const { data: directAppts, error: directErr } = await supabase
               .from("appointments")
-              .select("id, request_id, quote_id, scheduled_at, title, status, location")
+              .select("id, request_id, quote_id, scheduled_at, title, status, location, kind, reschedule_requested_by, proposed_scheduled_at")
               .or(`request_id.eq.${reqId},quote_id.eq.${quoteId}`)
               .order("scheduled_at", { ascending: true });
 
@@ -663,6 +703,20 @@ export default function QuoteDetails() {
   // status chip
   const status = String(quote?.status || quote?.state || "").toLowerCase();
   const isAccepted = status === "accepted";
+
+  // Mark-as-complete is only meaningful once the trade has actually
+  // scheduled a Start Job on this quote. Requires at least one
+  // Start Job appointment in a non-cancelled state (proposed,
+  // confirmed, or reschedule_pending all qualify — they all mean
+  // the job is on the books).
+  const hasActiveStartJobAppt = useMemo(() => {
+    if (!quote?.id) return false;
+    return (appointments || []).some((a) => {
+      if (a.kind !== "start_job") return false;
+      if (a.quote_id && a.quote_id !== quote.id) return false;
+      return String(a.status || "").toLowerCase() !== "cancelled";
+    });
+  }, [appointments, quote?.id]);
 
   // Final "other person" display identity
   const displayName =
@@ -892,7 +946,7 @@ export default function QuoteDetails() {
       // Reload ALL appointments immediately after creation
       const { data: apptData, error: apptErr } = await supabase
         .from("appointments")
-        .select("id, request_id, quote_id, scheduled_at, title, status, location")
+        .select("id, request_id, quote_id, scheduled_at, title, status, location, kind, reschedule_requested_by, proposed_scheduled_at")
         .eq("request_id", reqId)
         .order("scheduled_at", { ascending: true });
 
@@ -965,7 +1019,7 @@ export default function QuoteDetails() {
               if (reqId) {
                 const { data: apptData, error: apptErr } = await supabase
                   .from("appointments")
-                  .select("id, request_id, quote_id, scheduled_at, title, status, location")
+                  .select("id, request_id, quote_id, scheduled_at, title, status, location, kind, reschedule_requested_by, proposed_scheduled_at")
                   .eq("request_id", reqId)
                   .order("scheduled_at", { ascending: true });
 
@@ -1017,7 +1071,7 @@ export default function QuoteDetails() {
               if (reqId) {
                 const { data: apptData, error: apptErr } = await supabase
                   .from("appointments")
-                  .select("id, request_id, quote_id, scheduled_at, title, status, location")
+                  .select("id, request_id, quote_id, scheduled_at, title, status, location, kind, reschedule_requested_by, proposed_scheduled_at")
                   .eq("request_id", reqId)
                   .order("scheduled_at", { ascending: true });
 
@@ -1306,20 +1360,26 @@ export default function QuoteDetails() {
         const filtered = (Array.isArray(allAppts) ? allAppts : [])
           .filter((a) => a.request_id === reqId || a.quote_id === quoteId);
 
-        finalAppointments = filtered.map((a) => ({
-          id: a.id,
-          request_id: a.request_id,
-          quote_id: a.quote_id,
-          scheduled_at: a.scheduled_at,
-          title: a.title || "Appointment",
-          status: a.status,
-          location: a.location,
-          reschedule_count: a.reschedule_count,
-          reschedule_requested_by: a.reschedule_requested_by,
-          proposed_scheduled_at: a.proposed_scheduled_at,
-          reschedule_reason: a.reschedule_reason,
-          original_scheduled_at: a.original_scheduled_at,
-        }));
+        finalAppointments = filtered.map((a) => {
+          const title = a.title || "Appointment";
+          return {
+            id: a.id,
+            request_id: a.request_id,
+            quote_id: a.quote_id,
+            scheduled_at: a.scheduled_at,
+            title,
+            status: a.status,
+            location: a.location,
+            // Kind is the gate for Mark-as-complete — infer from
+            // the title when the RPC doesn't return it directly.
+            kind: a.kind || inferKindFromTitle(title) || null,
+            reschedule_count: a.reschedule_count,
+            reschedule_requested_by: a.reschedule_requested_by,
+            proposed_scheduled_at: a.proposed_scheduled_at,
+            reschedule_reason: a.reschedule_reason,
+            original_scheduled_at: a.original_scheduled_at,
+          };
+        });
       } else {
         // Fallback: direct query
         const { data: directAppts } = await supabase
@@ -1525,6 +1585,9 @@ export default function QuoteDetails() {
               <Image
                 source={{ uri: displayAvatarUrl }}
                 style={styles.scheduleHeroAvatarImg}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={120}
               />
             ) : (
               <View style={styles.scheduleHeroAvatarFallback}>
@@ -1679,16 +1742,19 @@ export default function QuoteDetails() {
         {/* Sticky chevron back (no Quote # header row). */}
         <Pressable
           onPress={() => {
-            // Prefer an explicit `returnTo` when the caller opted in
-            // (e.g. conversation screen pushing this quote detail).
-            // Fallback chain: fromAppointments → router.back →
-            // /quotes tab root.
-            if (returnToParam) {
-              router.replace(returnToParam);
-            } else if (fromAppointments) {
+            // Prefer a natural stack pop whenever one's available —
+            // Recent Activity → this screen is the common case and
+            // `router.back()` unwinds it correctly. Using
+            // `router.replace(returnTo)` first was pushing a FRESH
+            // Client Request screen on top of the one underneath,
+            // producing the duplicate "forward animation" on back
+            // that mirror-bugged the client side.
+            if (fromAppointments) {
               router.push('/appointments');
             } else if (router.canGoBack?.()) {
               router.back();
+            } else if (returnToParam) {
+              router.replace(returnToParam);
             } else {
               router.replace("/quotes");
             }
@@ -2185,7 +2251,9 @@ export default function QuoteDetails() {
                         <Image
                           source={{ uri: url }}
                           style={{ width: "100%", height: "100%" }}
-                          resizeMode="cover"
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          transition={120}
                         />
                       </Pressable>
                     ))}
@@ -2543,10 +2611,17 @@ export default function QuoteDetails() {
             </View>
           )}
 
-          {/* Action Buttons - Only show for accepted status (not awaiting/completed/issue_reported) */}
+          {/* Action Buttons — only show for accepted quotes that
+              have an active Start Job appointment (proposed,
+              confirmed, or reschedule_pending — anything non-
+              cancelled). Before a Start Job is booked, marking
+              complete makes no sense because nothing's been
+              started. Covers the "don't surface destructive
+              actions until the state machine is ready for them"
+              principle. */}
           {status !== "awaiting_completion" && status !== "completed" && status !== "issue_reported" && (
             <View style={styles.actionButtonsContainer}>
-              {isAccepted && (
+              {isAccepted && hasActiveStartJobAppt && (
                 <Pressable
                   style={styles.markCompleteBtn}
                   onPress={openMarkCompleteSheet}
@@ -2554,9 +2629,6 @@ export default function QuoteDetails() {
                   <ThemedText style={styles.markCompleteBtnText}>Mark as complete</ThemedText>
                 </Pressable>
               )}
-
-              {/* Message client button removed — Client Request page
-                  owns the message affordance now. */}
             </View>
           )}
 
@@ -3452,7 +3524,9 @@ export default function QuoteDetails() {
                       <Image
                         source={{ uri: url }}
                         style={styles.thumbImg}
-                        resizeMode="cover"
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        transition={120}
                       />
                     </Pressable>
                   ))}
