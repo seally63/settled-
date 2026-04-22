@@ -1,5 +1,7 @@
 # Settled
 
+> Copyright (c) 2025 Ronan Seally. All rights reserved. This repository is publicly visible for portfolio and review purposes only. Redistribution, commercial use, or derivative works require written permission. See [`LICENSE`](./LICENSE).
+
 Settled is an invite-only platform connecting UK homeowners with hand-picked, verified tradespeople. No bidding wars, no lead fees, no auction dynamics. Homeowners browse a curated set of trades and send a direct enquiry to the one they want. Trades receive qualified leads they can accept or decline.
 
 ## Tech Stack
