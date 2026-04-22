@@ -152,8 +152,7 @@ export default function SavedTradesSection() {
       <View style={styles.headerRow}>
         <SectionHead
           title="Saved trades"
-          chevron
-          onPress={() => router.push("/client/find-business")}
+          chevron={false}
           style={styles.sectionHeadFlush}
         />
         <View style={styles.tabs}>
