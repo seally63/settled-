@@ -141,6 +141,9 @@ export default function QuoteDetails() {
     : params.avatar;
   const fromAppointments = params.fromAppointments === 'true';
   const shouldOpenSchedule = params.openSchedule === 'true';
+  const returnToParam = Array.isArray(params.returnTo)
+    ? params.returnTo[0]
+    : params.returnTo;
 
   const scheme = useColorScheme();
   const iconColor = scheme === "dark" ? "#fff" : "#000";
@@ -1676,7 +1679,13 @@ export default function QuoteDetails() {
         {/* Sticky chevron back (no Quote # header row). */}
         <Pressable
           onPress={() => {
-            if (fromAppointments) {
+            // Prefer an explicit `returnTo` when the caller opted in
+            // (e.g. conversation screen pushing this quote detail).
+            // Fallback chain: fromAppointments → router.back →
+            // /quotes tab root.
+            if (returnToParam) {
+              router.replace(returnToParam);
+            } else if (fromAppointments) {
               router.push('/appointments');
             } else if (router.canGoBack?.()) {
               router.back();
