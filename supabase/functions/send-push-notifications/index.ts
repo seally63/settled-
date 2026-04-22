@@ -138,7 +138,19 @@ async function sendToExpo(notifications: ExpoNotification[]): Promise<{
 
 serve(async (req) => {
   const LOG_PREFIX = "[SEND-PUSH]";
-  const CRON_SECRET = Deno.env.get("CRON_SECRET") || "tradify-cron-secret-2024";
+  // Require CRON_SECRET from the deploy environment. The previous
+  // `|| "tradify-cron-secret-2024"` fallback embedded a guessable
+  // secret in the public repo, defeating the purpose of the cron
+  // auth path. Fail closed if the env var isn't set so the function
+  // can't be invoked with the compiled-in value.
+  const CRON_SECRET = Deno.env.get("CRON_SECRET");
+  if (!CRON_SECRET) {
+    console.error(`${LOG_PREFIX} CRON_SECRET env var is not set`);
+    return new Response(
+      JSON.stringify({ error: "Server misconfigured" }),
+      { status: 500 }
+    );
+  }
 
   try {
     if (req.method !== "POST") {
