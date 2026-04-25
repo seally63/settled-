@@ -20,8 +20,10 @@ import Spacer from "../../../components/Spacer";
 import OTPInput from "../../../components/OTPInput";
 import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants } from "../../../constants/Typography";
 
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
 import useHideTabBar from "../../../hooks/useHideTabBar";
@@ -36,6 +38,7 @@ export default function ChangePhoneScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();
+  const { colors: c } = useTheme();
 
   const [currentScreen, setCurrentScreen] = useState(SCREENS.ENTER_PHONE);
   const [currentPhone, setCurrentPhone] = useState("");
@@ -139,11 +142,13 @@ export default function ChangePhoneScreen() {
       <ThemedStatusBar />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: c.border }]}>
         <Pressable onPress={handleBack} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={c.text} />
         </Pressable>
-        <ThemedText style={styles.headerTitle}>Change phone</ThemedText>
+        <ThemedText style={[styles.headerTitle, { color: c.text }]}>
+          Change phone
+        </ThemedText>
         <View style={{ width: 24 }} />
       </View>
 
@@ -154,29 +159,41 @@ export default function ChangePhoneScreen() {
         <View style={styles.content}>
           {currentScreen === SCREENS.ENTER_PHONE ? (
             <>
-              <ThemedText style={styles.label}>Current phone number</ThemedText>
-              <View style={styles.currentPhoneBox}>
-                <ThemedText style={styles.currentPhoneText}>
+              <ThemedText style={[styles.label, { color: c.text }]}>
+                Current phone number
+              </ThemedText>
+              <View
+                style={[
+                  styles.currentPhoneBox,
+                  { backgroundColor: c.elevate, borderColor: c.border },
+                ]}
+              >
+                <ThemedText style={[styles.currentPhoneText, { color: c.textMuted }]}>
                   {formatPhoneDisplay(currentPhone)}
                 </ThemedText>
               </View>
 
               <Spacer height={24} />
 
-              <ThemedText style={styles.label}>New phone number</ThemedText>
+              <ThemedText style={[styles.label, { color: c.text }]}>
+                New phone number
+              </ThemedText>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  { backgroundColor: c.elevate, borderColor: c.border, color: c.text },
+                ]}
                 value={newPhone}
                 onChangeText={setNewPhone}
                 placeholder="Enter new phone number"
-                placeholderTextColor={Colors.light.subtitle}
+                placeholderTextColor={c.textMuted}
                 keyboardType="phone-pad"
                 autoComplete="tel"
               />
 
               <Spacer height={12} />
 
-              <ThemedText style={styles.hint}>
+              <ThemedText style={[styles.hint, { color: c.textMuted }]}>
                 We'll send a verification code to your new phone number via SMS.
               </ThemedText>
 
@@ -198,11 +215,15 @@ export default function ChangePhoneScreen() {
             </>
           ) : (
             <>
-              <ThemedText style={styles.title}>Verify your phone</ThemedText>
+              <ThemedText style={[styles.title, { color: c.text }]}>
+                Verify your phone
+              </ThemedText>
               <Spacer height={8} />
-              <ThemedText style={styles.subtitle}>
+              <ThemedText style={[styles.subtitle, { color: c.textMuted }]}>
                 Enter the 4-digit code sent to{"\n"}
-                <ThemedText style={styles.phoneHighlight}>{newPhone}</ThemedText>
+                <ThemedText style={[styles.phoneHighlight, { color: c.text }]}>
+                  {newPhone}
+                </ThemedText>
               </ThemedText>
 
               <Spacer height={32} />
@@ -231,7 +252,12 @@ export default function ChangePhoneScreen() {
               </Pressable>
 
               {saving && (
-                <View style={styles.savingOverlay}>
+                <View
+                  style={[
+                    styles.savingOverlay,
+                    { backgroundColor: c.background + "B3" },
+                  ]}
+                >
                   <ActivityIndicator color={Colors.primary} />
                 </View>
               )}
@@ -246,7 +272,7 @@ export default function ChangePhoneScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // bg handled by ThemedView default + theme.
   },
   loadingContainer: {
     flex: 1,
@@ -259,11 +285,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    // border + text painted inline from theme.
   },
   headerTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
   },
   keyboardView: {
     flex: 1,
@@ -276,33 +303,32 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: "500",
-    color: Colors.light.title,
     marginBottom: 8,
+    // color painted inline from theme.
   },
   currentPhoneBox: {
-    backgroundColor: Colors.light.secondaryBackground,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderRadius: 12,
+    borderWidth: 1,
+    // bg + border painted inline from theme.
   },
   currentPhoneText: {
     fontSize: 16,
-    color: Colors.light.subtitle,
+    // color painted inline from theme.
   },
   input: {
-    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: Colors.light.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    color: Colors.light.title,
+    // bg + border + text color painted inline from theme.
   },
   hint: {
     fontSize: 13,
-    color: Colors.light.subtitle,
     lineHeight: 18,
+    // color painted inline from theme.
   },
   primaryButton: {
     backgroundColor: Colors.primary,
@@ -325,18 +351,18 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: "700",
-    color: Colors.light.title,
     textAlign: "center",
+    // color painted inline from theme.
   },
   subtitle: {
     fontSize: 15,
-    color: Colors.light.subtitle,
     textAlign: "center",
     lineHeight: 22,
+    // color painted inline from theme.
   },
   phoneHighlight: {
-    color: Colors.light.title,
     fontWeight: "500",
+    // color painted inline from theme.
   },
   errorText: {
     fontSize: 13,
@@ -354,8 +380,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(255,255,255,0.7)",
     alignItems: "center",
     justifyContent: "center",
+    // bg painted inline (semi-transparent theme background).
   },
 });

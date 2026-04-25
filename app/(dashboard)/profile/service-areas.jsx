@@ -20,6 +20,8 @@ import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants } from "../../../constants/Typography";
+import { useTheme } from "../../../hooks/useTheme";
 
 import { getMyProfile, updateServiceRadius, updateExtendedTravel } from "../../../lib/api/profile";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
@@ -44,6 +46,7 @@ export default function ServiceAreasScreen() {
   useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { colors: c } = useTheme();
 
   const [travelRadius, setTravelRadius] = useState(10); // in miles
   const [basePostcode, setBasePostcode] = useState(null);
@@ -143,9 +146,9 @@ export default function ServiceAreasScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={c.text} />
         </Pressable>
-        <ThemedText style={styles.headerTitle}>Service area</ThemedText>
+        <ThemedText style={[styles.headerTitle, { color: c.text }]}>Service area</ThemedText>
         <View style={{ width: 24 }} />
       </View>
 
@@ -156,15 +159,15 @@ export default function ServiceAreasScreen() {
       >
         {/* Hero Section */}
         <View style={styles.heroSection}>
-          <View style={styles.heroIconContainer}>
-            <Ionicons name="location-outline" size={32} color={Colors.light.title} />
+          <View style={[styles.heroIconContainer, { backgroundColor: c.elevate }]}>
+            <Ionicons name="location-outline" size={32} color={c.text} />
           </View>
           <Spacer height={16} />
-          <ThemedText style={styles.heroTitle}>
+          <ThemedText style={[styles.heroTitle, { color: c.text }]}>
             Set your travel radius
           </ThemedText>
           <Spacer height={8} />
-          <ThemedText style={styles.heroText}>
+          <ThemedText style={[styles.heroText, { color: c.textMuted }]}>
             Clients within this distance will find you when requesting quotes.
           </ThemedText>
         </View>
@@ -172,15 +175,15 @@ export default function ServiceAreasScreen() {
         <Spacer height={32} />
 
         {/* Settings Card */}
-        <View style={styles.settingsCard}>
+        <View style={[styles.settingsCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
           {/* Base Location Row */}
           <View style={styles.settingsRow}>
             <View style={styles.settingsRowLeft}>
-              <Ionicons name="home-outline" size={18} color={Colors.light.subtitle} style={styles.settingsIcon} />
-              <ThemedText style={styles.settingsLabel}>Base location</ThemedText>
+              <Ionicons name="home-outline" size={18} color={c.textMuted} style={styles.settingsIcon} />
+              <ThemedText style={[styles.settingsLabel, { color: c.text }]}>Base location</ThemedText>
             </View>
             <View style={styles.settingsRowRight}>
-              <ThemedText style={styles.settingsValue}>
+              <ThemedText style={[styles.settingsValue, { color: c.text }]}>
                 {basePostcode || "Not set"}
               </ThemedText>
               <View style={{ width: 18 }} />
@@ -188,26 +191,26 @@ export default function ServiceAreasScreen() {
           </View>
 
           {/* Divider */}
-          <View style={styles.cardDivider} />
+          <View style={[styles.cardDivider, { backgroundColor: c.border }]} />
 
           {/* Travel Radius Row */}
           <Pressable
             style={({ pressed }) => [
               styles.settingsRow,
               styles.settingsRowTappable,
-              pressed && styles.settingsRowPressed,
+              pressed && { backgroundColor: c.elevate2 },
             ]}
             onPress={() => setShowRadiusSheet(true)}
           >
             <View style={styles.settingsRowLeft}>
-              <Ionicons name="navigate-outline" size={18} color={Colors.light.subtitle} style={styles.settingsIcon} />
-              <ThemedText style={styles.settingsLabel}>Travel radius</ThemedText>
+              <Ionicons name="navigate-outline" size={18} color={c.textMuted} style={styles.settingsIcon} />
+              <ThemedText style={[styles.settingsLabel, { color: c.text }]}>Travel radius</ThemedText>
             </View>
             <View style={styles.settingsRowRight}>
-              <ThemedText style={styles.settingsValue}>
+              <ThemedText style={[styles.settingsValue, { color: c.text }]}>
                 {travelRadius} miles
               </ThemedText>
-              <Ionicons name="chevron-forward" size={18} color={Colors.light.subtitle} />
+              <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
             </View>
           </Pressable>
         </View>
@@ -216,30 +219,31 @@ export default function ServiceAreasScreen() {
 
         {/* Extended Travel Section */}
         <View style={styles.sectionHeader}>
-          <ThemedText style={styles.sectionTitle}>Extended travel</ThemedText>
+          <ThemedText style={[styles.sectionTitle, { color: c.textMuted }]}>Extended travel</ThemedText>
         </View>
 
         <Spacer height={8} />
 
-        <View style={styles.settingsCard}>
+        <View style={[styles.settingsCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
           {/* Toggle Row */}
           <Pressable
             style={({ pressed }) => [
               styles.settingsRow,
               styles.settingsRowTappable,
-              pressed && styles.settingsRowPressed,
+              pressed && { backgroundColor: c.elevate2 },
             ]}
             onPress={() => setExtendedTravelEnabled(!extendedTravelEnabled)}
           >
             <View style={styles.settingsRowLeft}>
-              <Ionicons name="car-outline" size={18} color={Colors.light.subtitle} style={styles.settingsIcon} />
+              <Ionicons name="car-outline" size={18} color={c.textMuted} style={styles.settingsIcon} />
               <View style={{ flex: 1 }}>
-                <ThemedText style={styles.settingsLabel}>Willing to travel further</ThemedText>
-                <ThemedText style={styles.settingsHint}>For larger budget jobs</ThemedText>
+                <ThemedText style={[styles.settingsLabel, { color: c.text }]}>Willing to travel further</ThemedText>
+                <ThemedText style={[styles.settingsHint, { color: c.textMuted }]}>For larger budget jobs</ThemedText>
               </View>
             </View>
             <View style={[
               styles.toggleTrack,
+              { backgroundColor: c.border },
               extendedTravelEnabled && styles.toggleTrackActive,
             ]}>
               <View style={[
@@ -252,49 +256,49 @@ export default function ServiceAreasScreen() {
           {/* Extended settings (shown when enabled) */}
           {extendedTravelEnabled && (
             <>
-              <View style={styles.cardDivider} />
+              <View style={[styles.cardDivider, { backgroundColor: c.border }]} />
 
               {/* Extended Radius Row */}
               <Pressable
                 style={({ pressed }) => [
                   styles.settingsRow,
                   styles.settingsRowTappable,
-                  pressed && styles.settingsRowPressed,
+                  pressed && { backgroundColor: c.elevate2 },
                 ]}
                 onPress={() => setShowExtendedRadiusSheet(true)}
               >
                 <View style={styles.settingsRowLeft}>
-                  <Ionicons name="resize-outline" size={18} color={Colors.light.subtitle} style={styles.settingsIcon} />
-                  <ThemedText style={styles.settingsLabel}>Extended distance</ThemedText>
+                  <Ionicons name="resize-outline" size={18} color={c.textMuted} style={styles.settingsIcon} />
+                  <ThemedText style={[styles.settingsLabel, { color: c.text }]}>Extended distance</ThemedText>
                 </View>
                 <View style={styles.settingsRowRight}>
-                  <ThemedText style={styles.settingsValue}>
+                  <ThemedText style={[styles.settingsValue, { color: c.text }]}>
                     {extendedRadius} miles
                   </ThemedText>
-                  <Ionicons name="chevron-forward" size={18} color={Colors.light.subtitle} />
+                  <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
                 </View>
               </Pressable>
 
-              <View style={styles.cardDivider} />
+              <View style={[styles.cardDivider, { backgroundColor: c.border }]} />
 
               {/* Minimum Budget Row */}
               <Pressable
                 style={({ pressed }) => [
                   styles.settingsRow,
                   styles.settingsRowTappable,
-                  pressed && styles.settingsRowPressed,
+                  pressed && { backgroundColor: c.elevate2 },
                 ]}
                 onPress={() => setShowBudgetSheet(true)}
               >
                 <View style={styles.settingsRowLeft}>
-                  <Ionicons name="cash-outline" size={18} color={Colors.light.subtitle} style={styles.settingsIcon} />
-                  <ThemedText style={styles.settingsLabel}>Minimum budget</ThemedText>
+                  <Ionicons name="cash-outline" size={18} color={c.textMuted} style={styles.settingsIcon} />
+                  <ThemedText style={[styles.settingsLabel, { color: c.text }]}>Minimum budget</ThemedText>
                 </View>
                 <View style={styles.settingsRowRight}>
-                  <ThemedText style={styles.settingsValue}>
+                  <ThemedText style={[styles.settingsValue, { color: c.text }]}>
                     {BUDGET_BANDS.find(b => b.value === extendedMinBudget)?.label || extendedMinBudget}
                   </ThemedText>
-                  <Ionicons name="chevron-forward" size={18} color={Colors.light.subtitle} />
+                  <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
                 </View>
               </Pressable>
             </>
@@ -304,21 +308,21 @@ export default function ServiceAreasScreen() {
         <Spacer height={24} />
 
         {/* Info Box */}
-        <View style={styles.infoBox}>
-          <Ionicons name="information-circle-outline" size={20} color={Colors.light.subtitle} />
-          <ThemedText style={styles.infoText}>
+        <View style={[styles.infoBox, { backgroundColor: c.elevate, borderColor: c.border, borderWidth: 1 }]}>
+          <Ionicons name="information-circle-outline" size={20} color={c.textMuted} />
+          <ThemedText style={[styles.infoText, { color: c.textMuted }]}>
             Clients will see you in search results if their location is within{" "}
-            <ThemedText style={styles.infoTextBold}>{travelRadius} miles</ThemedText>
+            <ThemedText style={[styles.infoTextBold, { color: c.text }]}>{travelRadius} miles</ThemedText>
             {" "}of{" "}
-            <ThemedText style={styles.infoTextBold}>{basePostcode || "your base address"}</ThemedText>.
+            <ThemedText style={[styles.infoTextBold, { color: c.text }]}>{basePostcode || "your base address"}</ThemedText>.
             {extendedTravelEnabled && (
               <>
                 {"\n\n"}For jobs with a budget of{" "}
-                <ThemedText style={styles.infoTextBold}>
+                <ThemedText style={[styles.infoTextBold, { color: c.text }]}>
                   {BUDGET_BANDS.find(b => b.value === extendedMinBudget)?.label || extendedMinBudget}
                 </ThemedText>
                 {" "}or more, you'll also appear to clients up to{" "}
-                <ThemedText style={styles.infoTextBold}>{extendedRadius} miles</ThemedText>
+                <ThemedText style={[styles.infoTextBold, { color: c.text }]}>{extendedRadius} miles</ThemedText>
                 {" "}away.
               </>
             )}
@@ -356,19 +360,19 @@ export default function ServiceAreasScreen() {
       >
         <View style={styles.sheetOverlay}>
           <Pressable style={styles.sheetBackdrop} onPress={() => setShowRadiusSheet(false)} />
-          <View style={styles.sheetContent}>
+          <View style={[styles.sheetContent, { backgroundColor: c.background, borderTopColor: c.border, borderTopWidth: 1 }]}>
             {/* Handle bar */}
-            <View style={styles.sheetHandle} />
+            <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
 
             <View style={styles.sheetHeader}>
-              <ThemedText style={styles.sheetTitle}>Travel radius</ThemedText>
-              <Pressable onPress={() => setShowRadiusSheet(false)} hitSlop={10} style={styles.sheetCloseBtn}>
-                <Ionicons name="close" size={20} color="#111827" />
+              <ThemedText style={[styles.sheetTitle, { color: c.text }]}>Travel radius</ThemedText>
+              <Pressable onPress={() => setShowRadiusSheet(false)} hitSlop={10} style={[styles.sheetCloseBtn, { backgroundColor: c.elevate2 }]}>
+                <Ionicons name="close" size={20} color={c.text} />
               </Pressable>
             </View>
 
             <Spacer height={8} />
-            <ThemedText style={styles.sheetSubtitle}>
+            <ThemedText style={[styles.sheetSubtitle, { color: c.textMuted }]}>
               How far are you willing to travel for jobs?
             </ThemedText>
 
@@ -383,7 +387,8 @@ export default function ServiceAreasScreen() {
                 <Pressable
                   style={[
                     styles.radiusOption,
-                    travelRadius === item && styles.radiusOptionSelected,
+                    { borderBottomColor: c.border },
+                    travelRadius === item && { backgroundColor: Colors.primaryTint },
                   ]}
                   onPress={() => {
                     setTravelRadius(item);
@@ -393,6 +398,7 @@ export default function ServiceAreasScreen() {
                   <ThemedText
                     style={[
                       styles.radiusOptionText,
+                      { color: travelRadius === item ? TINT : c.text },
                       travelRadius === item && styles.radiusOptionTextSelected,
                     ]}
                   >
@@ -419,18 +425,18 @@ export default function ServiceAreasScreen() {
       >
         <View style={styles.sheetOverlay}>
           <Pressable style={styles.sheetBackdrop} onPress={() => setShowExtendedRadiusSheet(false)} />
-          <View style={styles.sheetContent}>
-            <View style={styles.sheetHandle} />
+          <View style={[styles.sheetContent, { backgroundColor: c.background, borderTopColor: c.border, borderTopWidth: 1 }]}>
+            <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
 
             <View style={styles.sheetHeader}>
-              <ThemedText style={styles.sheetTitle}>Extended distance</ThemedText>
-              <Pressable onPress={() => setShowExtendedRadiusSheet(false)} hitSlop={10} style={styles.sheetCloseBtn}>
-                <Ionicons name="close" size={20} color="#111827" />
+              <ThemedText style={[styles.sheetTitle, { color: c.text }]}>Extended distance</ThemedText>
+              <Pressable onPress={() => setShowExtendedRadiusSheet(false)} hitSlop={10} style={[styles.sheetCloseBtn, { backgroundColor: c.elevate2 }]}>
+                <Ionicons name="close" size={20} color={c.text} />
               </Pressable>
             </View>
 
             <Spacer height={8} />
-            <ThemedText style={styles.sheetSubtitle}>
+            <ThemedText style={[styles.sheetSubtitle, { color: c.textMuted }]}>
               Maximum distance you'll travel for higher-budget jobs
             </ThemedText>
 
@@ -445,7 +451,8 @@ export default function ServiceAreasScreen() {
                 <Pressable
                   style={[
                     styles.radiusOption,
-                    extendedRadius === item && styles.radiusOptionSelected,
+                    { borderBottomColor: c.border },
+                    extendedRadius === item && { backgroundColor: Colors.primaryTint },
                   ]}
                   onPress={() => {
                     setExtendedRadius(item);
@@ -455,6 +462,7 @@ export default function ServiceAreasScreen() {
                   <ThemedText
                     style={[
                       styles.radiusOptionText,
+                      { color: extendedRadius === item ? TINT : c.text },
                       extendedRadius === item && styles.radiusOptionTextSelected,
                     ]}
                   >
@@ -481,18 +489,18 @@ export default function ServiceAreasScreen() {
       >
         <View style={styles.sheetOverlay}>
           <Pressable style={styles.sheetBackdrop} onPress={() => setShowBudgetSheet(false)} />
-          <View style={styles.sheetContent}>
-            <View style={styles.sheetHandle} />
+          <View style={[styles.sheetContent, { backgroundColor: c.background, borderTopColor: c.border, borderTopWidth: 1 }]}>
+            <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
 
             <View style={styles.sheetHeader}>
-              <ThemedText style={styles.sheetTitle}>Minimum budget</ThemedText>
-              <Pressable onPress={() => setShowBudgetSheet(false)} hitSlop={10} style={styles.sheetCloseBtn}>
-                <Ionicons name="close" size={20} color="#111827" />
+              <ThemedText style={[styles.sheetTitle, { color: c.text }]}>Minimum budget</ThemedText>
+              <Pressable onPress={() => setShowBudgetSheet(false)} hitSlop={10} style={[styles.sheetCloseBtn, { backgroundColor: c.elevate2 }]}>
+                <Ionicons name="close" size={20} color={c.text} />
               </Pressable>
             </View>
 
             <Spacer height={8} />
-            <ThemedText style={styles.sheetSubtitle}>
+            <ThemedText style={[styles.sheetSubtitle, { color: c.textMuted }]}>
               Only show you to clients with jobs at this budget or higher
             </ThemedText>
 
@@ -507,7 +515,8 @@ export default function ServiceAreasScreen() {
                 <Pressable
                   style={[
                     styles.radiusOption,
-                    extendedMinBudget === item.value && styles.radiusOptionSelected,
+                    { borderBottomColor: c.border },
+                    extendedMinBudget === item.value && { backgroundColor: Colors.primaryTint },
                   ]}
                   onPress={() => {
                     setExtendedMinBudget(item.value);
@@ -517,6 +526,7 @@ export default function ServiceAreasScreen() {
                   <ThemedText
                     style={[
                       styles.radiusOptionText,
+                      { color: extendedMinBudget === item.value ? TINT : c.text },
                       extendedMinBudget === item.value && styles.radiusOptionTextSelected,
                     ]}
                   >
@@ -540,7 +550,7 @@ export default function ServiceAreasScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // bg handled by ThemedView default + theme.
   },
   loadingContainer: {
     flex: 1,
@@ -555,9 +565,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   headerTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
   },
   scrollView: {
     flex: 1,
@@ -575,30 +584,29 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: Colors.light.secondaryBackground,
     alignItems: "center",
     justifyContent: "center",
+    // bg painted inline from theme.
   },
   heroTitle: {
     fontSize: 20,
     fontWeight: "600",
-    color: Colors.light.title,
     textAlign: "center",
+    // color painted inline from theme.
   },
   heroText: {
     fontSize: 15,
-    color: Colors.light.subtitle,
     textAlign: "center",
     lineHeight: 22,
     paddingHorizontal: 16,
+    // color painted inline from theme.
   },
   // Settings card
   settingsCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     overflow: "hidden",
+    // bg + border painted inline from theme.
   },
   settingsRow: {
     flexDirection: "row",
@@ -609,9 +617,6 @@ const styles = StyleSheet.create({
   },
   settingsRowTappable: {
     // No additional styling needed, just marking it as tappable
-  },
-  settingsRowPressed: {
-    backgroundColor: Colors.light.secondaryBackground,
   },
   settingsRowLeft: {
     flexDirection: "row",
@@ -628,36 +633,36 @@ const styles = StyleSheet.create({
   },
   settingsLabel: {
     fontSize: 15,
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   settingsValue: {
     fontSize: 15,
     fontWeight: "600",
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   cardDivider: {
     height: 1,
-    backgroundColor: Colors.light.border,
     marginHorizontal: 16,
+    // bg painted inline from theme.
   },
   // Info box
   infoBox: {
     flexDirection: "row",
     gap: 12,
     padding: 16,
-    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     alignItems: "flex-start",
+    // bg + border painted inline from theme.
   },
   infoText: {
     flex: 1,
     fontSize: 14,
-    color: Colors.light.subtitle,
     lineHeight: 20,
+    // color painted inline from theme.
   },
   infoTextBold: {
     fontWeight: "600",
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   primaryButton: {
     backgroundColor: TINT,
@@ -687,20 +692,20 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
   },
   sheetContent: {
-    backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
     paddingTop: 12,
     maxHeight: "80%",
+    // bg + border painted inline from theme.
   },
   sheetHandle: {
     width: 36,
     height: 4,
-    backgroundColor: "#D1D5DB",
     borderRadius: 2,
     alignSelf: "center",
     marginBottom: 20,
+    // bg painted inline from theme.
   },
   sheetHeader: {
     flexDirection: "row",
@@ -710,20 +715,20 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#111827",
     flex: 1,
+    // color painted inline from theme.
   },
   sheetCloseBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
+    // bg painted inline from theme.
   },
   sheetSubtitle: {
     fontSize: 14,
-    color: Colors.light.subtitle,
+    // color painted inline from theme.
   },
   radiusList: {
     maxHeight: 300,
@@ -735,17 +740,13 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.light.border,
-  },
-  radiusOptionSelected: {
-    backgroundColor: "rgba(104, 73, 167, 0.05)",
+    // border painted inline from theme.
   },
   radiusOptionText: {
     fontSize: 16,
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   radiusOptionTextSelected: {
-    color: TINT,
     fontWeight: "500",
   },
   // Section header
@@ -755,24 +756,24 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     fontWeight: "600",
-    color: Colors.light.subtitle,
     textTransform: "uppercase",
     letterSpacing: 0.5,
+    // color painted inline from theme.
   },
   // Settings hint text
   settingsHint: {
     fontSize: 13,
-    color: Colors.light.subtitle,
     marginTop: 2,
+    // color painted inline from theme.
   },
   // Toggle styles
   toggleTrack: {
     width: 51,
     height: 31,
     borderRadius: 16,
-    backgroundColor: "#E5E7EB",
     justifyContent: "center",
     padding: 2,
+    // bg painted inline from theme (off state).
   },
   toggleTrackActive: {
     backgroundColor: TINT,

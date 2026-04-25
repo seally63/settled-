@@ -20,6 +20,8 @@ import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants } from "../../../constants/Typography";
+import { useTheme } from "../../../hooks/useTheme";
 
 import { useUser } from "../../../hooks/useUser";
 import { getMyProfile } from "../../../lib/api/profile";
@@ -45,6 +47,7 @@ export default function PhotoIDScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();
+  const { colors: c } = useTheme();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -205,9 +208,9 @@ export default function PhotoIDScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={handleBack} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={c.text} />
         </Pressable>
-        <ThemedText style={styles.headerTitle}>Photo ID</ThemedText>
+        <ThemedText style={[styles.headerTitle, { color: c.text }]}>Photo ID</ThemedText>
         <View style={{ width: 24 }} />
       </View>
 
@@ -282,29 +285,30 @@ export default function PhotoIDScreen() {
 
 // Introduction Step
 function IntroStep({ onContinue }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
-      <View style={styles.iconContainer}>
-        <Ionicons name="person-outline" size={48} color={Colors.light.title} />
+      <View style={[styles.iconContainer, { backgroundColor: c.elevate }]}>
+        <Ionicons name="person-outline" size={48} color={c.text} />
       </View>
 
-      <ThemedText style={styles.stepTitle}>Verify your identity</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Verify your identity</ThemedText>
 
-      <ThemedText style={styles.stepDescription}>
+      <ThemedText style={[styles.stepDescription, { color: c.textMuted }]}>
         We need to confirm you are who you say you are. This helps keep Settled safe for everyone.
       </ThemedText>
 
-      <View style={styles.infoBox}>
-        <ThemedText style={styles.infoTitle}>What you'll need:</ThemedText>
+      <View style={[styles.infoBox, { backgroundColor: c.elevate, borderColor: c.border, borderWidth: 1 }]}>
+        <ThemedText style={[styles.infoTitle, { color: c.text }]}>What you'll need:</ThemedText>
         <View style={styles.infoList}>
-          <ThemedText style={styles.infoItem}>
-            {"\u2022"} Valid passport, driving licence, or national ID
+          <ThemedText style={[styles.infoItem, { color: c.textMid }]}>
+            {"•"} Valid passport, driving licence, or national ID
           </ThemedText>
-          <ThemedText style={styles.infoItem}>
-            {"\u2022"} Good lighting
+          <ThemedText style={[styles.infoItem, { color: c.textMid }]}>
+            {"•"} Good lighting
           </ThemedText>
-          <ThemedText style={styles.infoItem}>
-            {"\u2022"} Clear, unobstructed photo of the document
+          <ThemedText style={[styles.infoItem, { color: c.textMid }]}>
+            {"•"} Clear, unobstructed photo of the document
           </ThemedText>
         </View>
       </View>
@@ -320,9 +324,10 @@ function IntroStep({ onContinue }) {
 
 // Select ID Type Step
 function SelectTypeStep({ selectedType, onSelect }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
-      <ThemedText style={styles.stepTitle}>Select your ID type</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Select your ID type</ThemedText>
 
       <Spacer height={24} />
 
@@ -331,15 +336,16 @@ function SelectTypeStep({ selectedType, onSelect }) {
           key={idType.id}
           style={({ pressed }) => [
             styles.optionRow,
-            pressed && styles.optionRowPressed,
+            { backgroundColor: c.elevate, borderColor: c.border },
+            pressed && { backgroundColor: c.elevate2 },
           ]}
           onPress={() => onSelect(idType)}
         >
           <View style={styles.optionLeft}>
-            <Ionicons name={idType.icon} size={24} color={Colors.light.subtitle} />
-            <ThemedText style={styles.optionLabel}>{idType.label}</ThemedText>
+            <Ionicons name={idType.icon} size={24} color={c.textMuted} />
+            <ThemedText style={[styles.optionLabel, { color: c.text }]}>{idType.label}</ThemedText>
           </View>
-          <Ionicons name="chevron-forward" size={20} color={Colors.light.subtitle} />
+          <Ionicons name="chevron-forward" size={20} color={c.textMuted} />
         </Pressable>
       ))}
     </View>
@@ -348,34 +354,35 @@ function SelectTypeStep({ selectedType, onSelect }) {
 
 // Upload Photo Step
 function UploadStep({ idType, onTakePhoto, onChooseFromGallery }) {
+  const { colors: c } = useTheme();
   const idLabel = idType?.label?.toLowerCase() || "document";
 
   return (
     <View style={styles.stepContainer}>
-      <ThemedText style={styles.stepTitle}>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>
         Take a photo of your {idLabel}
       </ThemedText>
 
       <Spacer height={24} />
 
-      <View style={styles.uploadArea}>
+      <View style={[styles.uploadArea, { backgroundColor: c.elevate, borderColor: c.border }]}>
         <View style={styles.documentOutline}>
-          <Ionicons name="document-outline" size={48} color="#D1D5DB" />
+          <Ionicons name="document-outline" size={48} color={c.textMuted} />
         </View>
       </View>
 
       <Spacer height={24} />
 
-      <ThemedText style={styles.tipsTitle}>Tips for a good photo:</ThemedText>
+      <ThemedText style={[styles.tipsTitle, { color: c.text }]}>Tips for a good photo:</ThemedText>
       <View style={styles.tipsList}>
-        <ThemedText style={styles.tipItem}>
-          {"\u2022"} Place document on flat surface
+        <ThemedText style={[styles.tipItem, { color: c.textMuted }]}>
+          {"•"} Place document on flat surface
         </ThemedText>
-        <ThemedText style={styles.tipItem}>
-          {"\u2022"} Ensure all corners visible
+        <ThemedText style={[styles.tipItem, { color: c.textMuted }]}>
+          {"•"} Ensure all corners visible
         </ThemedText>
-        <ThemedText style={styles.tipItem}>
-          {"\u2022"} Avoid glare and shadows
+        <ThemedText style={[styles.tipItem, { color: c.textMuted }]}>
+          {"•"} Avoid glare and shadows
         </ThemedText>
       </View>
 
@@ -388,7 +395,7 @@ function UploadStep({ idType, onTakePhoto, onChooseFromGallery }) {
 
       <Spacer height={12} />
 
-      <Pressable style={styles.secondaryButton} onPress={onChooseFromGallery}>
+      <Pressable style={[styles.secondaryButton, { backgroundColor: c.elevate, borderColor: c.border }]} onPress={onChooseFromGallery}>
         <Ionicons name="folder-outline" size={20} color={PRIMARY} style={{ marginRight: 8 }} />
         <ThemedText style={styles.secondaryButtonText}>Upload from gallery</ThemedText>
       </Pressable>
@@ -398,13 +405,14 @@ function UploadStep({ idType, onTakePhoto, onChooseFromGallery }) {
 
 // Review Photo Step
 function ReviewStep({ photoUri, onSubmit, onRetake, saving }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
-      <ThemedText style={styles.stepTitle}>Review your photo</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Review your photo</ThemedText>
 
       <Spacer height={24} />
 
-      <View style={styles.photoPreviewContainer}>
+      <View style={[styles.photoPreviewContainer, { backgroundColor: c.elevate }]}>
         <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
       </View>
 
@@ -413,15 +421,15 @@ function ReviewStep({ photoUri, onSubmit, onRetake, saving }) {
       <View style={styles.checklistContainer}>
         <View style={styles.checklistItem}>
           <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
-          <ThemedText style={styles.checklistText}>Document is clear and readable</ThemedText>
+          <ThemedText style={[styles.checklistText, { color: c.text }]}>Document is clear and readable</ThemedText>
         </View>
         <View style={styles.checklistItem}>
           <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
-          <ThemedText style={styles.checklistText}>All corners are visible</ThemedText>
+          <ThemedText style={[styles.checklistText, { color: c.text }]}>All corners are visible</ThemedText>
         </View>
         <View style={styles.checklistItem}>
           <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
-          <ThemedText style={styles.checklistText}>No glare or shadows</ThemedText>
+          <ThemedText style={[styles.checklistText, { color: c.text }]}>No glare or shadows</ThemedText>
         </View>
       </View>
 
@@ -450,6 +458,7 @@ function ReviewStep({ photoUri, onSubmit, onRetake, saving }) {
 
 // Submitted Confirmation Step
 function SubmittedStep({ idType, submittedDate, onBackToSettings }) {
+  const { colors: c } = useTheme();
   const idLabel = idType?.label || "Passport";
 
   return (
@@ -462,20 +471,20 @@ function SubmittedStep({ idType, submittedDate, onBackToSettings }) {
 
       <Spacer height={24} />
 
-      <ThemedText style={styles.stepTitle}>Submitted for review</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Submitted for review</ThemedText>
 
-      <ThemedText style={styles.stepDescription}>
+      <ThemedText style={[styles.stepDescription, { color: c.textMuted }]}>
         We'll review your document and notify you within 24-48 hours.
       </ThemedText>
 
       <Spacer height={24} />
 
-      <View style={styles.submittedCard}>
-        <Ionicons name="document-text-outline" size={24} color={Colors.light.subtitle} />
+      <View style={[styles.submittedCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
+        <Ionicons name="document-text-outline" size={24} color={c.textMuted} />
         <View style={styles.submittedCardInfo}>
-          <ThemedText style={styles.submittedCardTitle}>{idLabel}</ThemedText>
+          <ThemedText style={[styles.submittedCardTitle, { color: c.text }]}>{idLabel}</ThemedText>
           <ThemedText style={styles.submittedCardStatus}>Submitted</ThemedText>
-          <ThemedText style={styles.submittedCardDate}>{submittedDate}</ThemedText>
+          <ThemedText style={[styles.submittedCardDate, { color: c.textMuted }]}>{submittedDate}</ThemedText>
         </View>
       </View>
 
@@ -490,6 +499,7 @@ function SubmittedStep({ idType, submittedDate, onBackToSettings }) {
 
 // Verified Step
 function VerifiedStep({ onDone, onChangeDocument }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
       <View style={styles.verifiedBanner}>
@@ -504,12 +514,12 @@ function VerifiedStep({ onDone, onChangeDocument }) {
 
       <Spacer height={24} />
 
-      <View style={styles.documentCard}>
-        <View style={styles.documentThumbnail}>
-          <Ionicons name="document-text" size={32} color={Colors.light.subtitle} />
+      <View style={[styles.documentCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
+        <View style={[styles.documentThumbnail, { backgroundColor: c.elevate2 }]}>
+          <Ionicons name="document-text" size={32} color={c.textMuted} />
         </View>
         <View style={styles.documentCardInfo}>
-          <ThemedText style={styles.documentCardFilename}>driving_licence.jpg</ThemedText>
+          <ThemedText style={[styles.documentCardFilename, { color: c.text }]}>driving_licence.jpg</ThemedText>
           <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
         </View>
         <Pressable onPress={onChangeDocument}>
@@ -528,6 +538,7 @@ function VerifiedStep({ onDone, onChangeDocument }) {
 
 // Issue/Rejected Step
 function IssueStep({ onUploadNew }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
       <View style={styles.issueBanner}>
@@ -542,23 +553,23 @@ function IssueStep({ onUploadNew }) {
 
       <Spacer height={24} />
 
-      <View style={styles.documentCard}>
-        <View style={styles.documentThumbnail}>
-          <Ionicons name="document-text" size={32} color={Colors.light.subtitle} />
+      <View style={[styles.documentCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
+        <View style={[styles.documentThumbnail, { backgroundColor: c.elevate2 }]}>
+          <Ionicons name="document-text" size={32} color={c.textMuted} />
         </View>
         <View style={styles.documentCardInfo}>
-          <ThemedText style={styles.documentCardFilename}>driving_licence.jpg</ThemedText>
+          <ThemedText style={[styles.documentCardFilename, { color: c.text }]}>driving_licence.jpg</ThemedText>
           <Ionicons name="warning" size={18} color="#DC2626" />
         </View>
       </View>
 
       <Spacer height={24} />
 
-      <ThemedText style={styles.tipsTitle}>Common issues:</ThemedText>
+      <ThemedText style={[styles.tipsTitle, { color: c.text }]}>Common issues:</ThemedText>
       <View style={styles.tipsList}>
-        <ThemedText style={styles.tipItem}>{"\u2022"} Photo is blurry</ThemedText>
-        <ThemedText style={styles.tipItem}>{"\u2022"} Document is expired</ThemedText>
-        <ThemedText style={styles.tipItem}>{"\u2022"} Part of the ID is cut off</ThemedText>
+        <ThemedText style={[styles.tipItem, { color: c.textMuted }]}>{"•"} Photo is blurry</ThemedText>
+        <ThemedText style={[styles.tipItem, { color: c.textMuted }]}>{"•"} Document is expired</ThemedText>
+        <ThemedText style={[styles.tipItem, { color: c.textMuted }]}>{"•"} Part of the ID is cut off</ThemedText>
       </View>
 
       <Spacer height={32} />
@@ -573,7 +584,7 @@ function IssueStep({ onUploadNew }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // bg handled by ThemedView default + theme.
   },
   header: {
     flexDirection: "row",
@@ -583,9 +594,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   headerTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -600,45 +610,45 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: "#F9FAFB",
     justifyContent: "center",
     alignSelf: "center",
+    // bg painted inline from theme.
   },
   // Titles
   stepTitle: {
     fontSize: 24,
     fontWeight: "600",
-    color: Colors.light.title,
     textAlign: "center",
     marginBottom: 12,
+    // color painted inline from theme.
   },
   stepDescription: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     textAlign: "center",
     lineHeight: 20,
     paddingHorizontal: 16,
+    // color painted inline from theme.
   },
   // Info box
   infoBox: {
-    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     padding: 16,
     marginTop: 24,
+    // bg + border painted inline from theme.
   },
   infoTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.light.title,
     marginBottom: 12,
+    // color painted inline from theme.
   },
   infoList: {
     gap: 8,
   },
   infoItem: {
     fontSize: 14,
-    color: "#374151",
     lineHeight: 20,
+    // color painted inline from theme.
   },
   // Buttons
   primaryButton: {
@@ -656,15 +666,14 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   secondaryButton: {
-    backgroundColor: "#FFFFFF",
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
+    // bg + border painted inline from theme.
   },
   secondaryButtonText: {
     color: PRIMARY,
@@ -686,14 +695,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 16,
     paddingHorizontal: 16,
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     marginBottom: 12,
-  },
-  optionRowPressed: {
-    backgroundColor: Colors.light.secondaryBackground,
+    // bg + border painted inline from theme.
   },
   optionLeft: {
     flexDirection: "row",
@@ -702,18 +707,17 @@ const styles = StyleSheet.create({
   },
   optionLabel: {
     fontSize: 16,
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   // Upload area
   uploadArea: {
     borderWidth: 2,
     borderStyle: "dashed",
-    borderColor: "#D1D5DB",
     borderRadius: 12,
     padding: 40,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F9FAFB",
+    // bg + border painted inline from theme.
   },
   documentOutline: {
     padding: 24,
@@ -722,22 +726,22 @@ const styles = StyleSheet.create({
   tipsTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.light.title,
     marginBottom: 8,
+    // color painted inline from theme.
   },
   tipsList: {
     gap: 4,
   },
   tipItem: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     lineHeight: 20,
+    // color painted inline from theme.
   },
   // Photo preview
   photoPreviewContainer: {
     borderRadius: 12,
     overflow: "hidden",
-    backgroundColor: "#F9FAFB",
+    // bg painted inline from theme.
   },
   photoPreview: {
     width: "100%",
@@ -754,7 +758,7 @@ const styles = StyleSheet.create({
   },
   checklistText: {
     fontSize: 14,
-    color: Colors.light.text,
+    // color painted inline from theme.
   },
   // Success icon
   successIconContainer: {
@@ -775,10 +779,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     padding: 16,
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    // bg + border painted inline from theme.
   },
   submittedCardInfo: {
     flex: 1,
@@ -786,7 +789,7 @@ const styles = StyleSheet.create({
   submittedCardTitle: {
     fontSize: 16,
     fontWeight: "500",
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   submittedCardStatus: {
     fontSize: 14,
@@ -795,10 +798,10 @@ const styles = StyleSheet.create({
   },
   submittedCardDate: {
     fontSize: 12,
-    color: Colors.light.subtitle,
     marginTop: 2,
+    // color painted inline from theme.
   },
-  // Verified banner
+  // Verified banner — semantic green palette kept in both modes.
   verifiedBanner: {
     flexDirection: "row",
     backgroundColor: "#D1FAE5",
@@ -816,10 +819,10 @@ const styles = StyleSheet.create({
   },
   verifiedBannerText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
+    color: "#065F46",
     marginTop: 4,
   },
-  // Issue banner
+  // Issue banner — semantic red palette kept in both modes.
   issueBanner: {
     flexDirection: "row",
     backgroundColor: "#FEE2E2",
@@ -837,7 +840,7 @@ const styles = StyleSheet.create({
   },
   issueBannerText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
+    color: "#991B1B",
     marginTop: 4,
   },
   // Document card
@@ -846,18 +849,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     padding: 16,
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    // bg + border painted inline from theme.
   },
   documentThumbnail: {
     width: 56,
     height: 56,
     borderRadius: 8,
-    backgroundColor: "#F9FAFB",
     alignItems: "center",
     justifyContent: "center",
+    // bg painted inline from theme.
   },
   documentCardInfo: {
     flex: 1,
@@ -867,6 +869,6 @@ const styles = StyleSheet.create({
   },
   documentCardFilename: {
     fontSize: 14,
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
 });

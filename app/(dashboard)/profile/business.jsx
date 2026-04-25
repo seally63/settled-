@@ -22,8 +22,10 @@ import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants } from "../../../constants/Typography";
 
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
 import { getServiceCategories, getServiceTypes } from "../../../lib/api/services";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
@@ -59,6 +61,7 @@ export default function BusinessInfoScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();
+  const { colors: c } = useTheme();
 
   const [businessName, setBusinessName] = useState("");
   const [bio, setBio] = useState("");
@@ -218,11 +221,13 @@ export default function BusinessInfoScreen() {
       <ThemedStatusBar />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: c.border }]}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={c.text} />
         </Pressable>
-        <ThemedText style={styles.headerTitle}>Business info</ThemedText>
+        <ThemedText style={[styles.headerTitle, { color: c.text }]}>
+          Business info
+        </ThemedText>
         <View style={{ width: 24 }} />
       </View>
 
@@ -236,62 +241,77 @@ export default function BusinessInfoScreen() {
           keyboardShouldPersistTaps="handled"
         >
         {/* Business Name (Read-only, tappable) */}
-        <ThemedText style={styles.label}>Business name</ThemedText>
+        <ThemedText style={[styles.label, { color: c.text }]}>Business name</ThemedText>
         <Pressable
-          style={styles.lockedField}
+          style={[styles.lockedField, { backgroundColor: c.elevate, borderColor: c.border }]}
           onPress={() => setShowLockedModal(true)}
         >
-          <ThemedText style={styles.lockedFieldText}>
+          <ThemedText style={[styles.lockedFieldText, { color: c.textMuted }]}>
             {businessName || "Not set"}
           </ThemedText>
-          <Ionicons name="lock-closed" size={16} color={Colors.light.subtitle} />
+          <Ionicons name="lock-closed" size={16} color={c.textMuted} />
         </Pressable>
 
         <Spacer height={24} />
 
         {/* Bio */}
-        <ThemedText style={styles.label}>Bio</ThemedText>
+        <ThemedText style={[styles.label, { color: c.text }]}>Bio</ThemedText>
         <TextInput
-          style={styles.bioInput}
+          style={[
+            styles.bioInput,
+            { backgroundColor: c.elevate, borderColor: c.border, color: c.text },
+          ]}
           value={bio}
           onChangeText={setBio}
           placeholder="Tell clients about your business, experience, and what makes you stand out..."
-          placeholderTextColor={Colors.light.subtitle}
+          placeholderTextColor={c.textMuted}
           multiline
           numberOfLines={4}
           textAlignVertical="top"
           maxLength={500}
           inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
         />
-        <ThemedText style={styles.charCount}>{bio.length}/500</ThemedText>
+        <ThemedText style={[styles.charCount, { color: c.textMuted }]}>
+          {bio.length}/500
+        </ThemedText>
 
         <Spacer height={24} />
 
         {/* Job Titles */}
-        <ThemedText style={styles.label}>Job title</ThemedText>
-        <ThemedText style={styles.hintText}>Select up to 3</ThemedText>
+        <ThemedText style={[styles.label, { color: c.text }]}>Job title</ThemedText>
+        <ThemedText style={[styles.hintText, { color: c.textMuted }]}>
+          Select up to 3
+        </ThemedText>
         <Spacer height={8} />
         <Pressable
-          style={styles.dropdownButton}
+          style={[styles.dropdownButton, { backgroundColor: c.elevate, borderColor: c.border }]}
           onPress={() => setShowJobTitlesSheet(true)}
         >
-          <ThemedText style={selectedJobTitles.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder}>
+          <ThemedText
+            style={[
+              selectedJobTitles.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder,
+              { color: selectedJobTitles.length > 0 ? c.text : c.textMuted },
+            ]}
+          >
             {selectedJobTitles.length > 0 ? `${selectedJobTitles.length} selected` : 'Select job titles...'}
           </ThemedText>
-          <Ionicons name="chevron-down" size={20} color={Colors.light.subtitle} />
+          <Ionicons name="chevron-down" size={20} color={c.textMuted} />
         </Pressable>
 
         {/* Selected Job Titles Chips */}
         {selectedJobTitles.length > 0 && (
           <View style={styles.chipsContainer}>
             {selectedJobTitles.map((title) => (
-              <View key={title} style={styles.chip}>
-                <ThemedText style={styles.chipText}>{title}</ThemedText>
+              <View
+                key={title}
+                style={[styles.chip, { backgroundColor: c.elevate, borderColor: c.border }]}
+              >
+                <ThemedText style={[styles.chipText, { color: c.text }]}>{title}</ThemedText>
                 <Pressable
                   onPress={() => setSelectedJobTitles((prev) => prev.filter((t) => t !== title))}
                   hitSlop={8}
                 >
-                  <Ionicons name="close" size={16} color="#6B7280" />
+                  <Ionicons name="close" size={16} color={c.textMuted} />
                 </Pressable>
               </View>
             ))}
@@ -301,17 +321,24 @@ export default function BusinessInfoScreen() {
         <Spacer height={24} />
 
         {/* Services */}
-        <ThemedText style={styles.label}>Services offered</ThemedText>
-        <ThemedText style={styles.hintText}>Optional - helps clients find you</ThemedText>
+        <ThemedText style={[styles.label, { color: c.text }]}>Services offered</ThemedText>
+        <ThemedText style={[styles.hintText, { color: c.textMuted }]}>
+          Optional - helps clients find you
+        </ThemedText>
         <Spacer height={8} />
         <Pressable
-          style={styles.dropdownButton}
+          style={[styles.dropdownButton, { backgroundColor: c.elevate, borderColor: c.border }]}
           onPress={() => setShowServicesSheet(true)}
         >
-          <ThemedText style={selectedServiceIds.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder}>
+          <ThemedText
+            style={[
+              selectedServiceIds.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder,
+              { color: selectedServiceIds.length > 0 ? c.text : c.textMuted },
+            ]}
+          >
             {selectedServiceIds.length > 0 ? `${selectedServiceIds.length} selected` : 'Add services...'}
           </ThemedText>
-          <Ionicons name="chevron-down" size={20} color={Colors.light.subtitle} />
+          <Ionicons name="chevron-down" size={20} color={c.textMuted} />
         </Pressable>
 
         {/* Selected Services grouped by category */}
@@ -319,16 +346,23 @@ export default function BusinessInfoScreen() {
           <View style={styles.groupedChipsContainer}>
             {Object.entries(groupedServices).map(([categoryName, services]) => (
               <View key={categoryName} style={styles.categoryGroup}>
-                <ThemedText style={styles.categoryLabel}>{categoryName}</ThemedText>
+                <ThemedText style={[styles.categoryLabel, { color: c.textMuted }]}>
+                  {categoryName}
+                </ThemedText>
                 <View style={styles.chipsContainer}>
                   {services.map((service) => (
-                    <View key={service.id} style={styles.chip}>
-                      <ThemedText style={styles.chipText}>{service.name}</ThemedText>
+                    <View
+                      key={service.id}
+                      style={[styles.chip, { backgroundColor: c.elevate, borderColor: c.border }]}
+                    >
+                      <ThemedText style={[styles.chipText, { color: c.text }]}>
+                        {service.name}
+                      </ThemedText>
                       <Pressable
                         onPress={() => toggleService(service.id)}
                         hitSlop={8}
                       >
-                        <Ionicons name="close" size={16} color="#6B7280" />
+                        <Ionicons name="close" size={16} color={c.textMuted} />
                       </Pressable>
                     </View>
                   ))}
@@ -339,7 +373,9 @@ export default function BusinessInfoScreen() {
         )}
 
         {selectedServiceIds.length === 0 && (
-          <ThemedText style={styles.emptyServicesText}>No services added yet</ThemedText>
+          <ThemedText style={[styles.emptyServicesText, { color: c.textMuted }]}>
+            No services added yet
+          </ThemedText>
         )}
 
         <Spacer height={32} />
@@ -377,18 +413,31 @@ export default function BusinessInfoScreen() {
             style={styles.sheetBackdrop}
             onPress={() => setShowJobTitlesSheet(false)}
           />
-          <View style={styles.sheetContent}>
+          <View
+            style={[
+              styles.sheetContent,
+              { backgroundColor: c.background, borderTopColor: c.border, borderTopWidth: 1 },
+            ]}
+          >
             {/* Handle bar */}
-            <View style={styles.sheetHandle} />
+            <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
 
             <View style={styles.sheetHeader}>
-              <ThemedText style={styles.sheetTitle}>What's your job title?</ThemedText>
-              <Pressable onPress={() => setShowJobTitlesSheet(false)} hitSlop={10} style={styles.sheetCloseBtn}>
-                <Ionicons name="close" size={20} color="#111827" />
+              <ThemedText style={[styles.sheetTitle, { color: c.text }]}>
+                What's your job title?
+              </ThemedText>
+              <Pressable
+                onPress={() => setShowJobTitlesSheet(false)}
+                hitSlop={10}
+                style={[styles.sheetCloseBtn, { backgroundColor: c.elevate2 }]}
+              >
+                <Ionicons name="close" size={20} color={c.text} />
               </Pressable>
             </View>
 
-            <ThemedText style={styles.sheetSubtitle}>Select up to 3</ThemedText>
+            <ThemedText style={[styles.sheetSubtitle, { color: c.textMuted }]}>
+              Select up to 3
+            </ThemedText>
             <Spacer height={16} />
 
             <ScrollView style={styles.sheetList} showsVerticalScrollIndicator={false}>
@@ -397,14 +446,24 @@ export default function BusinessInfoScreen() {
                 return (
                   <Pressable
                     key={title}
-                    style={[styles.sheetListItem, isSelected && styles.sheetListItemSelected]}
+                    style={[
+                      styles.sheetListItem,
+                      { borderBottomColor: c.border },
+                      isSelected && { backgroundColor: Colors.primaryTint },
+                    ]}
                     onPress={() => toggleJobTitle(title)}
                   >
-                    <ThemedText style={[styles.sheetListItemText, isSelected && styles.sheetListItemTextSelected]}>
+                    <ThemedText
+                      style={[
+                        styles.sheetListItemText,
+                        { color: isSelected ? Colors.primary : c.text },
+                        isSelected && { fontWeight: "500" },
+                      ]}
+                    >
                       {title}
                     </ThemedText>
                     {isSelected && (
-                      <Ionicons name="checkmark" size={20} color={PRIMARY} />
+                      <Ionicons name="checkmark" size={20} color={Colors.primary} />
                     )}
                   </Pressable>
                 );
@@ -439,33 +498,52 @@ export default function BusinessInfoScreen() {
             style={styles.sheetBackdrop}
             onPress={() => setShowServicesSheet(false)}
           />
-          <View style={[styles.sheetContent, styles.servicesSheetContent]}>
+          <View
+            style={[
+              styles.sheetContent,
+              styles.servicesSheetContent,
+              { backgroundColor: c.background, borderTopColor: c.border, borderTopWidth: 1 },
+            ]}
+          >
             {/* Handle bar */}
-            <View style={styles.sheetHandle} />
+            <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
 
             <View style={styles.sheetHeader}>
-              <ThemedText style={styles.sheetTitle}>Add services</ThemedText>
-              <Pressable onPress={() => setShowServicesSheet(false)} hitSlop={10} style={styles.sheetCloseBtn}>
-                <Ionicons name="close" size={20} color="#111827" />
+              <ThemedText style={[styles.sheetTitle, { color: c.text }]}>
+                Add services
+              </ThemedText>
+              <Pressable
+                onPress={() => setShowServicesSheet(false)}
+                hitSlop={10}
+                style={[styles.sheetCloseBtn, { backgroundColor: c.elevate2 }]}
+              >
+                <Ionicons name="close" size={20} color={c.text} />
               </Pressable>
             </View>
 
-            <ThemedText style={styles.sheetSubtitle}>Select all that apply</ThemedText>
+            <ThemedText style={[styles.sheetSubtitle, { color: c.textMuted }]}>
+              Select all that apply
+            </ThemedText>
             <Spacer height={16} />
 
             {/* Search */}
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color={Colors.light.subtitle} />
+            <View
+              style={[
+                styles.searchContainer,
+                { backgroundColor: c.elevate, borderColor: c.border, borderWidth: 1 },
+              ]}
+            >
+              <Ionicons name="search" size={20} color={c.textMuted} />
               <TextInput
-                style={styles.searchInput}
+                style={[styles.searchInput, { color: c.text }]}
                 placeholder="Search services..."
-                placeholderTextColor={Colors.light.subtitle}
+                placeholderTextColor={c.textMuted}
                 value={serviceSearch}
                 onChangeText={setServiceSearch}
               />
               {serviceSearch.length > 0 && (
                 <Pressable onPress={() => setServiceSearch("")} hitSlop={10}>
-                  <Ionicons name="close-circle" size={20} color={Colors.light.subtitle} />
+                  <Ionicons name="close-circle" size={20} color={c.textMuted} />
                 </Pressable>
               )}
             </View>
@@ -494,19 +572,21 @@ export default function BusinessInfoScreen() {
                     <View key={category.id}>
                       {/* Category Header */}
                       <Pressable
-                        style={styles.categoryHeader}
+                        style={[styles.categoryHeader, { borderBottomColor: c.border }]}
                         onPress={() => toggleCategory(category.id)}
                       >
                         <View style={styles.categoryHeaderLeft}>
                           <Ionicons
                             name={isExpanded ? "chevron-down" : "chevron-forward"}
                             size={20}
-                            color={Colors.light.subtitle}
+                            color={c.textMuted}
                           />
-                          <ThemedText style={styles.categoryHeaderText}>
+                          <ThemedText style={[styles.categoryHeaderText, { color: c.text }]}>
                             {category.name}
                             {selectedCount > 0 && (
-                              <ThemedText style={styles.categoryCount}> ({selectedCount})</ThemedText>
+                              <ThemedText style={[styles.categoryCount, { color: c.textMuted }]}>
+                                {' '}({selectedCount})
+                              </ThemedText>
                             )}
                           </ThemedText>
                         </View>
@@ -526,12 +606,15 @@ export default function BusinessInfoScreen() {
                                 <Ionicons
                                   name={isSelected ? "checkbox" : "square-outline"}
                                   size={22}
-                                  color={isSelected ? PRIMARY : Colors.light.subtitle}
+                                  color={isSelected ? Colors.primary : c.textMuted}
                                 />
-                                <ThemedText style={[
-                                  styles.serviceTypeText,
-                                  isSelected && styles.serviceTypeTextSelected,
-                                ]}>
+                                <ThemedText
+                                  style={[
+                                    styles.serviceTypeText,
+                                    { color: isSelected ? Colors.primary : c.text },
+                                    isSelected && { fontWeight: "500" },
+                                  ]}
+                                >
                                   {type.name}
                                 </ThemedText>
                               </Pressable>
@@ -573,23 +656,28 @@ export default function BusinessInfoScreen() {
             style={styles.modalBackdrop}
             onPress={() => setShowLockedModal(false)}
           />
-          <View style={styles.modalContent}>
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: c.background, borderTopColor: c.border, borderTopWidth: 1 },
+            ]}
+          >
             {/* Handle bar */}
-            <View style={styles.sheetHandle} />
+            <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
 
-            <View style={styles.modalIconContainer}>
-              <Ionicons name="lock-closed" size={32} color="#6B7280" />
+            <View style={[styles.modalIconContainer, { backgroundColor: c.elevate2 }]}>
+              <Ionicons name="lock-closed" size={32} color={c.textMuted} />
             </View>
 
             <Spacer height={16} />
 
-            <ThemedText style={styles.modalTitle}>
+            <ThemedText style={[styles.modalTitle, { color: c.text }]}>
               Business name is locked
             </ThemedText>
 
             <Spacer height={8} />
 
-            <ThemedText style={styles.modalText}>
+            <ThemedText style={[styles.modalText, { color: c.textMuted }]}>
               Your business name was set during registration. If you need to change it, please contact our support team.
             </ThemedText>
 
@@ -625,7 +713,7 @@ export default function BusinessInfoScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // bg handled by ThemedView default + theme.
   },
   loadingContainer: {
     flex: 1,
@@ -638,11 +726,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    // border + text painted inline from theme.
   },
   headerTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
   },
   scrollView: {
     flex: 1,
@@ -654,67 +743,65 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: "500",
-    color: Colors.light.title,
     marginBottom: 4,
+    // color painted inline from theme.
   },
   hintText: {
     fontSize: 12,
-    color: Colors.light.subtitle,
     marginBottom: 8,
+    // color painted inline from theme.
   },
   lockedField: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: Colors.light.secondaryBackground,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderRadius: 12,
+    borderWidth: 1,
+    // bg + border painted inline from theme.
   },
   lockedFieldText: {
     fontSize: 16,
-    color: Colors.light.subtitle,
     flex: 1,
+    // color painted inline from theme.
   },
   bioInput: {
-    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: Colors.light.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 15,
-    color: Colors.light.title,
     minHeight: 120,
     lineHeight: 22,
+    // bg + border + text color painted inline from theme.
   },
   charCount: {
     fontSize: 12,
-    color: Colors.light.subtitle,
     textAlign: "right",
     marginTop: 4,
+    // color painted inline from theme.
   },
   dropdownButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: Colors.light.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     minHeight: 52,
+    // bg + border painted inline from theme.
   },
   dropdownText: {
     fontSize: 16,
-    color: Colors.light.title,
     flex: 1,
+    // color painted inline from theme.
   },
   dropdownPlaceholder: {
     fontSize: 16,
-    color: Colors.light.subtitle,
     flex: 1,
+    // color painted inline from theme.
   },
   chipsContainer: {
     flexDirection: "row",
@@ -730,27 +817,28 @@ const styles = StyleSheet.create({
   },
   categoryLabel: {
     fontSize: 12,
-    color: Colors.light.subtitle,
     marginBottom: 6,
+    // color painted inline from theme.
   },
   chip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: Colors.light.secondaryBackground,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 16,
+    borderWidth: 1,
+    // bg + border painted inline from theme.
   },
   chipText: {
     fontSize: 14,
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   emptyServicesText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     textAlign: "center",
     marginTop: 16,
+    // color painted inline from theme.
   },
   primaryButton: {
     backgroundColor: PRIMARY,
@@ -780,28 +868,28 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
   },
   sheetContent: {
-    backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
     paddingTop: 12,
     maxHeight: "80%",
+    // bg + top border painted inline from theme.
   },
   sheetHandle: {
     width: 36,
     height: 4,
-    backgroundColor: "#D1D5DB",
     borderRadius: 2,
     alignSelf: "center",
     marginBottom: 20,
+    // bg painted inline from theme.
   },
   sheetCloseBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
+    // bg painted inline from theme.
   },
   servicesSheetContent: {
     maxHeight: "85%",
@@ -812,15 +900,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   sheetTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
     flex: 1,
+    // color painted inline from theme.
   },
   sheetSubtitle: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     marginTop: 4,
+    // color painted inline from theme.
   },
   sheetList: {
     maxHeight: 400,
@@ -830,24 +918,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: 16,
-    paddingHorizontal: 4,
+    paddingHorizontal: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.light.border,
-  },
-  sheetListItemSelected: {
-    backgroundColor: "rgba(104, 73, 167, 0.05)",
+    borderRadius: 8,
+    // bg painted inline when selected. border painted inline from theme.
   },
   sheetListItemText: {
     fontSize: 16,
-    color: Colors.light.title,
     flex: 1,
-  },
-  sheetListItemTextSelected: {
-    color: PRIMARY,
-    fontWeight: "500",
+    // color + weight painted inline from theme.
   },
   sheetDoneBtn: {
-    backgroundColor: PRIMARY,
+    backgroundColor: Colors.primary,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: "center",
@@ -863,16 +945,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: Colors.light.secondaryBackground,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
+    // bg + border painted inline from theme.
   },
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: Colors.light.title,
     padding: 0,
+    // color painted inline from theme.
   },
   // Category accordion
   categoryHeader: {
@@ -881,7 +963,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.light.border,
+    // border painted inline from theme.
   },
   categoryHeaderLeft: {
     flexDirection: "row",
@@ -891,12 +973,12 @@ const styles = StyleSheet.create({
   categoryHeaderText: {
     fontSize: 16,
     fontWeight: "500",
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   categoryCount: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     fontWeight: "400",
+    // color painted inline from theme.
   },
   serviceTypesContainer: {
     paddingLeft: 28,
@@ -909,11 +991,7 @@ const styles = StyleSheet.create({
   },
   serviceTypeText: {
     fontSize: 15,
-    color: Colors.light.title,
-  },
-  serviceTypeTextSelected: {
-    color: PRIMARY,
-    fontWeight: "500",
+    // color + weight painted inline from theme.
   },
   // Modal styles
   modalOverlay: {
@@ -925,33 +1003,33 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
   },
   modalContent: {
-    backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
     paddingTop: 12,
     alignItems: "center",
+    // bg + top border painted inline from theme.
   },
   modalIconContainer: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
+    // bg painted inline from theme.
   },
   modalTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
     textAlign: "center",
+    // color painted inline from theme.
   },
   modalText: {
     fontSize: 14,
-    color: "#6B7280",
     textAlign: "center",
     lineHeight: 20,
     paddingHorizontal: 16,
+    // color painted inline from theme.
   },
   modalPrimaryBtn: {
     backgroundColor: PRIMARY,

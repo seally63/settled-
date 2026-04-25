@@ -18,6 +18,8 @@ import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants } from "../../../constants/Typography";
+import { useTheme } from "../../../hooks/useTheme";
 
 import { useUser } from "../../../hooks/useUser";
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
@@ -30,6 +32,7 @@ export default function ProfilePhotoScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();
+  const { colors: c } = useTheme();
 
   const [photoUrl, setPhotoUrl] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -184,9 +187,9 @@ export default function ProfilePhotoScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={c.text} />
         </Pressable>
-        <ThemedText style={styles.headerTitle}>Profile photo</ThemedText>
+        <ThemedText style={[styles.headerTitle, { color: c.text }]}>Profile photo</ThemedText>
         <View style={{ width: 24 }} />
       </View>
 
@@ -196,8 +199,8 @@ export default function ProfilePhotoScreen() {
           {photoUrl ? (
             <Image source={{ uri: photoUrl }} style={styles.photo} />
           ) : (
-            <View style={[styles.photo, styles.photoPlaceholder]}>
-              <Ionicons name="person" size={48} color={Colors.light.subtitle} />
+            <View style={[styles.photo, styles.photoPlaceholder, { backgroundColor: c.elevate }]}>
+              <Ionicons name="person" size={48} color={c.textMuted} />
             </View>
           )}
         </View>
@@ -206,23 +209,31 @@ export default function ProfilePhotoScreen() {
 
         {/* Actions */}
         <Pressable
-          style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
+          style={({ pressed }) => [
+            styles.actionButton,
+            { backgroundColor: c.elevate, borderColor: c.border },
+            pressed && { backgroundColor: c.elevate2 },
+          ]}
           onPress={handleTakePhoto}
           disabled={saving}
         >
-          <Ionicons name="camera-outline" size={24} color={Colors.light.title} />
-          <ThemedText style={styles.actionButtonText}>Take photo</ThemedText>
+          <Ionicons name="camera-outline" size={24} color={c.text} />
+          <ThemedText style={[styles.actionButtonText, { color: c.text }]}>Take photo</ThemedText>
         </Pressable>
 
         <Spacer height={12} />
 
         <Pressable
-          style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
+          style={({ pressed }) => [
+            styles.actionButton,
+            { backgroundColor: c.elevate, borderColor: c.border },
+            pressed && { backgroundColor: c.elevate2 },
+          ]}
           onPress={handleChooseFromLibrary}
           disabled={saving}
         >
-          <Ionicons name="image-outline" size={24} color={Colors.light.title} />
-          <ThemedText style={styles.actionButtonText}>Choose from library</ThemedText>
+          <Ionicons name="image-outline" size={24} color={c.text} />
+          <ThemedText style={[styles.actionButtonText, { color: c.text }]}>Choose from library</ThemedText>
         </Pressable>
 
         {photoUrl && (
@@ -235,7 +246,7 @@ export default function ProfilePhotoScreen() {
         )}
 
         {saving && (
-          <View style={styles.savingOverlay}>
+          <View style={[styles.savingOverlay, { backgroundColor: c.background + "B3" }]}>
             <ActivityIndicator color={Colors.primary} />
           </View>
         )}
@@ -247,7 +258,7 @@ export default function ProfilePhotoScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // bg handled by ThemedView default + theme.
   },
   loadingContainer: {
     flex: 1,
@@ -262,9 +273,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   headerTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
   },
   content: {
     flex: 1,
@@ -281,9 +291,9 @@ const styles = StyleSheet.create({
     borderRadius: 60,
   },
   photoPlaceholder: {
-    backgroundColor: Colors.light.secondaryBackground,
     alignItems: "center",
     justifyContent: "center",
+    // bg painted inline from theme.
   },
   actionButton: {
     flexDirection: "row",
@@ -294,16 +304,12 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
-    backgroundColor: "#FFFFFF",
-  },
-  actionButtonPressed: {
-    backgroundColor: Colors.light.secondaryBackground,
+    // bg + border painted inline from theme.
   },
   actionButtonText: {
     fontSize: 16,
-    color: Colors.light.title,
     fontWeight: "500",
+    // color painted inline from theme.
   },
   removeText: {
     fontSize: 14,
@@ -316,8 +322,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(255,255,255,0.7)",
     alignItems: "center",
     justifyContent: "center",
+    // bg painted inline (semi-transparent theme background).
   },
 });

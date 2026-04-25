@@ -19,8 +19,10 @@ import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants } from "../../../constants/Typography";
 
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
+import { useTheme } from "../../../hooks/useTheme";
 import ThemedStatusBar from "../../../components/ThemedStatusBar";
 import useHideTabBar from "../../../hooks/useHideTabBar";
 
@@ -28,6 +30,7 @@ export default function AddressScreen() {
   useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { colors: c } = useTheme();
 
   const [street, setStreet] = useState("");
   const [unit, setUnit] = useState("");
@@ -95,11 +98,13 @@ export default function AddressScreen() {
       <ThemedStatusBar />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: c.border }]}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={c.text} />
         </Pressable>
-        <ThemedText style={styles.headerTitle}>Address</ThemedText>
+        <ThemedText style={[styles.headerTitle, { color: c.text }]}>
+          Address
+        </ThemedText>
         <Pressable onPress={handleSave} disabled={saving} hitSlop={10}>
           {saving ? (
             <ActivityIndicator size="small" color={Colors.primary} />
@@ -118,7 +123,7 @@ export default function AddressScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          <ThemedText style={styles.description}>
+          <ThemedText style={[styles.description, { color: c.textMuted }]}>
             Your address helps trades provide accurate quotes and find your
             property for jobs.
           </ThemedText>
@@ -126,38 +131,51 @@ export default function AddressScreen() {
           <Spacer height={24} />
 
           {/* Street Address */}
-          <ThemedText style={styles.label}>Street address</ThemedText>
+          <ThemedText style={[styles.label, { color: c.text }]}>
+            Street address
+          </ThemedText>
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              { backgroundColor: c.elevate, borderColor: c.border, color: c.text },
+            ]}
             value={street}
             onChangeText={setStreet}
             placeholder="123 Main Street"
-            placeholderTextColor={Colors.light.subtitle}
+            placeholderTextColor={c.textMuted}
             autoComplete="street-address"
           />
 
           <Spacer height={16} />
 
           {/* Unit/Apt */}
-          <ThemedText style={styles.label}>Unit / Apartment (optional)</ThemedText>
+          <ThemedText style={[styles.label, { color: c.text }]}>
+            Unit / Apartment (optional)
+          </ThemedText>
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              { backgroundColor: c.elevate, borderColor: c.border, color: c.text },
+            ]}
             value={unit}
             onChangeText={setUnit}
             placeholder="Apt 4B, Suite 100, etc."
-            placeholderTextColor={Colors.light.subtitle}
+            placeholderTextColor={c.textMuted}
           />
 
           <Spacer height={16} />
 
           {/* City */}
-          <ThemedText style={styles.label}>City</ThemedText>
+          <ThemedText style={[styles.label, { color: c.text }]}>City</ThemedText>
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              { backgroundColor: c.elevate, borderColor: c.border, color: c.text },
+            ]}
             value={city}
             onChangeText={setCity}
             placeholder="City name"
-            placeholderTextColor={Colors.light.subtitle}
+            placeholderTextColor={c.textMuted}
             autoComplete="address-level2"
           />
 
@@ -166,25 +184,31 @@ export default function AddressScreen() {
           {/* State / Zip Row */}
           <View style={styles.row}>
             <View style={styles.stateContainer}>
-              <ThemedText style={styles.label}>State</ThemedText>
+              <ThemedText style={[styles.label, { color: c.text }]}>State</ThemedText>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  { backgroundColor: c.elevate, borderColor: c.border, color: c.text },
+                ]}
                 value={state}
                 onChangeText={setState}
                 placeholder="State"
-                placeholderTextColor={Colors.light.subtitle}
+                placeholderTextColor={c.textMuted}
                 autoComplete="address-level1"
               />
             </View>
 
             <View style={styles.zipContainer}>
-              <ThemedText style={styles.label}>ZIP code</ThemedText>
+              <ThemedText style={[styles.label, { color: c.text }]}>ZIP code</ThemedText>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  { backgroundColor: c.elevate, borderColor: c.border, color: c.text },
+                ]}
                 value={zipCode}
                 onChangeText={setZipCode}
                 placeholder="12345"
-                placeholderTextColor={Colors.light.subtitle}
+                placeholderTextColor={c.textMuted}
                 keyboardType="number-pad"
                 autoComplete="postal-code"
                 maxLength={10}
@@ -202,7 +226,7 @@ export default function AddressScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // bg handled by ThemedView default + theme.
   },
   loadingContainer: {
     flex: 1,
@@ -215,11 +239,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    // border + text painted inline from theme.
   },
   headerTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
   },
   saveButton: {
     fontSize: 16,
@@ -238,24 +263,22 @@ const styles = StyleSheet.create({
   },
   description: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     lineHeight: 20,
+    // color painted inline from theme.
   },
   label: {
     fontSize: 14,
     fontWeight: "500",
-    color: Colors.light.title,
     marginBottom: 8,
+    // color painted inline from theme.
   },
   input: {
-    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: Colors.light.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    color: Colors.light.title,
+    // bg + border + text color painted inline from theme.
   },
   row: {
     flexDirection: "row",

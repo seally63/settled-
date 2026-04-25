@@ -18,6 +18,8 @@ import { Ionicons } from "@expo/vector-icons";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants } from "../../../constants/Typography";
+import { useTheme } from "../../../hooks/useTheme";
 import {
   getEnvironmentStatus,
   switchEnvironment,
@@ -31,6 +33,7 @@ export default function DeveloperSettings() {
   useHideTabBar();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { colors: c } = useTheme();
 
   const [envStatus, setEnvStatus] = useState(null);
   const [testing, setTesting] = useState({ production: false, local: false });
@@ -115,11 +118,11 @@ export default function DeveloperSettings() {
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: c.elevate, borderBottomColor: c.border }]}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={c.text} />
         </Pressable>
-        <ThemedText style={styles.headerTitle}>Developer Settings</ThemedText>
+        <ThemedText style={[styles.headerTitle, { color: c.text }]}>Developer Settings</ThemedText>
         <View style={{ width: 24 }} />
       </View>
 
@@ -129,10 +132,10 @@ export default function DeveloperSettings() {
       >
         {/* Current Status */}
         <View style={styles.section}>
-          <ThemedText style={styles.sectionTitle}>CURRENT STATUS</ThemedText>
-          <View style={styles.card}>
-            <View style={styles.statusRow}>
-              <ThemedText style={styles.statusLabel}>Environment:</ThemedText>
+          <ThemedText style={[styles.sectionTitle, { color: c.textMuted }]}>CURRENT STATUS</ThemedText>
+          <View style={[styles.card, { backgroundColor: c.elevate, borderColor: c.border }]}>
+            <View style={[styles.statusRow, { borderBottomColor: c.border }]}>
+              <ThemedText style={[styles.statusLabel, { color: c.textMid }]}>Environment:</ThemedText>
               <View style={[styles.badge, envStatus.activeEnv === "local" ? styles.badgeLocal : styles.badgeProd]}>
                 <ThemedText style={styles.badgeText}>
                   {envStatus.activeEnv.toUpperCase()}
@@ -140,7 +143,7 @@ export default function DeveloperSettings() {
               </View>
             </View>
             {envStatus.isUsingFallback && (
-              <View style={styles.warningRow}>
+              <View style={[styles.warningRow, { borderBottomColor: c.border }]}>
                 <Ionicons name="warning" size={16} color="#F59E0B" />
                 <ThemedText style={styles.warningText}>
                   Using fallback (production failed)
@@ -148,21 +151,21 @@ export default function DeveloperSettings() {
               </View>
             )}
             <View style={styles.statusRow}>
-              <ThemedText style={styles.statusLabel}>Retry count:</ThemedText>
-              <ThemedText style={styles.statusValue}>{envStatus.connectionRetryCount}</ThemedText>
+              <ThemedText style={[styles.statusLabel, { color: c.textMid }]}>Retry count:</ThemedText>
+              <ThemedText style={[styles.statusValue, { color: c.text }]}>{envStatus.connectionRetryCount}</ThemedText>
             </View>
           </View>
         </View>
 
         {/* Environment Selection */}
         <View style={styles.section}>
-          <ThemedText style={styles.sectionTitle}>ENVIRONMENT</ThemedText>
-          <View style={styles.card}>
+          <ThemedText style={[styles.sectionTitle, { color: c.textMuted }]}>ENVIRONMENT</ThemedText>
+          <View style={[styles.card, { backgroundColor: c.elevate, borderColor: c.border }]}>
             {/* Production */}
             <Pressable
               style={[
                 styles.envOption,
-                envStatus.activeEnv === "production" && styles.envOptionActive,
+                envStatus.activeEnv === "production" && { backgroundColor: Colors.primaryTint },
               ]}
               onPress={() => handleSwitchEnvironment("production")}
               disabled={switching}
@@ -172,14 +175,14 @@ export default function DeveloperSettings() {
                   <Ionicons
                     name={envStatus.activeEnv === "production" ? "radio-button-on" : "radio-button-off"}
                     size={20}
-                    color={envStatus.activeEnv === "production" ? Colors.primary : "#9CA3AF"}
+                    color={envStatus.activeEnv === "production" ? Colors.primary : c.textMuted}
                   />
-                  <ThemedText style={styles.envOptionTitle}>Production</ThemedText>
+                  <ThemedText style={[styles.envOptionTitle, { color: c.text }]}>Production</ThemedText>
                 </View>
-                <ThemedText style={styles.envOptionUrl}>ncwbkoriohrkvulvzzuw.supabase.co</ThemedText>
+                <ThemedText style={[styles.envOptionUrl, { color: c.textMuted }]}>ncwbkoriohrkvulvzzuw.supabase.co</ThemedText>
               </View>
               <Pressable
-                style={styles.testButton}
+                style={[styles.testButton, { backgroundColor: c.elevate2 }]}
                 onPress={() => handleTestConnection("production")}
                 disabled={testing.production}
               >
@@ -205,13 +208,13 @@ export default function DeveloperSettings() {
               </View>
             )}
 
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: c.border }]} />
 
             {/* Local */}
             <Pressable
               style={[
                 styles.envOption,
-                envStatus.activeEnv === "local" && styles.envOptionActive,
+                envStatus.activeEnv === "local" && { backgroundColor: Colors.primaryTint },
               ]}
               onPress={() => handleSwitchEnvironment("local")}
               disabled={switching}
@@ -221,14 +224,14 @@ export default function DeveloperSettings() {
                   <Ionicons
                     name={envStatus.activeEnv === "local" ? "radio-button-on" : "radio-button-off"}
                     size={20}
-                    color={envStatus.activeEnv === "local" ? Colors.primary : "#9CA3AF"}
+                    color={envStatus.activeEnv === "local" ? Colors.primary : c.textMuted}
                   />
-                  <ThemedText style={styles.envOptionTitle}>Local</ThemedText>
+                  <ThemedText style={[styles.envOptionTitle, { color: c.text }]}>Local</ThemedText>
                 </View>
-                <ThemedText style={styles.envOptionUrl}>127.0.0.1:54321</ThemedText>
+                <ThemedText style={[styles.envOptionUrl, { color: c.textMuted }]}>127.0.0.1:54321</ThemedText>
               </View>
               <Pressable
-                style={styles.testButton}
+                style={[styles.testButton, { backgroundColor: c.elevate2 }]}
                 onPress={() => handleTestConnection("local")}
                 disabled={testing.local}
               >
@@ -258,26 +261,26 @@ export default function DeveloperSettings() {
 
         {/* Fallback Settings */}
         <View style={styles.section}>
-          <ThemedText style={styles.sectionTitle}>FALLBACK</ThemedText>
-          <View style={styles.card}>
+          <ThemedText style={[styles.sectionTitle, { color: c.textMuted }]}>FALLBACK</ThemedText>
+          <View style={[styles.card, { backgroundColor: c.elevate, borderColor: c.border }]}>
             <View style={styles.settingRow}>
               <View style={styles.settingContent}>
-                <ThemedText style={styles.settingTitle}>Auto-fallback to Local</ThemedText>
-                <ThemedText style={styles.settingDescription}>
+                <ThemedText style={[styles.settingTitle, { color: c.text }]}>Auto-fallback to Local</ThemedText>
+                <ThemedText style={[styles.settingDescription, { color: c.textMuted }]}>
                   If production fails, automatically switch to local database
                 </ThemedText>
               </View>
               <Switch
                 value={envStatus.fallbackEnabled}
                 onValueChange={handleToggleFallback}
-                trackColor={{ false: "#D1D5DB", true: Colors.primary }}
+                trackColor={{ false: c.border, true: Colors.primary }}
                 thumbColor="#FFFFFF"
               />
             </View>
 
             {envStatus.isUsingFallback && (
               <>
-                <View style={styles.divider} />
+                <View style={[styles.divider, { backgroundColor: c.border }]} />
                 <Pressable style={styles.resetButton} onPress={handleResetToPrimary}>
                   <Ionicons name="refresh" size={18} color={Colors.primary} />
                   <ThemedText style={styles.resetButtonText}>Reset to Primary</ThemedText>
@@ -289,16 +292,16 @@ export default function DeveloperSettings() {
 
         {/* Instructions */}
         <View style={styles.section}>
-          <ThemedText style={styles.sectionTitle}>LOCAL SETUP</ThemedText>
-          <View style={styles.card}>
-            <ThemedText style={styles.instructionText}>
+          <ThemedText style={[styles.sectionTitle, { color: c.textMuted }]}>LOCAL SETUP</ThemedText>
+          <View style={[styles.card, { backgroundColor: c.elevate, borderColor: c.border }]}>
+            <ThemedText style={[styles.instructionText, { color: c.textMid }]}>
               To run local Supabase:
             </ThemedText>
             <View style={styles.codeBlock}>
               <ThemedText style={styles.codeText}>cd tradify_app</ThemedText>
               <ThemedText style={styles.codeText}>npx supabase start</ThemedText>
             </View>
-            <ThemedText style={styles.instructionText}>
+            <ThemedText style={[styles.instructionText, { color: c.textMid }]}>
               This will start PostgreSQL, Auth, Storage, and other services locally.
             </ThemedText>
           </View>
@@ -306,9 +309,9 @@ export default function DeveloperSettings() {
       </ScrollView>
 
       {switching && (
-        <View style={styles.loadingOverlay}>
+        <View style={[styles.loadingOverlay, { backgroundColor: c.background + "E6" }]}>
           <ActivityIndicator size="large" color={Colors.primary} />
-          <ThemedText style={styles.loadingText}>Switching environment...</ThemedText>
+          <ThemedText style={[styles.loadingText, { color: c.text }]}>Switching environment...</ThemedText>
         </View>
       )}
     </ThemedView>
@@ -318,7 +321,7 @@ export default function DeveloperSettings() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    // bg handled by ThemedView default + theme.
   },
   header: {
     flexDirection: "row",
@@ -326,14 +329,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
+    // bg + border painted inline from theme.
   },
   headerTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
   },
   scrollView: {
     flex: 1,
@@ -347,17 +348,16 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#6B7280",
     letterSpacing: 0.5,
     marginBottom: 8,
     marginLeft: 4,
+    // color painted inline from theme.
   },
   card: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
     overflow: "hidden",
+    // bg + border painted inline from theme.
   },
   statusRow: {
     flexDirection: "row",
@@ -365,22 +365,23 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    // border painted inline from theme.
   },
   statusLabel: {
     fontSize: 15,
-    color: "#374151",
+    // color painted inline from theme.
   },
   statusValue: {
     fontSize: 15,
     fontWeight: "500",
-    color: "#111827",
+    // color painted inline from theme.
   },
   badge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
   },
+  // Semantic palette kept for environment badges.
   badgeProd: {
     backgroundColor: "#DCFCE7",
   },
@@ -392,6 +393,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#111827",
   },
+  // Semantic amber for fallback warning row.
   warningRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -399,7 +401,7 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: "#FFFBEB",
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    // border painted inline from theme.
   },
   warningText: {
     fontSize: 13,
@@ -410,9 +412,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     padding: 16,
-  },
-  envOptionActive: {
-    backgroundColor: "#F0FDF4",
   },
   envOptionContent: {
     flex: 1,
@@ -425,27 +424,28 @@ const styles = StyleSheet.create({
   envOptionTitle: {
     fontSize: 16,
     fontWeight: "500",
-    color: "#111827",
+    // color painted inline from theme.
   },
   envOptionUrl: {
     fontSize: 13,
-    color: "#6B7280",
     marginLeft: 30,
     marginTop: 4,
+    // color painted inline from theme.
   },
   testButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: "#F3F4F6",
     minWidth: 60,
     alignItems: "center",
+    // bg painted inline from theme.
   },
   testButtonText: {
     fontSize: 14,
     fontWeight: "500",
     color: Colors.primary,
   },
+  // Test result banners — semantic palette kept in both modes.
   testResult: {
     flexDirection: "row",
     alignItems: "center",
@@ -468,7 +468,7 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: "#E5E7EB",
+    // bg painted inline from theme.
   },
   settingRow: {
     flexDirection: "row",
@@ -483,12 +483,12 @@ const styles = StyleSheet.create({
   settingTitle: {
     fontSize: 15,
     fontWeight: "500",
-    color: "#111827",
+    // color painted inline from theme.
   },
   settingDescription: {
     fontSize: 13,
-    color: "#6B7280",
     marginTop: 4,
+    // color painted inline from theme.
   },
   resetButton: {
     flexDirection: "row",
@@ -504,10 +504,11 @@ const styles = StyleSheet.create({
   },
   instructionText: {
     fontSize: 14,
-    color: "#374151",
     padding: 16,
     paddingBottom: 8,
+    // color painted inline from theme.
   },
+  // Code block keeps dark palette in both modes — terminal-style.
   codeBlock: {
     backgroundColor: "#1F2937",
     marginHorizontal: 16,
@@ -522,13 +523,13 @@ const styles = StyleSheet.create({
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255,255,255,0.9)",
     alignItems: "center",
     justifyContent: "center",
+    // bg painted inline (semi-transparent theme background).
   },
   loadingText: {
     marginTop: 12,
     fontSize: 15,
-    color: "#374151",
+    // color painted inline from theme.
   },
 });
