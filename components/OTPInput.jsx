@@ -1,7 +1,13 @@
 // components/OTPInput.jsx
+// Theme-aware 4-digit OTP entry. Each cell reads its bg / border /
+// text from useTheme() so dark mode stops rendering as white boxes
+// with dark digits (and by extension the email + phone verification
+// screens in registration no longer have a white strip across the
+// middle of the viewport).
 import { useRef, useState, useEffect } from 'react'
 import { View, TextInput, StyleSheet, Pressable } from 'react-native'
 import { Colors } from '../constants/Colors'
+import { useTheme } from '../hooks/useTheme'
 
 const OTPInput = ({
   length = 4,
@@ -13,6 +19,7 @@ const OTPInput = ({
 }) => {
   const inputRefs = useRef([])
   const [focusedIndex, setFocusedIndex] = useState(0)
+  const { colors: c, dark } = useTheme()
 
   // Convert value string to array of digits
   const digits = value.split('').slice(0, length)
@@ -27,17 +34,11 @@ const OTPInput = ({
   }, [autoFocus])
 
   const handleChange = (text, index) => {
-    // Only allow digits
     const digit = text.replace(/[^0-9]/g, '').slice(-1)
-
-    // Create new value
     const newDigits = [...digits]
     newDigits[index] = digit
     const newValue = newDigits.join('')
-
     onChange(newValue)
-
-    // Auto-advance to next field
     if (digit && index < length - 1) {
       inputRefs.current[index + 1]?.focus()
     }
@@ -45,7 +46,6 @@ const OTPInput = ({
 
   const handleKeyPress = (e, index) => {
     if (e.nativeEvent.key === 'Backspace' && !digits[index] && index > 0) {
-      // Move to previous field on backspace when current is empty
       inputRefs.current[index - 1]?.focus()
     }
   }
@@ -59,7 +59,6 @@ const OTPInput = ({
     const pastedDigits = pastedText.replace(/[^0-9]/g, '').slice(0, length)
     if (pastedDigits.length > 1) {
       onChange(pastedDigits)
-      // Focus the last filled input or the next empty one
       const focusIndex = Math.min(pastedDigits.length, length - 1)
       inputRefs.current[focusIndex]?.focus()
     }
@@ -67,29 +66,47 @@ const OTPInput = ({
 
   return (
     <View style={styles.container}>
-      {digits.map((digit, index) => (
-        <TextInput
-          key={index}
-          ref={(ref) => (inputRefs.current[index] = ref)}
-          style={[
-            styles.input,
-            focusedIndex === index && styles.inputFocused,
-            error && styles.inputError,
-            disabled && styles.inputDisabled,
-          ]}
-          value={digit}
-          onChangeText={(text) => handleChange(text, index)}
-          onKeyPress={(e) => handleKeyPress(e, index)}
-          onFocus={() => handleFocus(index)}
-          onChange={index === 0 ? handlePaste : undefined}
-          keyboardType="number-pad"
-          maxLength={1}
-          selectTextOnFocus
-          editable={!disabled}
-          autoComplete="one-time-code"
-          textContentType="oneTimeCode"
-        />
-      ))}
+      {digits.map((digit, index) => {
+        const isFocused = focusedIndex === index
+        // Base cell paints from theme. Focused / error borders beat
+        // the base border via the style cascade below.
+        const baseBg = disabled ? c.elevate2 : c.elevate
+        const baseBorder = c.border
+        const borderColor = error
+          ? Colors.warning
+          : isFocused
+          ? Colors.primary
+          : baseBorder
+        const borderWidth = error || isFocused ? 2 : 1
+        return (
+          <TextInput
+            key={index}
+            ref={(ref) => (inputRefs.current[index] = ref)}
+            style={[
+              styles.input,
+              {
+                backgroundColor: baseBg,
+                borderColor,
+                borderWidth,
+                color: c.text,
+                opacity: disabled ? 0.7 : 1,
+              },
+            ]}
+            value={digit}
+            onChangeText={(text) => handleChange(text, index)}
+            onKeyPress={(e) => handleKeyPress(e, index)}
+            onFocus={() => handleFocus(index)}
+            onChange={index === 0 ? handlePaste : undefined}
+            keyboardType="number-pad"
+            maxLength={1}
+            selectTextOnFocus
+            editable={!disabled}
+            autoComplete="one-time-code"
+            textContentType="oneTimeCode"
+            placeholderTextColor={c.textMuted}
+          />
+        )
+      })}
     </View>
   )
 }
@@ -103,26 +120,11 @@ const styles = StyleSheet.create({
   input: {
     width: 56,
     height: 56,
-    borderWidth: 1,
-    borderColor: Colors.light.border,
     borderRadius: 12,
     fontSize: 24,
     fontWeight: '600',
     textAlign: 'center',
-    backgroundColor: Colors.light.uiBackground,
-    color: Colors.light.title,
-  },
-  inputFocused: {
-    borderColor: Colors.primary,
-    borderWidth: 2,
-  },
-  inputError: {
-    borderColor: Colors.warning,
-    borderWidth: 2,
-  },
-  inputDisabled: {
-    backgroundColor: Colors.light.secondaryBackground,
-    opacity: 0.7,
+    // bg / border / color painted inline from theme at render site.
   },
 })
 

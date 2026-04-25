@@ -158,7 +158,7 @@ export default function TradeDetail() {
                 <Spacer height={16} />
                 <ThemedButton disabled={sending} onPress={onRequestQuote}>
                   <ThemedText style={{ color: "#fff", fontWeight: "700", textAlign: "center" }}>
-                    {sending ? "Sending…" : "Request a quote"}
+                    {sending ? "Sending…" : "Send enquiry"}
                   </ThemedText>
                 </ThemedButton>
               </>

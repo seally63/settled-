@@ -1,4 +1,9 @@
 // app/(auth)/role-select.jsx
+// First screen of the sign-up flow. Two primary cards — "I'm a
+// Homeowner" / "I'm a Tradesperson" — each routes to /register with
+// the chosen role. Theme-aware: colours come from useTheme() so
+// both cards, icon circles, and chevrons flip correctly in dark
+// mode (previously every bg + text was pinned to Colors.light.*).
 import { StyleSheet, View, Pressable } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -7,24 +12,33 @@ import ThemedView from '../../components/ThemedView'
 import ThemedText from '../../components/ThemedText'
 import Spacer from '../../components/Spacer'
 import { Colors } from '../../constants/Colors'
+import { useTheme } from '../../hooks/useTheme'
 
 const TINT = Colors.primary
 
 export default function RoleSelectScreen() {
   const router = useRouter()
+  const { colors: c } = useTheme()
 
   return (
     <ThemedView style={styles.container}>
       <View style={styles.content}>
         {/* Logo placeholder */}
-        <View style={styles.logoContainer}>
-          <ThemedText style={styles.logoText}>SETTLED</ThemedText>
+        <View
+          style={[
+            styles.logoContainer,
+            { borderColor: c.border },
+          ]}
+        >
+          <ThemedText style={[styles.logoText, { color: c.text }]}>
+            SETTLED
+          </ThemedText>
         </View>
 
         <Spacer height={40} />
 
-        <ThemedText style={styles.title}>Join Settled</ThemedText>
-        <ThemedText style={styles.subtitle}>
+        <ThemedText style={[styles.title, { color: c.text }]}>Join Settled</ThemedText>
+        <ThemedText style={[styles.subtitle, { color: c.textMuted }]}>
           Choose how you'd like to get started
         </ThemedText>
 
@@ -34,22 +48,25 @@ export default function RoleSelectScreen() {
         <Pressable
           style={({ pressed }) => [
             styles.roleCard,
+            { backgroundColor: c.elevate, borderColor: c.border },
             pressed && styles.roleCardPressed,
           ]}
           onPress={() => router.push({ pathname: '/register', params: { role: 'client' } })}
         >
           <View style={styles.cardContent}>
-            <View style={styles.iconCircle}>
-              <Ionicons name="home-outline" size={28} color={Colors.light.subtitle} />
+            <View style={[styles.iconCircle, { backgroundColor: c.elevate2 }]}>
+              <Ionicons name="home-outline" size={28} color={c.textMuted} />
             </View>
             <View style={styles.cardTextContent}>
-              <ThemedText style={styles.roleTitle}>I'm a Homeowner</ThemedText>
+              <ThemedText style={[styles.roleTitle, { color: c.text }]}>
+                I'm a Homeowner
+              </ThemedText>
               <Spacer height={4} />
-              <ThemedText style={styles.roleDescription}>
+              <ThemedText style={[styles.roleDescription, { color: c.textMuted }]}>
                 Find trusted trades for your home improvement projects
               </ThemedText>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.light.subtitle} />
+            <Ionicons name="chevron-forward" size={20} color={c.textMuted} />
           </View>
         </Pressable>
 
@@ -59,30 +76,34 @@ export default function RoleSelectScreen() {
         <Pressable
           style={({ pressed }) => [
             styles.roleCard,
+            { backgroundColor: c.elevate, borderColor: c.border },
             pressed && styles.roleCardPressed,
           ]}
           onPress={() => router.push({ pathname: '/register', params: { role: 'trades' } })}
         >
           <View style={styles.cardContent}>
-            <View style={styles.iconCircle}>
-              <Ionicons name="hammer-outline" size={28} color={Colors.light.subtitle} />
+            <View style={[styles.iconCircle, { backgroundColor: c.elevate2 }]}>
+              <Ionicons name="hammer-outline" size={28} color={c.textMuted} />
             </View>
             <View style={styles.cardTextContent}>
-              <ThemedText style={styles.roleTitle}>I'm a Tradesperson</ThemedText>
+              <ThemedText style={[styles.roleTitle, { color: c.text }]}>
+                I'm a Tradesperson
+              </ThemedText>
               <Spacer height={4} />
-              <ThemedText style={styles.roleDescription}>
+              <ThemedText style={[styles.roleDescription, { color: c.textMuted }]}>
                 Grow your business and connect with local customers
               </ThemedText>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.light.subtitle} />
+            <Ionicons name="chevron-forward" size={20} color={c.textMuted} />
           </View>
         </Pressable>
 
         <Spacer height={40} />
 
         <Pressable onPress={() => router.push('/login')}>
-          <ThemedText style={styles.loginLink}>
-            Already have an account? <ThemedText style={styles.loginLinkBold}>Log in</ThemedText>
+          <ThemedText style={[styles.loginLink, { color: c.textMuted }]}>
+            Already have an account?{' '}
+            <ThemedText style={styles.loginLinkBold}>Log in</ThemedText>
           </ThemedText>
         </Pressable>
       </View>
@@ -107,7 +128,6 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -115,27 +135,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 2,
-    color: Colors.light.title,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
     textAlign: 'center',
-    color: Colors.light.title,
   },
   subtitle: {
     fontSize: 16,
     textAlign: 'center',
-    color: Colors.light.subtitle,
     marginTop: 8,
   },
   roleCard: {
     width: '100%',
-    backgroundColor: Colors.light.uiBackground,
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: Colors.light.border,
   },
   roleCardPressed: {
     opacity: 0.8,
@@ -149,7 +164,6 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: Colors.light.secondaryBackground,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -161,17 +175,14 @@ const styles = StyleSheet.create({
   roleTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.light.title,
   },
   roleDescription: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     lineHeight: 20,
   },
   loginLink: {
     fontSize: 14,
     textAlign: 'center',
-    color: Colors.light.subtitle,
   },
   loginLinkBold: {
     fontWeight: '600',

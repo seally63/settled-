@@ -19,7 +19,7 @@ import { SectionHead } from "../../design";
 import { Colors } from "../../../constants/Colors";
 import { TypeVariants, Radius, FontFamily } from "../../../constants/Typography";
 import { getClosestTrades } from "../../../lib/api/feed";
-import { getMyProfile } from "../../../lib/api/profile";
+import { getMyProfile, getClientLocation } from "../../../lib/api/profile";
 
 function TradeMini({ trade, onPress }) {
   const { colors: c } = useTheme();
@@ -110,12 +110,12 @@ export default function SavedTradesSection() {
   const load = useCallback(async () => {
     try {
       const profile = await getMyProfile();
-      if (profile?.base_lat != null && profile?.base_lon != null) {
-        const list = await getClosestTrades({
-          lat: Number(profile.base_lat),
-          lon: Number(profile.base_lon),
-          limit: 10,
-        });
+      // Read the client's anchor via the shared helper — prefers the
+      // new home_* columns and falls back to base_* so legacy rows
+      // keep working until they update via the PostcodePrompt.
+      const { lat, lon } = getClientLocation(profile);
+      if (lat != null && lon != null) {
+        const list = await getClosestTrades({ lat, lon, limit: 10 });
         setTrades(list || []);
       } else {
         setTrades([]);

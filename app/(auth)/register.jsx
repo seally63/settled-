@@ -14,9 +14,11 @@ import {
 } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 
 import { useUser } from '../../hooks/useUser'
+import { useTheme } from '../../hooks/useTheme'
 import ThemedView from '../../components/ThemedView'
 import ThemedText from '../../components/ThemedText'
 import ThemedTextInput from '../../components/ThemedTextInput'
@@ -35,13 +37,14 @@ const SCREENS = {
   ENTER_PHONE: 3,
   VERIFY_PHONE: 4,
   BUSINESS_DETAILS: 5, // Trades only
+  HOME_POSTCODE: 8,    // Clients only — postcode used as the browse-feed anchor
   PASSWORD: 6,
   WELCOME: 7,
 }
 
 // Progress bar mapping (which step each screen belongs to)
-// For trades: 6 steps (Name, Email, Phone, Business, Password, Welcome)
-// For clients: 5 steps (Name, Email, Phone, Password, Welcome)
+// For trades:  6 steps (Name, Email, Phone, Business, Password, Welcome)
+// For clients: 6 steps (Name, Email, Phone, Home postcode, Password, Welcome)
 const getProgressMap = (isTrade) => ({
   [SCREENS.NAME]: 1,
   [SCREENS.ENTER_EMAIL]: 2,
@@ -49,8 +52,9 @@ const getProgressMap = (isTrade) => ({
   [SCREENS.ENTER_PHONE]: 3,
   [SCREENS.VERIFY_PHONE]: 3,
   [SCREENS.BUSINESS_DETAILS]: 4,
-  [SCREENS.PASSWORD]: isTrade ? 5 : 4,
-  [SCREENS.WELCOME]: isTrade ? 6 : 5,
+  [SCREENS.HOME_POSTCODE]: 4,
+  [SCREENS.PASSWORD]: 5,
+  [SCREENS.WELCOME]: 6,
 })
 
 // Trade job titles options
@@ -90,6 +94,27 @@ export default function RegisterScreen() {
   const router = useRouter()
   const { role } = useLocalSearchParams()
   const { register } = useUser()
+  // Theme colours — override the legacy Colors.light.* references on
+  // the container-level elements so dark mode stops leaking white
+  // strips (progress bar track, bottom Continue section, chevron
+  // icon). The screen-level input/label copy still reads legacy
+  // colours from styles.* but those render as ThemedText which
+  // picks up dark mode automatically for the common cases.
+  const { colors: c, dark } = useTheme()
+  // Safe-area insets — used to pad the bottom Continue button clear
+  // of the iPhone home-indicator gesture zone. The extra +54 isn't
+  // cosmetic: the NAME screen has a "Sign in" link below the CTA
+  // that naturally lifts Continue by ~38px, which is the only reason
+  // Continue taps register on that screen. Every other screen loses
+  // that lift and the Pressable's hitbox overlaps the system swipe
+  // strip, so taps get swallowed. We apply the +54 only to screens
+  // that DON'T already have content below Continue (i.e. everything
+  // except NAME), so the visual position of the CTA is uniform.
+  const insets = useSafeAreaInsets()
+  const hasSignInLinkBelow = currentScreen === SCREENS.NAME
+  const bottomPadding = hasSignInLinkBelow
+    ? Math.max((insets?.bottom || 0) + 16, 24)
+    : Math.max((insets?.bottom || 0) + 54, 64)
 
   // Redirect if no role specified
   useEffect(() => {
@@ -125,8 +150,17 @@ export default function RegisterScreen() {
 
   // Helper for checking if user is trade
   const isTrade = role === 'trades'
-  const totalProgressSteps = isTrade ? 6 : 5
+  const totalProgressSteps = 6
   const PROGRESS_MAP = getProgressMap(isTrade)
+
+  // Client-only state — home postcode, plus its async geocode result
+  // and inline validity indicator. Mirrors the trade-side
+  // basePostcode / postcodeValid pattern so the two paths look the
+  // same at render time.
+  const [homePostcode, setHomePostcode] = useState('')
+  const [homePostcodeGeo, setHomePostcodeGeo] = useState(null) // { latitude, longitude, admin_district, ... }
+  const [homePostcodeValid, setHomePostcodeValid] = useState(null)
+  const [homePostcodeValidating, setHomePostcodeValidating] = useState(false)
 
   // UI state
   const [error, setError] = useState(null)
@@ -231,6 +265,17 @@ export default function RegisterScreen() {
         }
         return true
 
+      case SCREENS.HOME_POSTCODE:
+        if (!homePostcode.trim() || homePostcode.trim().length < 5) {
+          setError('Please enter your home postcode')
+          return false
+        }
+        if (homePostcodeValid === false) {
+          setError('Please enter a valid UK postcode')
+          return false
+        }
+        return true
+
       case SCREENS.PASSWORD:
         if (password.length < 8) {
           setError('Password must be at least 8 characters')
@@ -288,15 +333,21 @@ export default function RegisterScreen() {
           break
 
         case SCREENS.VERIFY_PHONE:
-          // Trades go to business details, clients skip to password
+          // Trades go to business details, clients go to the home
+          // postcode step (captures the anchor postcode for their
+          // browse feed; stored on profile.home_postcode).
           if (isTrade) {
             setCurrentScreen(SCREENS.BUSINESS_DETAILS)
           } else {
-            setCurrentScreen(SCREENS.PASSWORD)
+            setCurrentScreen(SCREENS.HOME_POSTCODE)
           }
           break
 
         case SCREENS.BUSINESS_DETAILS:
+          setCurrentScreen(SCREENS.PASSWORD)
+          break
+
+        case SCREENS.HOME_POSTCODE:
           setCurrentScreen(SCREENS.PASSWORD)
           break
 
@@ -332,12 +383,16 @@ export default function RegisterScreen() {
       case SCREENS.BUSINESS_DETAILS:
         setCurrentScreen(SCREENS.VERIFY_PHONE)
         break
+      case SCREENS.HOME_POSTCODE:
+        setCurrentScreen(SCREENS.VERIFY_PHONE)
+        break
       case SCREENS.PASSWORD:
-        // Trades go back to business details, clients go back to verify phone
+        // Trades go back to business details, clients go back to
+        // their home-postcode step.
         if (isTrade) {
           setCurrentScreen(SCREENS.BUSINESS_DETAILS)
         } else {
-          setCurrentScreen(SCREENS.VERIFY_PHONE)
+          setCurrentScreen(SCREENS.HOME_POSTCODE)
         }
         break
       default:
@@ -366,6 +421,20 @@ export default function RegisterScreen() {
         metadata.job_titles = selectedJobTitles
         metadata.base_postcode = basePostcode.trim().toUpperCase()
         metadata.travel_radius_miles = travelRadius
+      } else {
+        // Client: home postcode captured in the HOME_POSTCODE screen.
+        // Persisted through the profiles trigger that hydrates from
+        // auth.users.raw_user_meta_data. home_lat / home_lon come
+        // from the postcodes.io geocode performed on that screen.
+        const cleanHomePostcode = homePostcode.trim().toUpperCase()
+        metadata.home_postcode = cleanHomePostcode
+        if (homePostcodeGeo?.latitude != null && homePostcodeGeo?.longitude != null) {
+          metadata.home_lat = Number(homePostcodeGeo.latitude)
+          metadata.home_lon = Number(homePostcodeGeo.longitude)
+          if (homePostcodeGeo.admin_district) {
+            metadata.town_city = String(homePostcodeGeo.admin_district).trim()
+          }
+        }
       }
 
       await register(email, password, metadata)
@@ -395,7 +464,14 @@ export default function RegisterScreen() {
 
     return (
       <View style={styles.progressContainer}>
-        <View style={styles.progressTrack}>
+        <View
+          style={[
+            styles.progressTrack,
+            // Track reads theme's elevate2 so dark mode doesn't get
+            // a permanent light-gray strip. Fill stays brand primary.
+            { backgroundColor: c.elevate2 },
+          ]}
+        >
           <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
         </View>
       </View>
@@ -456,7 +532,7 @@ export default function RegisterScreen() {
               />
             </View>
             <Spacer height={8} />
-            <ThemedText style={styles.helperText}>
+            <ThemedText style={[styles.helperText, { color: c.textMuted }]}>
               We'll send you a code to verify
             </ThemedText>
           </View>
@@ -467,11 +543,20 @@ export default function RegisterScreen() {
           <View style={styles.screenContent}>
             <ThemedText style={styles.title}>Verify your email</ThemedText>
             <Spacer height={32} />
-            <View style={styles.infoCard}>
-              <Ionicons name="mail-outline" size={24} color={Colors.light.subtitle} />
+            <View
+              style={[
+                styles.infoCard,
+                { backgroundColor: c.elevate, borderColor: c.border },
+              ]}
+            >
+              <Ionicons name="mail-outline" size={24} color={c.textMuted} />
               <Spacer height={12} />
-              <ThemedText style={styles.infoCardText}>We sent a code to</ThemedText>
-              <ThemedText style={styles.infoCardEmail}>{email}</ThemedText>
+              <ThemedText style={[styles.infoCardText, { color: c.textMuted }]}>
+                We sent a code to
+              </ThemedText>
+              <ThemedText style={[styles.infoCardEmail, { color: c.text }]}>
+                {email}
+              </ThemedText>
             </View>
             <Spacer height={32} />
             <ThemedText style={styles.label}>Enter code</ThemedText>
@@ -488,7 +573,7 @@ export default function RegisterScreen() {
               onPress={handleSendEmailOtp}
               disabled={emailResendCountdown > 0}
             >
-              <ThemedText style={styles.resendText}>
+              <ThemedText style={[styles.resendText, { color: c.textMuted }]}>
                 Didn't receive it?{' '}
                 {emailResendCountdown > 0 ? (
                   <ThemedText style={styles.resendCountdown}>
@@ -510,8 +595,15 @@ export default function RegisterScreen() {
             <View style={styles.fieldContainer}>
               <ThemedText style={styles.label}>Phone number</ThemedText>
               <View style={styles.phoneInputContainer}>
-                <View style={styles.countryCode}>
-                  <ThemedText style={styles.countryCodeText}>+44</ThemedText>
+                <View
+                  style={[
+                    styles.countryCode,
+                    { backgroundColor: c.elevate, borderColor: c.border },
+                  ]}
+                >
+                  <ThemedText style={[styles.countryCodeText, { color: c.text }]}>
+                    +44
+                  </ThemedText>
                 </View>
                 <ThemedTextInput
                   style={[styles.input, styles.phoneInput]}
@@ -525,7 +617,7 @@ export default function RegisterScreen() {
               </View>
             </View>
             <Spacer height={8} />
-            <ThemedText style={styles.helperText}>
+            <ThemedText style={[styles.helperText, { color: c.textMuted }]}>
               We'll send you a code to verify
             </ThemedText>
           </View>
@@ -536,11 +628,20 @@ export default function RegisterScreen() {
           <View style={styles.screenContent}>
             <ThemedText style={styles.title}>Verify your phone number</ThemedText>
             <Spacer height={32} />
-            <View style={styles.infoCard}>
-              <Ionicons name="phone-portrait-outline" size={24} color={Colors.light.subtitle} />
+            <View
+              style={[
+                styles.infoCard,
+                { backgroundColor: c.elevate, borderColor: c.border },
+              ]}
+            >
+              <Ionicons name="phone-portrait-outline" size={24} color={c.textMuted} />
               <Spacer height={12} />
-              <ThemedText style={styles.infoCardText}>We sent a code to</ThemedText>
-              <ThemedText style={styles.infoCardEmail}>+44 {phone}</ThemedText>
+              <ThemedText style={[styles.infoCardText, { color: c.textMuted }]}>
+                We sent a code to
+              </ThemedText>
+              <ThemedText style={[styles.infoCardEmail, { color: c.text }]}>
+                +44 {phone}
+              </ThemedText>
             </View>
             <Spacer height={32} />
             <ThemedText style={styles.label}>Enter code</ThemedText>
@@ -557,7 +658,7 @@ export default function RegisterScreen() {
               onPress={handleSendPhoneOtp}
               disabled={phoneResendCountdown > 0}
             >
-              <ThemedText style={styles.resendText}>
+              <ThemedText style={[styles.resendText, { color: c.textMuted }]}>
                 Didn't receive it?{' '}
                 {phoneResendCountdown > 0 ? (
                   <ThemedText style={styles.resendCountdown}>
@@ -596,16 +697,24 @@ export default function RegisterScreen() {
             {/* Job Titles */}
             <View style={styles.fieldContainer}>
               <ThemedText style={styles.label}>What's your job title?</ThemedText>
-              <ThemedText style={styles.subLabel}>Select up to 3</ThemedText>
+              <ThemedText style={[styles.subLabel, { color: c.textMuted }]}>Select up to 3</ThemedText>
               <Spacer height={8} />
               <Pressable
-                style={styles.dropdownButton}
+                style={[
+                  styles.dropdownButton,
+                  { backgroundColor: c.elevate, borderColor: c.border },
+                ]}
                 onPress={() => setShowJobTitlesSheet(true)}
               >
-                <ThemedText style={selectedJobTitles.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder}>
+                <ThemedText
+                  style={[
+                    selectedJobTitles.length > 0 ? styles.dropdownText : styles.dropdownPlaceholder,
+                    { color: selectedJobTitles.length > 0 ? c.text : c.textMuted },
+                  ]}
+                >
                   {selectedJobTitles.length > 0 ? `${selectedJobTitles.length} selected` : 'Select trades...'}
                 </ThemedText>
-                <Ionicons name="chevron-down" size={20} color={Colors.light.subtitle} />
+                <Ionicons name="chevron-down" size={20} color={c.textMuted} />
               </Pressable>
             </View>
 
@@ -631,7 +740,7 @@ export default function RegisterScreen() {
             {/* Base Postcode */}
             <View style={styles.fieldContainer}>
               <ThemedText style={styles.label}>Business postcode</ThemedText>
-              <ThemedText style={styles.subLabel}>We'll use this to match you with nearby clients</ThemedText>
+              <ThemedText style={[styles.subLabel, { color: c.textMuted }]}>We'll use this to match you with nearby clients</ThemedText>
               <Spacer height={8} />
               <View style={styles.postcodeInputContainer}>
                 <ThemedTextInput
@@ -692,14 +801,109 @@ export default function RegisterScreen() {
               <ThemedText style={styles.label}>How far will you travel?</ThemedText>
               <Spacer height={8} />
               <Pressable
-                style={styles.dropdownButton}
+                style={[
+                  styles.dropdownButton,
+                  { backgroundColor: c.elevate, borderColor: c.border },
+                ]}
                 onPress={() => setShowRadiusSheet(true)}
               >
-                <ThemedText style={styles.dropdownText}>
+                <ThemedText style={[styles.dropdownText, { color: c.text }]}>
                   {TRAVEL_DISTANCE_OPTIONS.find((o) => o.value === travelRadius)?.label || '10 miles'}
                 </ThemedText>
-                <Ionicons name="chevron-down" size={20} color={Colors.light.subtitle} />
+                <Ionicons name="chevron-down" size={20} color={c.textMuted} />
               </Pressable>
+            </View>
+          </View>
+        )
+
+      case SCREENS.HOME_POSTCODE:
+        // Client-only step — collects the postcode used to anchor
+        // the browse feed. Mirrors the trade-side business-postcode
+        // field visually (green tick / red cross / live validation)
+        // so both role paths feel the same. On blur we geocode via
+        // postcodes.io and cache the lat/lon; those get forwarded
+        // to auth metadata on account creation, and the profiles
+        // trigger persists them as home_lat / home_lon.
+        return (
+          <View style={styles.screenContent}>
+            <ThemedText style={styles.title}>Where are you?</ThemedText>
+            <Spacer height={8} />
+            <ThemedText style={[styles.subtitle, { color: c.textMid }]}>
+              We'll use your postcode to show you local trades and keep the feed focused on your area.
+            </ThemedText>
+            <Spacer height={32} />
+
+            <View style={styles.fieldContainer}>
+              <ThemedText style={styles.label}>Home postcode</ThemedText>
+              <ThemedText style={[styles.subLabel, { color: c.textMuted }]}>
+                You can change this later in your profile.
+              </ThemedText>
+              <Spacer height={8} />
+              <View style={styles.postcodeInputContainer}>
+                <ThemedTextInput
+                  style={[
+                    styles.input,
+                    homePostcodeValid === true && styles.inputValid,
+                    homePostcodeValid === false && styles.inputInvalid,
+                  ]}
+                  placeholder="e.g. EH48 3NN"
+                  value={homePostcode}
+                  onChangeText={(text) => {
+                    setHomePostcode(text.toUpperCase())
+                    setHomePostcodeValid(null)
+                    setHomePostcodeGeo(null)
+                  }}
+                  onBlur={async () => {
+                    if (homePostcode.trim().length >= 5) {
+                      setHomePostcodeValidating(true)
+                      try {
+                        const result = await geocodeUKPostcode(homePostcode.trim())
+                        if (result && result.latitude != null) {
+                          setHomePostcodeGeo(result)
+                          setHomePostcodeValid(true)
+                        } else {
+                          setHomePostcodeGeo(null)
+                          setHomePostcodeValid(false)
+                        }
+                      } catch (e) {
+                        setHomePostcodeGeo(null)
+                        setHomePostcodeValid(false)
+                      } finally {
+                        setHomePostcodeValidating(false)
+                      }
+                    }
+                  }}
+                  autoCapitalize="characters"
+                  editable={!loading}
+                  autoFocus
+                />
+                {homePostcodeValidating && (
+                  <View style={styles.postcodeValidatingIcon}>
+                    <ActivityIndicator size="small" color={Colors.light.subtitle} />
+                  </View>
+                )}
+                {!homePostcodeValidating && homePostcodeValid === true && (
+                  <View style={styles.postcodeValidIcon}>
+                    <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
+                  </View>
+                )}
+                {!homePostcodeValidating && homePostcodeValid === false && (
+                  <View style={styles.postcodeValidIcon}>
+                    <Ionicons name="close-circle" size={20} color={Colors.warning} />
+                  </View>
+                )}
+              </View>
+              {homePostcodeValid === false && (
+                <ThemedText style={styles.postcodeErrorText}>
+                  Please enter a valid UK postcode
+                </ThemedText>
+              )}
+              {homePostcodeValid === true && homePostcodeGeo?.admin_district && (
+                <ThemedText style={[styles.postcodeHelperText, { color: c.textMuted }]}>
+                  {homePostcodeGeo.admin_district}
+                  {homePostcodeGeo.region ? ` · ${homePostcodeGeo.region}` : ""}
+                </ThemedText>
+              )}
             </View>
           </View>
         )
@@ -723,7 +927,7 @@ export default function RegisterScreen() {
               />
             </View>
             <Spacer height={8} />
-            <ThemedText style={styles.helperText}>At least 8 characters</ThemedText>
+            <ThemedText style={[styles.helperText, { color: c.textMuted }]}>At least 8 characters</ThemedText>
             <Spacer height={20} />
             <View style={styles.fieldContainer}>
               <ThemedText style={styles.label}>Confirm password</ThemedText>
@@ -849,6 +1053,8 @@ export default function RegisterScreen() {
         return phoneOtp.length !== 4
       case SCREENS.BUSINESS_DETAILS:
         return !businessName.trim() || selectedJobTitles.length === 0 || !basePostcode.trim() || postcodeValid === false
+      case SCREENS.HOME_POSTCODE:
+        return !homePostcode.trim() || homePostcodeValid === false || homePostcodeValidating
       case SCREENS.PASSWORD:
         return !password || !confirmPassword
       default:
@@ -902,14 +1108,21 @@ export default function RegisterScreen() {
       style={{ flex: 1 }}
     >
       <ThemedView style={styles.container}>
-        {/* Header with back button */}
+        {/* Header with back button. Chevron is rendered as a
+            standalone icon button at the top-left — no wrapping
+            coloured surface — so it floats over whatever bg the
+            theme gives us (matches the Client Request screen's
+            inline chevron treatment). */}
         <View style={styles.header}>
           <Pressable
             onPress={handleBack}
             hitSlop={10}
-            style={styles.backButton}
+            style={[
+              styles.backButton,
+              { backgroundColor: c.elevate, borderColor: c.border },
+            ]}
           >
-            <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
+            <Ionicons name="chevron-back" size={20} color={c.text} />
           </Pressable>
         </View>
 
@@ -940,8 +1153,23 @@ export default function RegisterScreen() {
           <Spacer height={40} />
         </ScrollView>
 
-        {/* Bottom Section - Continue Button */}
-        <View style={styles.bottomSection}>
+        {/* Bottom Section - Continue Button. Background pulled from
+            theme so dark mode stops rendering a permanent white strip
+            behind the primary CTA. paddingBottom uses safe-area
+            insets (plus a simulator-specific override) to lift the
+            CTA above the iPhone home-indicator gesture zone — that
+            zone was swallowing taps in dev builds. */}
+        <View
+          style={[
+            styles.bottomSection,
+            {
+              backgroundColor: c.background,
+              borderTopColor: c.border,
+              borderTopWidth: 1,
+              paddingBottom: bottomPadding,
+            },
+          ]}
+        >
           <Pressable
             onPress={handleNext}
             disabled={isContinueDisabled()}
@@ -965,7 +1193,7 @@ export default function RegisterScreen() {
             <>
               <Spacer height={16} />
               <Pressable onPress={() => router.push('/login')}>
-                <ThemedText style={styles.signInLink}>
+                <ThemedText style={[styles.signInLink, { color: c.textMuted }]}>
                   Already have an account?{' '}
                   <ThemedText style={styles.signInLinkBold}>Sign in</ThemedText>
                 </ThemedText>
@@ -986,31 +1214,45 @@ export default function RegisterScreen() {
               style={styles.sheetBackdrop}
               onPress={() => setShowJobTitlesSheet(false)}
             />
-            <View style={styles.sheetContent}>
+            <View
+              style={[
+                styles.sheetContent,
+                { backgroundColor: c.background, borderTopColor: c.border, borderTopWidth: 1 },
+              ]}
+            >
               <View style={styles.sheetHeader}>
-                <ThemedText style={styles.sheetTitle}>What's your job title?</ThemedText>
+                <ThemedText style={[styles.sheetTitle, { color: c.text }]}>
+                  What's your job title?
+                </ThemedText>
                 <Pressable onPress={() => setShowJobTitlesSheet(false)} hitSlop={10}>
-                  <Ionicons name="close" size={24} color={Colors.light.title} />
+                  <Ionicons name="close" size={24} color={c.text} />
                 </Pressable>
               </View>
 
-              <ThemedText style={styles.sheetSubtitle}>Select up to 3</ThemedText>
+              <ThemedText style={[styles.sheetSubtitle, { color: c.textMuted }]}>
+                Select up to 3
+              </ThemedText>
               <Spacer height={16} />
 
               {/* Search Input */}
-              <View style={styles.sheetSearchContainer}>
-                <Ionicons name="search" size={20} color={Colors.light.subtitle} />
+              <View
+                style={[
+                  styles.sheetSearchContainer,
+                  { backgroundColor: c.elevate, borderColor: c.border, borderWidth: 1 },
+                ]}
+              >
+                <Ionicons name="search" size={20} color={c.textMuted} />
                 <TextInput
-                  style={styles.sheetSearchInput}
+                  style={[styles.sheetSearchInput, { color: c.text }]}
                   placeholder="Search trades..."
-                  placeholderTextColor={Colors.light.subtitle}
+                  placeholderTextColor={c.textMuted}
                   value={jobTitleSearch}
                   onChangeText={setJobTitleSearch}
                   autoCapitalize="none"
                 />
                 {jobTitleSearch.length > 0 && (
                   <Pressable onPress={() => setJobTitleSearch('')} hitSlop={10}>
-                    <Ionicons name="close-circle" size={20} color={Colors.light.subtitle} />
+                    <Ionicons name="close-circle" size={20} color={c.textMuted} />
                   </Pressable>
                 )}
               </View>
@@ -1027,10 +1269,21 @@ export default function RegisterScreen() {
                   const isSelected = selectedJobTitles.includes(item)
                   return (
                     <Pressable
-                      style={[styles.sheetListItem, isSelected && styles.sheetListItemSelected]}
+                      style={[
+                        styles.sheetListItem,
+                        {
+                          backgroundColor: isSelected ? Colors.primaryTint : c.elevate,
+                          borderColor: isSelected ? Colors.primary : c.border,
+                        },
+                      ]}
                       onPress={() => toggleJobTitle(item)}
                     >
-                      <ThemedText style={[styles.sheetListItemText, isSelected && styles.sheetListItemTextSelected]}>
+                      <ThemedText
+                        style={[
+                          styles.sheetListItemText,
+                          { color: isSelected ? Colors.primary : c.text },
+                        ]}
+                      >
                         {item}
                       </ThemedText>
                       {isSelected && (
@@ -1070,11 +1323,19 @@ export default function RegisterScreen() {
               style={styles.sheetBackdrop}
               onPress={() => setShowRadiusSheet(false)}
             />
-            <View style={[styles.sheetContent, styles.sheetContentSmall]}>
+            <View
+              style={[
+                styles.sheetContent,
+                styles.sheetContentSmall,
+                { backgroundColor: c.background, borderTopColor: c.border, borderTopWidth: 1 },
+              ]}
+            >
               <View style={styles.sheetHeader}>
-                <ThemedText style={styles.sheetTitle}>How far will you travel?</ThemedText>
+                <ThemedText style={[styles.sheetTitle, { color: c.text }]}>
+                  How far will you travel?
+                </ThemedText>
                 <Pressable onPress={() => setShowRadiusSheet(false)} hitSlop={10}>
-                  <Ionicons name="close" size={24} color={Colors.light.title} />
+                  <Ionicons name="close" size={24} color={c.text} />
                 </Pressable>
               </View>
 
@@ -1086,13 +1347,24 @@ export default function RegisterScreen() {
                 return (
                   <Pressable
                     key={option.value}
-                    style={[styles.sheetListItem, isSelected && styles.sheetListItemSelected]}
+                    style={[
+                      styles.sheetListItem,
+                      {
+                        backgroundColor: isSelected ? Colors.primaryTint : c.elevate,
+                        borderColor: isSelected ? Colors.primary : c.border,
+                      },
+                    ]}
                     onPress={() => {
                       setTravelRadius(option.value)
                       setShowRadiusSheet(false)
                     }}
                   >
-                    <ThemedText style={[styles.sheetListItemText, isSelected && styles.sheetListItemTextSelected]}>
+                    <ThemedText
+                      style={[
+                        styles.sheetListItemText,
+                        { color: isSelected ? Colors.primary : c.text },
+                      ]}
+                    >
                       {option.label}
                     </ThemedText>
                     {isSelected && (
@@ -1121,6 +1393,15 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   backButton: {
+    // Small rounded chip that matches the Client Request screen's
+    // floating chevron — independent surface, sits over any bg,
+    // respects theme via inline props (see render site above).
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
     alignSelf: 'flex-start',
   },
   progressContainer: {
@@ -1148,9 +1429,17 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: '700',
-    color: Colors.light.title,
+    // color handled by ThemedText default (theme-aware).
     lineHeight: 32,
     textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 15,
+    // color painted inline from theme at render site so it respects
+    // dark mode instead of forcing Colors.light.subtitle.
+    lineHeight: 22,
+    textAlign: 'center',
+    maxWidth: 360,
   },
   fieldContainer: {
     width: '100%',
@@ -1159,7 +1448,8 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.light.text,
+    // color handled by ThemedText default so dark-mode readers get
+    // a light foreground instead of the legacy Colors.light.text.
     marginBottom: 10,
   },
   input: {
@@ -1167,7 +1457,7 @@ const styles = StyleSheet.create({
   },
   helperText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
+    // color painted inline from theme (c.textMuted) at render site.
     textAlign: 'left',
     width: '100%',
     maxWidth: 400,
@@ -1181,15 +1471,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.light.border,
-    backgroundColor: Colors.light.secondaryBackground,
+    // bg + border painted inline from theme at render site.
     justifyContent: 'center',
     alignItems: 'center',
   },
   countryCodeText: {
     fontSize: 16,
-    color: Colors.light.title,
     fontWeight: '500',
+    // color painted inline from theme at render site.
   },
   phoneInput: {
     flex: 1,
@@ -1221,28 +1510,34 @@ const styles = StyleSheet.create({
     color: Colors.warning,
     marginTop: 6,
   },
+  postcodeHelperText: {
+    fontSize: 13,
+    // color painted inline from theme at render site.
+    marginTop: 6,
+  },
   infoCard: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: Colors.light.secondaryBackground,
+    // bg + border painted inline from theme at render site.
     borderRadius: 12,
+    borderWidth: 1,
     padding: 20,
     alignItems: 'center',
   },
   infoCardText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
+    // color painted inline from theme at render site.
   },
   infoCardEmail: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.light.title,
     marginTop: 4,
+    // color painted inline from theme at render site.
   },
   resendText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     textAlign: 'center',
+    // color painted inline from theme at render site.
   },
   resendLink: {
     color: TINT,
@@ -1270,11 +1565,11 @@ const styles = StyleSheet.create({
   },
   bottomSection: {
     paddingHorizontal: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
     paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
-    backgroundColor: Colors.light.background,
+    // Background, top-border, and paddingBottom are applied inline
+    // at the render site. paddingBottom is insets-aware so the CTA
+    // sits above the iPhone home-indicator gesture zone; background
+    // + border track the current theme.
   },
   continueButton: {
     backgroundColor: TINT,
@@ -1303,7 +1598,7 @@ const styles = StyleSheet.create({
   signInLink: {
     fontSize: 14,
     textAlign: 'center',
-    color: Colors.light.subtitle,
+    // color painted inline from theme at render site.
   },
   signInLinkBold: {
     fontWeight: '600',
@@ -1389,16 +1684,15 @@ const styles = StyleSheet.create({
   // Business Details styles
   subLabel: {
     fontSize: 13,
-    color: Colors.light.subtitle,
+    // color painted inline from theme (c.textMuted) at render site.
     marginTop: 4,
   },
   dropdownButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
+    // bg + border painted inline from theme at render site
     borderWidth: 1,
-    borderColor: Colors.light.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
@@ -1406,7 +1700,7 @@ const styles = StyleSheet.create({
   },
   dropdownText: {
     fontSize: 16,
-    color: Colors.light.title,
+    // color painted inline from theme at render site
     flex: 1,
   },
   dropdownPlaceholder: {
@@ -1445,7 +1739,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
   sheetContent: {
-    backgroundColor: '#FFFFFF',
+    // bg + top border painted inline from theme at the render site.
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
@@ -1453,8 +1747,8 @@ const styles = StyleSheet.create({
     maxHeight: '80%',
   },
   sheetContentFullScreen: {
+    // bg painted inline from theme at the render site.
     flex: 1,
-    backgroundColor: '#FFFFFF',
     paddingHorizontal: 24,
     paddingTop: Platform.OS === 'ios' ? 60 : 24,
   },
@@ -1469,19 +1763,19 @@ const styles = StyleSheet.create({
   sheetTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.light.title,
     flex: 1,
+    // color painted inline from theme at render site.
   },
   sheetSubtitle: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     marginTop: 4,
+    // color painted inline from theme at render site.
   },
   sheetSearchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: Colors.light.secondaryBackground,
+    // bg + border painted inline from theme at render site.
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -1489,8 +1783,8 @@ const styles = StyleSheet.create({
   sheetSearchInput: {
     flex: 1,
     fontSize: 16,
-    color: Colors.light.title,
     padding: 0,
+    // color painted inline from theme at render site.
   },
   sheetList: {
     maxHeight: 300,
@@ -1499,23 +1793,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.light.border,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
     gap: 12,
-  },
-  sheetListItemSelected: {
-    backgroundColor: 'rgba(104, 73, 167, 0.05)',
+    marginBottom: 8,
+    // bg + border painted inline from theme at render site.
   },
   sheetListItemText: {
     fontSize: 16,
-    color: Colors.light.title,
     flex: 1,
-  },
-  sheetListItemTextSelected: {
-    color: TINT,
-    fontWeight: '500',
+    // color painted inline from theme at render site (brand tint
+    // when selected, c.text otherwise).
   },
   sheetEmptyState: {
     paddingVertical: 32,
@@ -1523,7 +1813,6 @@ const styles = StyleSheet.create({
   },
   sheetEmptyText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     textAlign: 'center',
   },
   sheetDoneBtn: {
