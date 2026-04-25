@@ -8,6 +8,9 @@ import {
   Modal,
   FlatList,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  TextInput,
 } from "react-native";
 // expo-image gives us a memory+disk decode cache so re-entering
 // the Client Request screen doesn't pay the full JPEG decode cost
@@ -25,6 +28,7 @@ import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import Spacer from "../../../../components/Spacer";
 import { RequestDetailSkeleton } from "../../../../components/Skeleton";
+import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../../components/KeyboardDoneButton";
 import { Colors } from "../../../../constants/Colors";
 import { FontFamily, Radius } from "../../../../constants/Typography";
 import { useUser } from "../../../../hooks/useUser";
@@ -37,6 +41,17 @@ import { acceptRequest, declineRequest } from "../../../../lib/api/requests";
 import { getRequestAttachmentUrlsCached } from "../../../../lib/api/attachments";
 const CELL = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
+
+// Payment method options for the Mark-as-complete bottom sheet.
+// Mirror of the list that previously lived on the Quote Overview screen,
+// kept module-level so the picker modal renders the same options.
+const PAYMENT_METHODS = [
+  { id: "bank_transfer", label: "Bank transfer" },
+  { id: "cash", label: "Cash" },
+  { id: "card", label: "Card" },
+  { id: "paypal", label: "PayPal" },
+  { id: "other", label: "Other" },
+];
 
 // Static layout for the redesigned trade-reviews-request screen.
 // Colours are applied inline against the active theme palette.
@@ -1743,6 +1758,17 @@ export default function RequestDetails() {
   const [activitySheet, setActivitySheet] = useState(null); // activity item or null
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
 
+  // Mark-as-complete bottom sheet state. Mirrors what used to live on the
+  // Quote Overview screen — moved here so the action sits next to the rest
+  // of the trade-side request flow (Recent Activity + FAB) instead of
+  // being buried inside the quote terms page.
+  const [showCompleteSheet, setShowCompleteSheet] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
+  const [completionNotes, setCompletionNotes] = useState("");
+  const [completeBusy, setCompleteBusy] = useState(false);
+  const [showPaymentMethodPicker, setShowPaymentMethodPicker] = useState(false);
+
   const closeViewer = useCallback(() => {
     setViewer((v) => ({ ...v, open: false }));
   }, []);
@@ -2091,6 +2117,65 @@ export default function RequestDetails() {
 
   const canAccept = status === "open";
   const canDecline = status === "open";
+
+  // ===== Mark-as-complete handlers =====
+  // Opens the bottom sheet pre-filled with the accepted quote's grand total
+  // and a default payment method. Same defaults the Quote Overview used.
+  const openMarkCompleteSheet = () => {
+    setPaymentAmount(String(grandTotal || ""));
+    setPaymentMethod("bank_transfer");
+    setCompletionNotes("");
+    setShowCompleteSheet(true);
+  };
+
+  const closeMarkCompleteSheet = () => {
+    if (completeBusy) return;
+    setShowCompleteSheet(false);
+  };
+
+  // Calls rpc_trade_mark_complete with the same params Quote Overview used.
+  // After success we re-`load()` so the request screen reflects the updated
+  // quote status (the accepted quote moves to `awaiting_completion`).
+  const handleMarkComplete = async () => {
+    if (completeBusy) return;
+    if (!acceptedQuote?.id) return;
+
+    try {
+      setCompleteBusy(true);
+      const amount = parseFloat(paymentAmount) || grandTotal || 0;
+      const { error } = await supabase.rpc("rpc_trade_mark_complete", {
+        p_quote_id: acceptedQuote.id,
+        p_payment_received: amount,
+        p_payment_method: paymentMethod,
+        p_notes: completionNotes.trim() || null,
+      });
+
+      if (error) {
+        console.warn("Mark complete error:", error.message || error);
+        Alert.alert(
+          "Could not mark complete",
+          error.message || "Something went wrong, please try again."
+        );
+        return;
+      }
+
+      setShowCompleteSheet(false);
+      const firstName = clientName ? clientName.split(" ")[0] : "The client";
+      Alert.alert(
+        "Job marked as complete",
+        `${firstName} will be notified to confirm the work is done.`,
+        [{ text: "OK", onPress: () => { load(); } }]
+      );
+    } catch (e) {
+      console.warn("Mark complete error:", e?.message || e);
+      Alert.alert(
+        "Could not mark complete",
+        e?.message || "Something went wrong, please try again."
+      );
+    } finally {
+      setCompleteBusy(false);
+    }
+  };
   const hasQuotes = quotes.length > 0;
   // Can create new quote if claimed and has less than 3 quotes
   const canCreateQuote = status === "claimed" && quotes.length < 3;
@@ -2159,6 +2244,22 @@ export default function RequestDetails() {
     const title = String(a?.title || "").toLowerCase();
     return !title.includes("survey");
   });
+
+  // Mark-as-complete derived values. Same gate the Quote Overview used:
+  // the action only makes sense once an accepted quote has at least one
+  // non-cancelled Start Job appointment. `grandTotal` pre-fills the
+  // payment-received input with the quote total.
+  const grandTotal = Number(acceptedQuote?.grand_total ?? 0);
+  const hasActiveStartJobAppt = useMemo(() => {
+    if (!acceptedQuote?.id) return false;
+    return (appointments || []).some((a) => {
+      if (a.kind !== "start_job") return false;
+      if (a.quote_id && a.quote_id !== acceptedQuote.id) return false;
+      return String(a.status || "").toLowerCase() !== "cancelled";
+    });
+  }, [appointments, acceptedQuote?.id]);
+  const selectedPaymentMethodLabel =
+    PAYMENT_METHODS.find((m) => m.id === paymentMethod)?.label || "Select method";
 
   // === Derived values for the redesigned hero ===
   const reqTitle =
@@ -2528,6 +2629,39 @@ export default function RequestDetails() {
             </>
           )}
 
+          {/* Mark-as-complete section — sits in its own block at the
+              bottom of the request screen, outside the Recent Activity
+              section. Trade-only by virtue of the /quotes/_layout role
+              gate. Same gate the Quote Overview used: shows once an
+              accepted quote has at least one non-cancelled Start Job
+              appointment. Hidden once the job has moved past accepted
+              (awaiting_completion / completed / issue_reported), since
+              the action makes no sense in those states. */}
+          {status === "claimed" && acceptedQuote && hasActiveStartJobAppt && (
+            <View style={styles.markCompleteSection}>
+              <Pressable
+                onPress={openMarkCompleteSheet}
+                style={({ pressed }) => [
+                  styles.markCompleteBtn,
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <Ionicons
+                  name="checkmark"
+                  size={18}
+                  color="#FFFFFF"
+                  style={{ marginRight: 8 }}
+                />
+                <ThemedText style={styles.markCompleteBtnText}>
+                  Mark as complete
+                </ThemedText>
+              </Pressable>
+              <ThemedText style={styles.markCompleteHint}>
+                Closes out the job. {clientName ? clientName.split(" ")[0] : "The client"} will confirm before it's marked done.
+              </ThemedText>
+            </View>
+          )}
+
           {/* Declined banner */}
           {status === "declined" && (
             <View style={[styles.statusBanner, styles.statusBannerDeclined]}>
@@ -2682,6 +2816,185 @@ export default function RequestDetails() {
         }}
       />
 
+      {/* Mark Complete bottom sheet — moved here from the Quote Overview
+          screen. Opens when the trade taps "Mark as complete" in its
+          dedicated section near the bottom of the request screen.
+          Lets the trade record payment received + method + final notes,
+          then calls rpc_trade_mark_complete to transition the quote to
+          awaiting_completion (the client confirms from there). */}
+      <Modal
+        visible={showCompleteSheet}
+        animationType="slide"
+        transparent
+        onRequestClose={closeMarkCompleteSheet}
+      >
+        <View style={styles.mcSheetModalContainer}>
+          <Pressable style={styles.mcSheetBackdropArea} onPress={closeMarkCompleteSheet} />
+
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.mcSheetKeyboardView}
+          >
+            <View style={[styles.mcSheetContent, { paddingBottom: insets.bottom + 20 }]}>
+              <View style={styles.mcSheetHandle} />
+
+              <ScrollView
+                contentContainerStyle={styles.mcSheetScrollContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={styles.mcSheetHeader}>
+                  <ThemedText style={styles.mcSheetEyebrow}>JOB COMPLETION</ThemedText>
+                  <ThemedText style={styles.mcSheetTitle}>Mark as complete</ThemedText>
+                  <ThemedText style={styles.mcSheetSubtitle}>
+                    Let {clientName ? clientName.split(" ")[0] : "the client"} know the work is done.
+                    They'll confirm before the job closes.
+                  </ThemedText>
+                </View>
+
+                <Spacer size={20} />
+
+                {/* Payment pill — amount + method in one bordered card. */}
+                <View style={styles.mcPillCard}>
+                  <ThemedText style={styles.mcPillEyebrow}>PAYMENT</ThemedText>
+
+                  <ThemedText style={styles.mcFieldLabel}>Amount received</ThemedText>
+                  <View style={styles.mcAmountRow}>
+                    <ThemedText style={styles.mcCurrency}>£</ThemedText>
+                    <TextInput
+                      style={styles.mcAmountInput}
+                      value={paymentAmount}
+                      onChangeText={setPaymentAmount}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                      placeholderTextColor={c.textMuted}
+                      editable={!completeBusy}
+                    />
+                  </View>
+
+                  <View style={styles.mcPillDivider} />
+
+                  <ThemedText style={styles.mcFieldLabel}>Method</ThemedText>
+                  <Pressable
+                    style={styles.mcDropdown}
+                    onPress={() => setShowPaymentMethodPicker(true)}
+                    disabled={completeBusy}
+                  >
+                    <ThemedText style={styles.mcDropdownText}>
+                      {selectedPaymentMethodLabel}
+                    </ThemedText>
+                    <Ionicons name="chevron-down" size={18} color={c.textMid} />
+                  </Pressable>
+                </View>
+
+                <Spacer size={14} />
+
+                {/* Final notes pill. */}
+                <View style={styles.mcPillCard}>
+                  <ThemedText style={styles.mcPillEyebrow}>FINAL NOTES</ThemedText>
+                  <TextInput
+                    style={styles.mcNotesInput}
+                    value={completionNotes}
+                    onChangeText={setCompletionNotes}
+                    placeholder="Optional — anything the client should know about the finished work."
+                    placeholderTextColor={c.textMuted}
+                    multiline
+                    numberOfLines={3}
+                    textAlignVertical="top"
+                    editable={!completeBusy}
+                    inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
+                  />
+                </View>
+
+                <Spacer size={22} />
+
+                <View style={styles.mcActionRow}>
+                  <Pressable
+                    onPress={closeMarkCompleteSheet}
+                    disabled={completeBusy}
+                    style={({ pressed }) => [
+                      styles.mcActionGhost,
+                      { backgroundColor: c.elevate, borderColor: c.borderStrong },
+                      pressed && { opacity: 0.75 },
+                      completeBusy && { opacity: 0.5 },
+                    ]}
+                  >
+                    <ThemedText style={[styles.mcActionGhostText, { color: c.text }]}>
+                      Cancel
+                    </ThemedText>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={handleMarkComplete}
+                    disabled={completeBusy}
+                    style={({ pressed }) => [
+                      styles.mcActionPrimary,
+                      pressed && { opacity: 0.85 },
+                      completeBusy && { opacity: 0.6 },
+                    ]}
+                  >
+                    <Ionicons
+                      name="checkmark"
+                      size={18}
+                      color="#FFFFFF"
+                      style={{ marginRight: 8 }}
+                    />
+                    <ThemedText style={styles.mcActionPrimaryText}>
+                      {completeBusy ? "Confirming…" : "Mark as complete"}
+                    </ThemedText>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+
+        {/* Payment method picker — nested modal so it sits above the sheet. */}
+        <Modal
+          visible={showPaymentMethodPicker}
+          animationType="fade"
+          transparent
+          onRequestClose={() => setShowPaymentMethodPicker(false)}
+        >
+          <Pressable
+            style={styles.mcPickerBackdrop}
+            onPress={() => setShowPaymentMethodPicker(false)}
+          >
+            <View style={styles.mcPickerContainer}>
+              <View style={styles.mcPickerHeader}>
+                <ThemedText style={styles.mcPickerTitle}>Select payment method</ThemedText>
+                <Pressable onPress={() => setShowPaymentMethodPicker(false)} hitSlop={8}>
+                  <Ionicons name="close" size={24} color={c.textMid} />
+                </Pressable>
+              </View>
+              {PAYMENT_METHODS.map((method, idx) => (
+                <Pressable
+                  key={method.id}
+                  style={[
+                    styles.mcPickerOption,
+                    idx < PAYMENT_METHODS.length - 1 && styles.mcPickerOptionBorder,
+                  ]}
+                  onPress={() => {
+                    setPaymentMethod(method.id);
+                    setShowPaymentMethodPicker(false);
+                  }}
+                >
+                  <ThemedText style={[
+                    styles.mcPickerOptionText,
+                    paymentMethod === method.id && styles.mcPickerOptionTextSelected,
+                  ]}>
+                    {method.label}
+                  </ThemedText>
+                  {paymentMethod === method.id && (
+                    <Ionicons name="checkmark" size={20} color={Colors.primary} />
+                  )}
+                </Pressable>
+              ))}
+            </View>
+          </Pressable>
+        </Modal>
+      </Modal>
+
       {/* Image preview modal – zoom + swipe + pull-down-to-dismiss */}
       {viewer.open && hasAttachments && (
         <Modal
@@ -2755,6 +3068,12 @@ export default function RequestDetails() {
           </View>
         </Modal>
       )}
+
+      {/* iOS keyboard accessory bar — provides a "Done" button above the
+          keyboard for the multiline notes input in the Mark Complete
+          sheet. Mounted once at the bottom of the tree so it's visible
+          whenever inputAccessoryViewID === KEYBOARD_DONE_ID is in focus. */}
+      <KeyboardDoneButton />
     </ThemedView>
   );
 }
@@ -3324,6 +3643,255 @@ function makeStyles(c, dark) {
     width: "90%",
     height: "70%",
     resizeMode: "contain",
+  },
+
+  // ===========================================================
+  // MARK-AS-COMPLETE — section trigger + bottom sheet + picker.
+  // Moved here from the Quote Overview screen so the action sits
+  // in the trade's primary request flow instead of being buried.
+  // Same visual language (Public Sans / DM Sans, pill-cards on
+  // c.elevate2 + c.borderStrong) the original sheet used.
+  // ===========================================================
+
+  // Section wrapping the inline button at the bottom of the scroll.
+  markCompleteSection: {
+    marginTop: 24,
+    marginHorizontal: 16,
+    paddingVertical: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: c.border,
+    gap: 10,
+  },
+  markCompleteBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 999,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+  },
+  markCompleteBtnText: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 16,
+    letterSpacing: -0.1,
+    color: "#FFFFFF",
+  },
+  markCompleteHint: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 13,
+    color: c.textMid,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+
+  // Bottom-sheet shell.
+  mcSheetModalContainer: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  mcSheetBackdropArea: {
+    flex: 1,
+  },
+  mcSheetKeyboardView: {
+    // Lets the sheet stay anchored to the bottom while the keyboard
+    // pushes it up via the parent KeyboardAvoidingView.
+  },
+  mcSheetContent: {
+    backgroundColor: c.elevate,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: 750,
+  },
+  mcSheetHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: c.border,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  mcSheetScrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+
+  // Header inside the sheet.
+  mcSheetHeader: {
+    marginTop: 4,
+  },
+  mcSheetEyebrow: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: c.textMuted,
+    marginBottom: 8,
+  },
+  mcSheetTitle: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 22,
+    lineHeight: 26,
+    letterSpacing: -0.4,
+    color: c.text,
+  },
+  mcSheetSubtitle: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: c.textMid,
+    marginTop: 6,
+  },
+
+  // Pill-cards (payment + final notes).
+  mcPillCard: {
+    backgroundColor: c.elevate2,
+    borderWidth: 1,
+    borderColor: c.borderStrong,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+  },
+  mcPillEyebrow: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: c.textMuted,
+    marginBottom: 10,
+  },
+  mcFieldLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 13,
+    color: c.textMid,
+    marginBottom: 6,
+  },
+  mcAmountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  mcCurrency: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 22,
+    color: c.text,
+  },
+  mcAmountInput: {
+    flex: 1,
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 22,
+    letterSpacing: -0.3,
+    color: c.text,
+    paddingVertical: 6,
+  },
+  mcPillDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: c.border,
+    marginVertical: 14,
+  },
+  mcDropdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 4,
+  },
+  mcDropdownText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 15,
+    color: c.text,
+  },
+  mcNotesInput: {
+    fontFamily: FontFamily.bodyRegular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: c.text,
+    minHeight: 72,
+    padding: 0,
+  },
+
+  // Action row (Cancel / Confirm).
+  mcActionRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  mcActionGhost: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+  },
+  mcActionGhostText: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 15,
+    letterSpacing: -0.1,
+  },
+  mcActionPrimary: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+  },
+  mcActionPrimaryText: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 15,
+    color: "#FFFFFF",
+    letterSpacing: -0.1,
+  },
+
+  // Payment-method picker (nested modal).
+  mcPickerBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  mcPickerContainer: {
+    backgroundColor: c.elevate,
+    borderRadius: 16,
+    width: "100%",
+    maxWidth: 340,
+    overflow: "hidden",
+  },
+  mcPickerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: c.border,
+  },
+  mcPickerTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: c.text,
+  },
+  mcPickerOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  mcPickerOptionBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: c.border,
+  },
+  mcPickerOptionText: {
+    fontSize: 16,
+    color: c.textMid,
+  },
+  mcPickerOptionTextSelected: {
+    color: Colors.primary,
+    fontWeight: "600",
   },
   });
 }
