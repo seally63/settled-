@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import Spacer from "../../../../components/Spacer";
+import { SkeletonCircle, SkeletonText } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
 import { useTheme } from "../../../../hooks/useTheme";
 
@@ -263,8 +264,31 @@ export default function FindBusinessIndex() {
 
       {/* Content */}
       {loading && showDiscover ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator color={Colors.primary} />
+        // Themed list-row skeletons matching the rendered trade card rhythm
+        // so dark mode doesn't flash the old centred white spinner.
+        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+          <SkeletonText width={180} height={16} />
+          <SkeletonText width={240} height={13} style={{ marginTop: 6 }} />
+          {[1, 2, 3, 4, 5].map((i) => (
+            <View
+              key={i}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+                paddingVertical: 14,
+                marginTop: i === 1 ? 14 : 0,
+                borderBottomWidth: 1,
+                borderBottomColor: c.border,
+              }}
+            >
+              <SkeletonCircle size={48} />
+              <View style={{ flex: 1 }}>
+                <SkeletonText width="65%" height={15} />
+                <SkeletonText width="45%" height={12} style={{ marginTop: 6 }} />
+              </View>
+            </View>
+          ))}
         </View>
       ) : (
         <>

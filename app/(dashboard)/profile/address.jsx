@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
+import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 import { TypeVariants } from "../../../constants/Typography";
 
@@ -86,9 +87,7 @@ export default function AddressScreen() {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
         <ThemedStatusBar />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator />
-        </View>
+        <SettingsFormSkeleton paddingTop={16} />
       </ThemedView>
     );
   }

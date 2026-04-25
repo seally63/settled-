@@ -18,9 +18,11 @@ import { Ionicons } from "@expo/vector-icons";
 import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import ThemedButton from "../../../components/ThemedButton";
+import { SkeletonBox, SkeletonText } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 import { supabase } from "../../../lib/supabase";
 import { useUser } from "../../../hooks/useUser";
+import { useTheme } from "../../../hooks/useTheme";
 import { createJobFromQuote, markJobCompleted } from "../../../lib/api/trust";
 
 const TABS = ["Draft", "Sent", "Status"];
@@ -29,6 +31,7 @@ export default function QuotesOverviewScreen() {
   const { user } = useUser();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { colors: c } = useTheme();
 
   const [activeTab, setActiveTab] = useState("Sent");
   const [loading, setLoading] = useState(true);
@@ -141,13 +144,27 @@ export default function QuotesOverviewScreen() {
         >
           {/* List */}
           {loading ? (
-            <View style={styles.summaryCard}>
-              <ThemedText style={styles.summaryValue}>Loading…</ThemedText>
-              <ThemedText style={styles.summaryLabel}>Please wait</ThemedText>
-            </View>
+            // Inline list-row skeletons matching the actual QuoteRow layout
+            // so the height and rhythm don't jump when data resolves.
+            <>
+              {[1, 2, 3].map((i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.rowCard,
+                    { backgroundColor: c.elevate, borderColor: c.border, borderWidth: 1 },
+                  ]}
+                >
+                  <SkeletonText width="55%" height={16} />
+                  <SkeletonText width="80%" height={13} style={{ marginTop: 8 }} />
+                  <SkeletonText width={120} height={20} style={{ marginTop: 12 }} />
+                  <SkeletonText width={90} height={12} style={{ marginTop: 6 }} />
+                </View>
+              ))}
+            </>
           ) : null}
 
-          {list.map((r) => (
+          {!loading && list.map((r) => (
             <QuoteRow
               key={r.id}
               row={r}

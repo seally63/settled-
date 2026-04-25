@@ -6,7 +6,6 @@ import {
   ScrollView,
   Image,
   Pressable,
-  ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -17,6 +16,7 @@ import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import ThemedButton from "../../../components/ThemedButton";
 import Spacer from "../../../components/Spacer";
+import { ProfilePageSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
 
 import { useUser } from "../../../hooks/useUser";
@@ -109,9 +109,7 @@ export default function PublicTradeProfile() {
       </View>
 
       {loading ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator />
-        </View>
+        <ProfilePageSkeleton paddingTop={16} />
       ) : (
         <ScrollView
           contentContainerStyle={{ padding: 16, paddingBottom: 32 + insets.bottom }}
