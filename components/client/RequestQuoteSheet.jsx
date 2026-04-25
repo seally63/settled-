@@ -453,9 +453,9 @@ export default function RequestQuoteSheet({
       setServiceAreaInfo(null);
       onClose?.();
       onSubmitted?.(newRequestId);
-      Alert.alert("Request sent", "Your quote request has been sent.");
+      Alert.alert("Enquiry sent", "Your enquiry has been sent.");
     } catch (e) {
-      Alert.alert("Unable to request", e?.message || "Failed to send request.");
+      Alert.alert("Unable to send", e?.message || "Failed to send enquiry.");
     } finally {
       setSubmitting(false);
     }

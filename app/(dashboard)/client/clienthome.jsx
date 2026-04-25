@@ -49,6 +49,7 @@ import {
 } from "../../../lib/config/jobProfiles";
 import { geocodeUKPostcode } from "../../../lib/api/places";
 import { checkServiceAreaDistance } from "../../../lib/api/directRequest";
+import { getMyProfile, getClientLocation } from "../../../lib/api/profile";
 import { CATEGORIES as HOME_CATEGORIES } from "../../../components/client/home/PopularServicesGrid";
 import {
   getCategoryIcon,
@@ -137,6 +138,30 @@ export default function ClientHome() {
 
   // Full-screen image viewer
   const [viewer, setViewer] = useState({ open: false, index: 0 });
+
+  // Prefill the postcode field from the client's stored home
+  // postcode (captured at onboarding). Only fires on first mount
+  // and only when the user hasn't already typed something —
+  // protects against overwriting an intentional override (e.g.
+  // getting work done at a different address than home). A client
+  // who signed up before the onboarding step just sees a blank
+  // field, same as before.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const profile = await getMyProfile();
+        if (!alive) return;
+        const { postcode: homePc } = getClientLocation(profile);
+        if (homePc) {
+          setPostcode((current) => (current ? current : homePc));
+        }
+      } catch (e) {
+        /* silent — the per-request postcode input is still editable */
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   // Step 6: Review & Submit
   const [submitting, setSubmitting] = useState(false);
@@ -660,10 +685,10 @@ export default function ClientHome() {
       }
 
       Alert.alert(
-        "Request submitted",
+        "Enquiry sent",
         prefillTradeId
-          ? `Your quote request was sent to ${prefillTradeName}!`
-          : "Your quote request was sent successfully!",
+          ? `Your enquiry was sent to ${prefillTradeName}.`
+          : "Your enquiry was sent successfully.",
         [
           {
             text: "OK",

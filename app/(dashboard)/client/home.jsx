@@ -42,10 +42,11 @@ import QuotesPanel from "../../../components/client/home/QuotesPanel";
 import SavedTradesSection from "../../../components/client/home/SavedTradesSection";
 import MessagesPanel from "../../../components/client/home/MessagesPanel";
 import PostcodePrompt from "../../../components/client/home/PostcodePrompt";
+import WillingToTravelSection from "../../../components/client/home/WillingToTravelSection";
 
 // API
 import { getUserFirstName } from "../../../lib/api/homeScreen";
-import { getMyProfile } from "../../../lib/api/profile";
+import { getMyProfile, getClientLocation } from "../../../lib/api/profile";
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -87,10 +88,14 @@ export default function ClientHomeScreen() {
         setFirstName(name);
       }
       const profile = await getMyProfile();
-      if (
-        !hasLoadedOnce &&
-        (profile?.base_lat == null || profile?.base_lon == null)
-      ) {
+      // Read the client's browse anchor via the shared helper so we
+      // honour the new home_* columns first and fall back to base_*
+      // for anyone who registered before the 2026-04-29 migration.
+      // The modal is only shown for legacy accounts that genuinely
+      // have neither set — new accounts capture this during
+      // onboarding and skip the prompt entirely.
+      const { lat, lon } = getClientLocation(profile);
+      if (!hasLoadedOnce && (lat == null || lon == null)) {
         setShowPostcodePrompt(true);
       }
       setHasLoadedOnce(true);
@@ -178,6 +183,10 @@ export default function ClientHomeScreen() {
         <ActiveJobPanel />
         <QuotesPanel />
         <SavedTradesSection />
+        {/* Willing to Travel — trades outside their normal service
+            radius but within their extended radius relative to the
+            client's anchor postcode. Hidden when empty. */}
+        <WillingToTravelSection />
         <MessagesPanel />
       </ScrollView>
 

@@ -157,12 +157,12 @@ export default function ClientTradeProfile() {
     const tradeName =
       profile?.business_name || profile?.full_name || "this trade";
     Alert.alert(
-      "Send a quote request first",
+      "Send an enquiry first",
       `Once ${tradeName} receives your enquiry, you'll be able to message them directly from here.`,
       [
         { text: "OK", style: "cancel" },
         {
-          text: "Request a quote",
+          text: "Send enquiry",
           onPress: () => setQuoteSheetOpen(true),
         },
       ]

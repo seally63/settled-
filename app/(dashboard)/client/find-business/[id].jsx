@@ -1,5 +1,6 @@
 // app/(dashboard)/client/find-business/[id].jsx
-// Client view of Trade Profile - shows trade details with Request a Quote button
+// Client view of Trade Profile — shows trade details with a
+// "Send enquiry" CTA that opens the per-enquiry composer.
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   StyleSheet,
@@ -32,7 +33,7 @@ import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../../components/Key
 import { Colors } from "../../../../constants/Colors";
 import { FontFamily, Radius } from "../../../../constants/Typography";
 import { useTheme } from "../../../../hooks/useTheme";
-import { getTradeById, getMyRole } from "../../../../lib/api/profile";
+import { getTradeById, getMyRole, getMyProfile, getClientLocation } from "../../../../lib/api/profile";
 import { requestDirectQuote, checkServiceAreaDistance } from "../../../../lib/api/directRequest";
 import { getBusinessVerificationPublic, getTradePublicMetrics90d } from "../../../../lib/api/trust";
 import {
@@ -327,6 +328,27 @@ export default function TradeProfileClient() {
   const [selectedPropertyType, setSelectedPropertyType] = useState(null);
   const [showPropertyDropdown, setShowPropertyDropdown] = useState(false);
 
+  // Prefill postcode from the client's stored home postcode — set
+  // during onboarding. Only runs on first mount and only when the
+  // field is empty, so clients sending an enquiry for a different
+  // address can still override it.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const profile = await getMyProfile();
+        if (!alive) return;
+        const { postcode: homePc } = getClientLocation(profile);
+        if (homePc) {
+          setPostcode((current) => (current ? current : homePc));
+        }
+      } catch (e) {
+        /* silent — postcode input stays editable */
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   // Step 4: Budget
   const [selectedBudget, setSelectedBudget] = useState(null);
 
@@ -453,7 +475,7 @@ export default function TradeProfileClient() {
   }, [showRequestModal]);
 
   // Auto-open the request wizard when arriving with ?openRequest=true
-  // (e.g. from the "Request a Quote" CTA on /client/trade-profile).
+  // (e.g. from the "Send enquiry" CTA on /client/trade-profile).
   // We only auto-open once per navigation to avoid reopening if the user
   // dismisses it while the param lingers in the URL.
   const hasAutoOpenedRef = useRef(false);
@@ -854,7 +876,7 @@ export default function TradeProfileClient() {
       setSelectedTiming(null);
       setServiceAreaInfo(null);
 
-      Alert.alert("Request sent", "Your quote request has been sent.", [
+      Alert.alert("Enquiry sent", "Your enquiry has been sent.", [
         { text: "OK", onPress: () => router.replace("/client") },
       ]);
     } catch (e) {
@@ -1127,9 +1149,11 @@ export default function TradeProfileClient() {
           )}
         </View>
 
-        {/* Request a Quote Button */}
+        {/* Send enquiry — browse-and-choose flow. Opens the
+            per-enquiry composer modal; the trade then sees the
+            enquiry in their inbox and can accept / decline. */}
         <ThemedButton onPress={() => setShowRequestModal(true)} style={styles.requestButton}>
-          <ThemedText style={styles.requestButtonText}>Request a Quote</ThemedText>
+          <ThemedText style={styles.requestButtonText}>Send enquiry</ThemedText>
         </ThemedButton>
 
         {/* Report Link */}

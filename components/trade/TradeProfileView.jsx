@@ -11,7 +11,7 @@
 //   · mode="visitor" — a client viewing a trade via discovery / search
 //                      / saved. Chevron back top-left, Report text
 //                      link under the reviews, and two bottom CTAs —
-//                      Message (ghost) + Request a quote (primary).
+//                      Message (ghost) + Send enquiry (primary).
 //
 //   · mode="preview" — a trade previewing their own public-facing page
 //                      (how a client sees me). Same shell as visitor
@@ -142,7 +142,10 @@ export default function TradeProfileView({
   // ---- scroll padding — leaves room for absolute top-right icons -----
   const scrollTopPad = isOwner ? 54 : 12; // visitor/preview use an
   // inline chevron in the scroll, not an absolute dock, so less pad.
-  const scrollBottomPad = (insets?.bottom || 0) + (isVisitor ? 140 : 180);
+  // Visitor bottom pad bumped to 180 to match the taller CTA dock
+  // (dock now uses insets+54 paddingBottom for home-indicator safety,
+  // so content needs to sit higher to avoid being obscured).
+  const scrollBottomPad = (insets?.bottom || 0) + (isVisitor ? 180 : 180);
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets?.top || 0 }]}>
@@ -317,8 +320,13 @@ export default function TradeProfileView({
         <Spacer height={24} />
       </ScrollView>
 
-      {/* Visitor CTA dock — pinned bottom. Message (ghost) + Request a
-          quote (primary). Hidden in owner + preview modes.            */}
+      {/* Visitor CTA dock — pinned bottom. Message (ghost) + Send
+          enquiry (primary). Hidden in owner + preview modes.
+          paddingBottom matches the registration Continue button's
+          offset (insets + 54) so the Pressable's tap area clears the
+          iPhone home-indicator gesture zone — without this the
+          buttons rendered but taps got swallowed on simulator + on
+          notched devices. */}
       {isVisitor && (onMessage || onRequestQuote) && (
         <View
           style={[
@@ -326,7 +334,7 @@ export default function TradeProfileView({
             {
               backgroundColor: c.background,
               borderTopColor: c.border,
-              paddingBottom: (insets?.bottom || 0) + 14,
+              paddingBottom: Math.max((insets?.bottom || 0) + 54, 64),
             },
           ]}
         >
@@ -359,10 +367,10 @@ export default function TradeProfileView({
                 { backgroundColor: PRIMARY },
                 pressed && { opacity: 0.85 },
               ]}
-              accessibilityLabel="Request a quote"
+              accessibilityLabel="Send enquiry"
             >
               <Ionicons name="send" size={15} color="#fff" style={{ marginRight: 8 }} />
-              <ThemedText style={styles.ctaPrimaryText}>Request a quote</ThemedText>
+              <ThemedText style={styles.ctaPrimaryText}>Send enquiry</ThemedText>
             </Pressable>
           )}
         </View>

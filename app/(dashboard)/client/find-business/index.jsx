@@ -19,6 +19,7 @@ import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import Spacer from "../../../../components/Spacer";
 import { Colors } from "../../../../constants/Colors";
+import { useTheme } from "../../../../hooks/useTheme";
 
 import { supabase } from "../../../../lib/supabase";
 import { listPublicTrades, getMyRole } from "../../../../lib/api/profile";
@@ -38,6 +39,7 @@ import ThemedStatusBar from "../../../../components/ThemedStatusBar";
 export default function FindBusinessIndex() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { colors: c } = useTheme();
   const { q, category, service } = useLocalSearchParams();
 
   const [rows, setRows] = useState([]);
@@ -152,7 +154,10 @@ export default function FindBusinessIndex() {
 
   const renderItem = ({ item }) => (
     <Pressable
-      style={styles.row}
+      style={[
+        styles.row,
+        { backgroundColor: c.elevate, borderColor: c.border },
+      ]}
       onPress={() =>
         router.push({
           pathname: "/client/trade-profile",
@@ -162,45 +167,50 @@ export default function FindBusinessIndex() {
     >
       <View style={styles.rowLeft}>
         {item.photo_url ? (
-          <Image source={{ uri: item.photo_url }} style={styles.avatar} />
+          <Image source={{ uri: item.photo_url }} style={[styles.avatar, { backgroundColor: c.elevate2 }]} />
         ) : (
-          <View style={[styles.avatar, styles.avatarFallback]} />
+          <View style={[styles.avatar, { backgroundColor: c.elevate2, borderColor: c.border, borderWidth: StyleSheet.hairlineWidth }]} />
         )}
         <View style={{ marginLeft: 12, flex: 1 }}>
-          <ThemedText style={styles.title} numberOfLines={1}>
+          <ThemedText style={[styles.title, { color: c.text }]} numberOfLines={1}>
             {item.business_name || item.full_name || "Business"}
           </ThemedText>
           {!!item.trade_title && (
-            <ThemedText style={{ fontSize: 13, color: "#6B7280", marginTop: 2 }} numberOfLines={1}>
+            <ThemedText style={{ fontSize: 13, color: c.textMuted, marginTop: 2 }} numberOfLines={1}>
               {item.trade_title}
             </ThemedText>
           )}
         </View>
       </View>
-      <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+      <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
     </Pressable>
   );
 
   return (
-    <ThemedView style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+    <ThemedView style={{ flex: 1 }}>
       <ThemedStatusBar />
 
       {/* Clean header with back button */}
-      <View style={[styles.header, { paddingTop: insets.top }]}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: insets.top, backgroundColor: c.background, borderBottomColor: c.border },
+        ]}
+      >
         <View style={styles.headerRow}>
           <Pressable
             onPress={() => (router.canGoBack() ? router.back() : router.replace("/client"))}
             hitSlop={10}
             style={styles.backBtn}
           >
-            <Ionicons name="chevron-back" size={24} color="#111827" />
+            <Ionicons name="chevron-back" size={24} color={c.text} />
           </Pressable>
           <View style={{ flex: 1, alignItems: "center" }}>
-            <ThemedText style={styles.headerTitle} numberOfLines={1}>
+            <ThemedText style={[styles.headerTitle, { color: c.text }]} numberOfLines={1}>
               {categoryFilter ? categoryFilter : "Find a business"}
             </ThemedText>
             {!!serviceFilter && (
-              <ThemedText style={styles.headerSubtitle} numberOfLines={1}>
+              <ThemedText style={[styles.headerSubtitle, { color: c.textMuted }]} numberOfLines={1}>
                 for {serviceFilter}
               </ThemedText>
             )}
@@ -212,28 +222,40 @@ export default function FindBusinessIndex() {
       {/* Active category filter chip (read-only — use back button to change) */}
       {categoryFilter && (
         <View style={styles.filterChipRow}>
-          <View style={styles.filterChip}>
-            <ThemedText style={styles.filterChipText}>{categoryFilter}</ThemedText>
+          <View
+            style={[
+              styles.filterChip,
+              { backgroundColor: c.elevate, borderColor: c.border },
+            ]}
+          >
+            <ThemedText style={[styles.filterChipText, { color: c.text }]}>
+              {categoryFilter}
+            </ThemedText>
           </View>
         </View>
       )}
 
       {/* Search input */}
       <View style={styles.searchWrap}>
-        <View style={styles.searchBox}>
-          <Ionicons name="search" size={18} color="#9CA3AF" style={{ marginRight: 8 }} />
+        <View
+          style={[
+            styles.searchBox,
+            { backgroundColor: c.elevate, borderColor: c.border },
+          ]}
+        >
+          <Ionicons name="search" size={18} color={c.textMuted} style={{ marginRight: 8 }} />
           <TextInput
             placeholder="Search by name or trade"
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={c.textMuted}
             value={query}
             onChangeText={setQuery}
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: c.text }]}
             returnKeyType="search"
             onSubmitEditing={() => Keyboard.dismiss()}
           />
           {!!query && (
             <Pressable onPress={() => { setQuery(""); Keyboard.dismiss(); }} hitSlop={8}>
-              <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+              <Ionicons name="close-circle" size={18} color={c.textMuted} />
             </Pressable>
           )}
         </View>
@@ -242,7 +264,7 @@ export default function FindBusinessIndex() {
       {/* Content */}
       {loading && showDiscover ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator />
+          <ActivityIndicator color={Colors.primary} />
         </View>
       ) : (
         <>
@@ -256,10 +278,10 @@ export default function FindBusinessIndex() {
               onScrollBeginDrag={() => Keyboard.dismiss()}
               ListHeaderComponent={
                 <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 }}>
-                  <ThemedText style={{ fontSize: 16, fontWeight: "600", color: "#111827" }}>
+                  <ThemedText style={{ fontSize: 16, fontWeight: "600", color: c.text }}>
                     {categoryFilter ? `${categoryFilter} trades` : "Discover businesses"}
                   </ThemedText>
-                  <ThemedText style={{ marginTop: 4, fontSize: 13, color: "#6B7280" }}>
+                  <ThemedText style={{ marginTop: 4, fontSize: 13, color: c.textMuted }}>
                     {categoryFilter
                       ? `Verified ${categoryFilter.toLowerCase()} trades in your area.`
                       : "Verified trades, ranked by credentials and activity."}
@@ -289,7 +311,7 @@ export default function FindBusinessIndex() {
               onScrollBeginDrag={() => Keyboard.dismiss()}
               ListHeaderComponent={
                 <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 }}>
-                  <ThemedText style={{ fontSize: 16, fontWeight: "600", color: "#111827" }}>
+                  <ThemedText style={{ fontSize: 16, fontWeight: "600", color: c.text }}>
                     Search results
                   </ThemedText>
                 </View>
@@ -312,9 +334,8 @@ export default function FindBusinessIndex() {
 
 const styles = StyleSheet.create({
   header: {
-    backgroundColor: "#FFFFFF",
+    // bg + border painted inline from theme at the render site.
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(0,0,0,0.08)",
   },
   headerRow: {
     flexDirection: "row",
@@ -328,12 +349,10 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   headerTitle: {
-    color: "#111827",
     fontSize: 17,
     fontWeight: "600",
   },
   headerSubtitle: {
-    color: "#6B7280",
     fontSize: 12,
     marginTop: 2,
   },
@@ -346,17 +365,16 @@ const styles = StyleSheet.create({
   filterChip: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F3F4F6",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 5,
+    // bg + border painted inline from theme at render site.
   },
   filterChipText: {
     fontSize: 13,
     fontWeight: "500",
-    color: "#374151",
+    // color painted inline from theme at render site.
   },
 
   searchWrap: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
@@ -365,28 +383,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: "#F9FAFB",
+    // bg + border painted inline from theme at render site.
   },
-  searchInput: { flex: 1, fontSize: 15, color: "#111827" },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    // color painted inline from theme at render site.
+  },
 
   row: {
     paddingVertical: 14,
     paddingHorizontal: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#F3F4F6",
-    backgroundColor: "#fff",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    // bg + border painted inline from theme at render site.
   },
   rowLeft: { flexDirection: "row", alignItems: "center" },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#F3F4F6" },
-  avatarFallback: { borderWidth: StyleSheet.hairlineWidth, borderColor: "#E5E7EB" },
-  title: { fontWeight: "600", color: "#111827", fontSize: 15 },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    // bg painted inline from theme at render site.
+  },
+  title: {
+    fontWeight: "600",
+    fontSize: 15,
+    // color painted inline from theme at render site.
+  },
 });
 
 
