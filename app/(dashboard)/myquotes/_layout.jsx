@@ -1,9 +1,10 @@
 // app/(dashboard)/myquotes/_layout.jsx
 import { Stack, Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
 import { supabase } from '../../../lib/supabase';
 import { useUser } from '../../../hooks/useUser';
+import ThemedView from '../../../components/ThemedView';
+import { LayoutGateSkeleton } from '../../../components/Skeleton';
 
 export default function MyQuotesClientOnly() {
   const { user } = useUser();
@@ -33,9 +34,9 @@ export default function MyQuotesClientOnly() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator />
-      </View>
+      <ThemedView style={{ flex: 1 }}>
+        <LayoutGateSkeleton />
+      </ThemedView>
     );
   }
 

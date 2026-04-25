@@ -22,6 +22,7 @@ import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
 import Spacer from "../../components/Spacer";
 import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../components/KeyboardDoneButton";
+import { ProjectsPageSkeleton } from "../../components/Skeleton";
 import { Colors } from "../../constants/Colors";
 
 import {
@@ -326,9 +327,7 @@ export default function AdminReviewsScreen() {
     return (
       <ThemedView style={[styles.container, { paddingTop: insets.top }]}>
         <ThemedStatusBar />
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={PRIMARY} />
-        </View>
+        <ProjectsPageSkeleton paddingTop={16} />
       </ThemedView>
     );
   }

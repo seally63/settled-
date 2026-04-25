@@ -8,7 +8,6 @@ import {
   Platform,
   RefreshControl,
   Pressable,
-  ActivityIndicator,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,6 +16,7 @@ import { useRouter } from "expo-router";
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
 import ThemedButton from "../../components/ThemedButton";
+import { LayoutGateSkeleton } from "../../components/Skeleton";
 import { Colors } from "../../constants/Colors";
 import { supabase } from "../../lib/supabase";
 import { useUser } from "../../hooks/useUser";
@@ -71,8 +71,8 @@ export default function SalesScreen() {
 
   if (roleLoading || role !== "trades") {
     return (
-      <ThemedView style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator />
+      <ThemedView style={{ flex: 1 }}>
+        <LayoutGateSkeleton />
       </ThemedView>
     );
   }

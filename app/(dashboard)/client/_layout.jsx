@@ -1,15 +1,13 @@
 import { Stack, Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, View, useColorScheme } from 'react-native';
 
 import { supabase } from '../../../lib/supabase';          // ✅ up three levels from /client
 import { useUser } from '../../../hooks/useUser';          // ✅ up three levels
-import { Colors } from '../../../constants/Colors';        // ✅ up three levels
+import ThemedView from '../../../components/ThemedView';
+import { LayoutGateSkeleton } from '../../../components/Skeleton';
 
 export default function ClientStackLayout() {
   const { user } = useUser();
-  const scheme = useColorScheme();
-  const theme = Colors[scheme] ?? Colors.light;
 
   const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -37,9 +35,9 @@ export default function ClientStackLayout() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color={theme.iconColorFocused || '#000'} />
-      </View>
+      <ThemedView style={{ flex: 1 }}>
+        <LayoutGateSkeleton />
+      </ThemedView>
     );
   }
 

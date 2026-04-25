@@ -3,9 +3,13 @@
 import { useEffect, useRef } from "react";
 import { View, Animated, StyleSheet } from "react-native";
 import { Colors } from "../constants/Colors";
+import { useTheme } from "../hooks/useTheme";
 
-// Base skeleton box with shimmer
+// Base skeleton box with shimmer.
+// Reads the theme so the shimmer fill matches dark/light mode automatically —
+// no caller has to pass a colour. Override via `style` if needed.
 export function SkeletonBox({ width, height, borderRadius = 4, style }) {
+  const { colors: c } = useTheme();
   const shimmerAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -35,8 +39,7 @@ export function SkeletonBox({ width, height, borderRadius = 4, style }) {
   return (
     <Animated.View
       style={[
-        styles.skeleton,
-        { width, height, borderRadius, opacity },
+        { width, height, borderRadius, opacity, backgroundColor: c.elevate2 },
         style,
       ]}
     />
@@ -57,6 +60,8 @@ export function SkeletonText({ width = "100%", height = 14, style }) {
 
 // Home page skeleton (trades dashboard)
 export function HomePageSkeleton({ paddingTop }) {
+  const { colors: c } = useTheme();
+  const cardThemed = { backgroundColor: c.elevate, borderColor: c.border };
   return (
     <View style={[styles.pageContainer, { paddingTop: paddingTop ?? 16 }]}>
       {/* Header */}
@@ -67,11 +72,11 @@ export function HomePageSkeleton({ paddingTop }) {
 
       {/* Stats cards */}
       <View style={styles.statsRow}>
-        <View style={styles.statCard}>
+        <View style={[styles.statCard, cardThemed]}>
           <SkeletonText width={60} height={32} />
           <SkeletonText width={80} height={14} style={{ marginTop: 8 }} />
         </View>
-        <View style={styles.statCard}>
+        <View style={[styles.statCard, cardThemed]}>
           <SkeletonText width={60} height={32} />
           <SkeletonText width={80} height={14} style={{ marginTop: 8 }} />
         </View>
@@ -82,7 +87,7 @@ export function HomePageSkeleton({ paddingTop }) {
 
       {/* List items */}
       {[1, 2, 3].map((i) => (
-        <View key={i} style={styles.listCard}>
+        <View key={i} style={[styles.listCard, cardThemed]}>
           <View style={styles.listCardRow}>
             <SkeletonCircle size={48} />
             <View style={styles.listCardContent}>
@@ -98,6 +103,8 @@ export function HomePageSkeleton({ paddingTop }) {
 
 // Projects/Quotes page skeleton
 export function ProjectsPageSkeleton({ paddingTop }) {
+  const { colors: c } = useTheme();
+  const cardThemed = { backgroundColor: c.elevate, borderColor: c.border };
   return (
     <View style={[styles.pageContainer, { paddingTop: paddingTop ?? 16 }]}>
       {/* Header */}
@@ -112,7 +119,7 @@ export function ProjectsPageSkeleton({ paddingTop }) {
 
       {/* Project cards */}
       {[1, 2, 3].map((i) => (
-        <View key={i} style={styles.projectCard}>
+        <View key={i} style={[styles.projectCard, cardThemed]}>
           <View style={styles.projectCardHeader}>
             <SkeletonCircle size={44} />
             <View style={{ flex: 1, marginLeft: 12 }}>
@@ -121,7 +128,7 @@ export function ProjectsPageSkeleton({ paddingTop }) {
             </View>
             <SkeletonBox width={70} height={24} borderRadius={12} />
           </View>
-          <View style={styles.projectCardBody}>
+          <View style={[styles.projectCardBody, { borderTopColor: c.border }]}>
             <SkeletonText width="90%" height={14} />
             <SkeletonText width="70%" height={14} style={{ marginTop: 6 }} />
           </View>
@@ -133,6 +140,7 @@ export function ProjectsPageSkeleton({ paddingTop }) {
 
 // Messages page skeleton
 export function MessagesPageSkeleton({ paddingTop }) {
+  const { colors: c } = useTheme();
   return (
     <View style={[styles.pageContainer, { paddingTop: paddingTop ?? 16 }]}>
       {/* Header */}
@@ -140,7 +148,7 @@ export function MessagesPageSkeleton({ paddingTop }) {
 
       {/* Conversation items */}
       {[1, 2, 3, 4, 5].map((i) => (
-        <View key={i} style={styles.messageItem}>
+        <View key={i} style={[styles.messageItem, { borderBottomColor: c.border }]}>
           <SkeletonCircle size={52} />
           <View style={styles.messageContent}>
             <View style={styles.messageHeader}>
@@ -157,6 +165,7 @@ export function MessagesPageSkeleton({ paddingTop }) {
 
 // Profile page skeleton
 export function ProfilePageSkeleton({ paddingTop }) {
+  const { colors: c } = useTheme();
   return (
     <View style={[styles.pageContainer, { paddingTop: paddingTop ?? 16 }]}>
       {/* Header */}
@@ -166,7 +175,7 @@ export function ProfilePageSkeleton({ paddingTop }) {
       </View>
 
       {/* Profile card */}
-      <View style={styles.profileCard}>
+      <View style={[styles.profileCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
         <View style={styles.profileCardColumns}>
           {/* Left column */}
           <View style={styles.profileLeftCol}>
@@ -181,18 +190,18 @@ export function ProfilePageSkeleton({ paddingTop }) {
           </View>
 
           {/* Divider */}
-          <View style={styles.verticalDivider} />
+          <View style={[styles.verticalDivider, { backgroundColor: c.border }]} />
 
           {/* Right column */}
           <View style={styles.profileRightCol}>
             <View style={styles.profileSection}>
               <SkeletonText width="80%" height={14} />
             </View>
-            <View style={styles.horizontalDivider} />
+            <View style={[styles.horizontalDivider, { backgroundColor: c.border }]} />
             <View style={styles.profileSection}>
               <SkeletonText width="60%" height={14} />
             </View>
-            <View style={styles.horizontalDivider} />
+            <View style={[styles.horizontalDivider, { backgroundColor: c.border }]} />
             <View style={styles.profileSection}>
               <SkeletonText width="70%" height={14} />
             </View>
@@ -244,10 +253,11 @@ export function CategoryGridSkeleton() {
 
 // Service types list skeleton
 export function ServiceTypesListSkeleton() {
+  const { colors: c } = useTheme();
   return (
     <View>
       {[1, 2, 3, 4, 5].map((i) => (
-        <View key={i} style={styles.serviceTypeItem}>
+        <View key={i} style={[styles.serviceTypeItem, { borderBottomColor: c.border }]}>
           <SkeletonBox width={24} height={24} borderRadius={4} />
           <SkeletonText width="70%" height={16} style={{ marginLeft: 12 }} />
         </View>
@@ -258,6 +268,8 @@ export function ServiceTypesListSkeleton() {
 
 // Request detail page skeleton (trade view)
 export function RequestDetailSkeleton({ paddingTop }) {
+  const { colors: c } = useTheme();
+  const cardThemed = { backgroundColor: c.elevate, borderColor: c.border };
   return (
     <View style={[styles.pageContainer, { paddingTop: paddingTop ?? 16 }]}>
       {/* Action buttons placeholder */}
@@ -267,7 +279,7 @@ export function RequestDetailSkeleton({ paddingTop }) {
       </View>
 
       {/* Hero section */}
-      <View style={styles.heroCard}>
+      <View style={[styles.heroCard, cardThemed]}>
         <SkeletonText width="70%" height={20} />
         <SkeletonText width="50%" height={16} style={{ marginTop: 8 }} />
         <SkeletonText width="40%" height={14} style={{ marginTop: 8 }} />
@@ -275,7 +287,7 @@ export function RequestDetailSkeleton({ paddingTop }) {
 
       {/* Section */}
       <SkeletonText width={100} height={16} style={{ marginTop: 20, marginBottom: 8 }} />
-      <View style={styles.detailCard}>
+      <View style={[styles.detailCard, cardThemed]}>
         {[1, 2, 3, 4].map((i) => (
           <View key={i} style={styles.detailRow}>
             <SkeletonBox width={18} height={18} borderRadius={4} />
@@ -289,7 +301,7 @@ export function RequestDetailSkeleton({ paddingTop }) {
 
       {/* Description section */}
       <SkeletonText width={100} height={16} style={{ marginTop: 20, marginBottom: 8 }} />
-      <View style={styles.detailCard}>
+      <View style={[styles.detailCard, cardThemed]}>
         <SkeletonText width="100%" height={14} />
         <SkeletonText width="90%" height={14} style={{ marginTop: 6 }} />
         <SkeletonText width="70%" height={14} style={{ marginTop: 6 }} />
@@ -300,10 +312,12 @@ export function RequestDetailSkeleton({ paddingTop }) {
 
 // Pipeline page skeleton (trade dashboard)
 export function PipelinePageSkeleton({ paddingTop }) {
+  const { colors: c } = useTheme();
+  const cardThemed = { backgroundColor: c.elevate, borderColor: c.border };
   return (
     <View style={[styles.pageContainer, { paddingTop: paddingTop ?? 16 }]}>
       {/* Header */}
-      <View style={styles.pipelineHeader}>
+      <View style={[styles.pipelineHeader, { borderBottomColor: c.border }]}>
         <SkeletonBox width={24} height={24} borderRadius={4} />
         <SkeletonText width={80} height={20} />
         <View style={{ width: 24 }} />
@@ -311,7 +325,7 @@ export function PipelinePageSkeleton({ paddingTop }) {
 
       {/* Summary cards */}
       <View style={styles.pipelineSummaryRow}>
-        <View style={styles.pipelineSummaryCard}>
+        <View style={[styles.pipelineSummaryCard, { backgroundColor: c.elevate2 }]}>
           <View style={styles.pipelineSummaryCardHeader}>
             <SkeletonBox width={20} height={20} borderRadius={4} />
             <SkeletonText width={90} height={13} />
@@ -319,7 +333,7 @@ export function PipelinePageSkeleton({ paddingTop }) {
           <SkeletonText width={80} height={24} style={{ marginTop: 8 }} />
           <SkeletonText width={100} height={12} style={{ marginTop: 4 }} />
         </View>
-        <View style={styles.pipelineSummaryCard}>
+        <View style={[styles.pipelineSummaryCard, { backgroundColor: c.elevate2 }]}>
           <View style={styles.pipelineSummaryCardHeader}>
             <SkeletonBox width={20} height={20} borderRadius={4} />
             <SkeletonText width={70} height={13} />
@@ -339,14 +353,14 @@ export function PipelinePageSkeleton({ paddingTop }) {
 
       {/* Project cards */}
       {[1, 2, 3].map((i) => (
-        <View key={i} style={styles.pipelineProjectCard}>
+        <View key={i} style={[styles.pipelineProjectCard, cardThemed]}>
           <SkeletonBox width={100} height={24} borderRadius={12} />
           <SkeletonText width="70%" height={16} style={{ marginTop: 8 }} />
           <View style={styles.pipelineProjectMeta}>
             <SkeletonText width={80} height={14} />
             <SkeletonText width={60} height={14} />
           </View>
-          <View style={styles.pipelineProjectFooter}>
+          <View style={[styles.pipelineProjectFooter, { borderTopColor: c.border }]}>
             <View>
               <SkeletonText width={80} height={16} />
               <SkeletonText width={100} height={12} style={{ marginTop: 2 }} />
@@ -361,10 +375,12 @@ export function PipelinePageSkeleton({ paddingTop }) {
 
 // Quote overview page skeleton
 export function QuoteOverviewSkeleton({ paddingTop }) {
+  const { colors: c } = useTheme();
+  const cardThemed = { backgroundColor: c.elevate, borderColor: c.border };
   return (
     <View style={[styles.pageContainer, { paddingTop: paddingTop ?? 16 }]}>
       {/* Hero card */}
-      <View style={styles.quoteHeroCard}>
+      <View style={[styles.quoteHeroCard, cardThemed]}>
         <View style={styles.quoteHeroHeader}>
           <SkeletonCircle size={56} />
           <View style={{ flex: 1, marginLeft: 12 }}>
@@ -374,7 +390,7 @@ export function QuoteOverviewSkeleton({ paddingTop }) {
           <SkeletonBox width={80} height={28} borderRadius={14} />
         </View>
 
-        <View style={styles.quoteHeroStats}>
+        <View style={[styles.quoteHeroStats, { borderTopColor: c.border }]}>
           <View style={{ flex: 1 }}>
             <SkeletonText width={80} height={12} />
             <SkeletonText width={100} height={24} style={{ marginTop: 4 }} />
@@ -391,7 +407,7 @@ export function QuoteOverviewSkeleton({ paddingTop }) {
       {[1, 2].map((i) => (
         <View key={i}>
           <SkeletonText width={120} height={16} style={{ marginTop: 20, marginBottom: 8 }} />
-          <View style={styles.detailCard}>
+          <View style={[styles.detailCard, cardThemed]}>
             <View style={styles.detailRow}>
               <SkeletonBox width={40} height={40} borderRadius={8} />
               <View style={{ flex: 1, marginLeft: 12 }}>
@@ -407,10 +423,45 @@ export function QuoteOverviewSkeleton({ paddingTop }) {
   );
 }
 
+// ==================== LAYOUT GATE SKELETON ====================
+// Shown by route _layout files while session/role is being resolved.
+// Replaces a bare ActivityIndicator so the transition into the dashboard
+// stays themed instead of flashing white card stubs.
+export function LayoutGateSkeleton({ paddingTop }) {
+  const { colors: c } = useTheme();
+  const cardThemed = { backgroundColor: c.elevate, borderColor: c.border };
+  return (
+    <View style={[styles.pageContainer, { paddingTop: paddingTop ?? 16 }]}>
+      {/* Header */}
+      <View style={styles.headerRow}>
+        <SkeletonText width={140} height={26} />
+        <SkeletonCircle size={36} />
+      </View>
+
+      {/* Single hero card */}
+      <View style={[styles.heroCard, cardThemed, { marginBottom: 16 }]}>
+        <SkeletonText width="60%" height={18} />
+        <SkeletonText width="40%" height={14} style={{ marginTop: 8 }} />
+      </View>
+
+      {/* List preview */}
+      {[1, 2, 3].map((i) => (
+        <View key={i} style={[styles.listCard, cardThemed]}>
+          <View style={styles.listCardRow}>
+            <SkeletonCircle size={44} />
+            <View style={styles.listCardContent}>
+              <SkeletonText width="70%" height={16} />
+              <SkeletonText width="50%" height={14} style={{ marginTop: 6 }} />
+            </View>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  skeleton: {
-    backgroundColor: "#E5E7EB",
-  },
+  // Note: skeleton fill colour is painted inline in SkeletonBox from theme.
   pageContainer: {
     flex: 1,
     paddingHorizontal: 20,
@@ -430,21 +481,19 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     padding: 16,
     alignItems: "center",
+    // bg + border painted inline from theme.
   },
   // List
   listCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     padding: 16,
     marginBottom: 12,
+    // bg + border painted inline from theme.
   },
   listCardRow: {
     flexDirection: "row",
@@ -462,12 +511,11 @@ const styles = StyleSheet.create({
   },
   // Project card
   projectCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     padding: 16,
     marginBottom: 12,
+    // bg + border painted inline from theme.
   },
   projectCardHeader: {
     flexDirection: "row",
@@ -477,7 +525,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
+    // border painted inline from theme.
   },
   // Messages
   messageItem: {
@@ -485,7 +533,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
+    // border painted inline from theme.
   },
   messageContent: {
     flex: 1,
@@ -498,11 +546,10 @@ const styles = StyleSheet.create({
   },
   // Profile card
   profileCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     padding: 16,
+    // bg + border painted inline from theme.
   },
   profileCardColumns: {
     flexDirection: "row",
@@ -527,11 +574,11 @@ const styles = StyleSheet.create({
   },
   verticalDivider: {
     width: 1,
-    backgroundColor: Colors.light.border,
+    // bg painted inline from theme.
   },
   horizontalDivider: {
     height: 1,
-    backgroundColor: Colors.light.border,
+    // bg painted inline from theme.
   },
   // Category grid
   categoryGrid: {
@@ -550,7 +597,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
+    // border painted inline from theme.
   },
   // Request detail page
   actionButtonsRow: {
@@ -559,18 +606,16 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   heroCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     padding: 16,
+    // bg + border painted inline from theme.
   },
   detailCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     padding: 16,
+    // bg + border painted inline from theme.
   },
   detailRow: {
     flexDirection: "row",
@@ -579,11 +624,10 @@ const styles = StyleSheet.create({
   },
   // Quote overview
   quoteHeroCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     padding: 16,
+    // bg + border painted inline from theme.
   },
   quoteHeroHeader: {
     flexDirection: "row",
@@ -594,7 +638,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
+    // border painted inline from theme.
   },
   // Pipeline page
   pipelineHeader: {
@@ -603,10 +647,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
     marginBottom: 20,
     marginHorizontal: -20,
     paddingHorizontal: 20,
+    // border painted inline from theme.
   },
   pipelineSummaryRow: {
     flexDirection: "row",
@@ -615,9 +659,9 @@ const styles = StyleSheet.create({
   },
   pipelineSummaryCard: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     padding: 16,
+    // bg painted inline from theme.
   },
   pipelineSummaryCardHeader: {
     flexDirection: "row",
@@ -630,12 +674,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   pipelineProjectCard: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     marginBottom: 12,
+    // bg + border painted inline from theme.
   },
   pipelineProjectMeta: {
     flexDirection: "row",
@@ -649,8 +692,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
     paddingTop: 12,
+    // border painted inline from theme.
   },
 });
 

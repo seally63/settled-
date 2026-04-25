@@ -1,10 +1,12 @@
 // app/(dashboard)/_layout.jsx
 import { Tabs, useRouter, useSegments } from 'expo-router';
-import { ActivityIndicator, View } from 'react-native';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 
 import UserOnly from '../../components/auth/UserOnly';
+import ThemedView from '../../components/ThemedView';
+import { LayoutGateSkeleton } from '../../components/Skeleton';
 import { useUser } from '../../hooks/useUser';
 import { useTheme } from '../../hooks/useTheme';
 import { supabase } from '../../lib/supabase';
@@ -148,17 +150,13 @@ export default function DashboardLayout() {
   }, [user?.id]);
 
   if (!role) {
+    // Themed skeleton instead of a bare ActivityIndicator so the post-login
+    // role-fetch transition doesn't flash white card stubs in dark mode.
     return (
       <UserOnly>
-        <View
-          style={{
-            flex: 1,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <ActivityIndicator size="large" color={theme.iconColorFocused} />
-        </View>
+        <ThemedView style={{ flex: 1 }}>
+          <LayoutGateSkeleton />
+        </ThemedView>
       </UserOnly>
     );
   }
