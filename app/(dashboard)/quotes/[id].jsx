@@ -210,13 +210,10 @@ export default function QuoteDetails() {
   // Full-screen viewer state (zoomable, swipeable)
   const [viewer, setViewer] = useState({ open: false, index: 0 });
 
-  // Mark Complete bottom sheet state
-  const [showCompleteSheet, setShowCompleteSheet] = useState(false);
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
-  const [completionNotes, setCompletionNotes] = useState("");
-  const [completeBusy, setCompleteBusy] = useState(false);
-  const [showPaymentMethodPicker, setShowPaymentMethodPicker] = useState(false);
+  // Mark-as-complete state moved to the Client Request screen
+  // (app/(dashboard)/quotes/request/[id].jsx) so the action lives next
+  // to the rest of the trade-side request flow. Only `clientConfirmBusy`
+  // remains here — that's the client's confirmation step further below.
   const [clientConfirmBusy, setClientConfirmBusy] = useState(false);
 
   // Issue Resolved bottom sheet state (Trade side)
@@ -236,18 +233,6 @@ export default function QuoteDetails() {
   const [rescheduleBusy, setRescheduleBusy] = useState(false);
   const [reschedulePickerVisible, setReschedulePickerVisible] = useState(false);
   const [reschedulePickerMode, setReschedulePickerMode] = useState("date"); // "date" | "time"
-
-  // Payment method options
-  const PAYMENT_METHODS = [
-    { id: "bank_transfer", label: "Bank transfer" },
-    { id: "cash", label: "Cash" },
-    { id: "card", label: "Card" },
-    { id: "paypal", label: "PayPal" },
-    { id: "other", label: "Other" },
-  ];
-
-  // Get selected payment method label
-  const selectedPaymentMethodLabel = PAYMENT_METHODS.find(m => m.id === paymentMethod)?.label || "Select method";
 
   const closeViewer = useCallback(() => {
     setViewer((v) => ({ ...v, open: false }));
@@ -704,19 +689,9 @@ export default function QuoteDetails() {
   const status = String(quote?.status || quote?.state || "").toLowerCase();
   const isAccepted = status === "accepted";
 
-  // Mark-as-complete is only meaningful once the trade has actually
-  // scheduled a Start Job on this quote. Requires at least one
-  // Start Job appointment in a non-cancelled state (proposed,
-  // confirmed, or reschedule_pending all qualify — they all mean
-  // the job is on the books).
-  const hasActiveStartJobAppt = useMemo(() => {
-    if (!quote?.id) return false;
-    return (appointments || []).some((a) => {
-      if (a.kind !== "start_job") return false;
-      if (a.quote_id && a.quote_id !== quote.id) return false;
-      return String(a.status || "").toLowerCase() !== "cancelled";
-    });
-  }, [appointments, quote?.id]);
+  // (`hasActiveStartJobAppt` lived here to gate the Mark Complete
+  // button; that button is now on the Client Request screen, so the
+  // memo moved with it.)
 
   // Final "other person" display identity
   const displayName =
@@ -1401,67 +1376,9 @@ export default function QuoteDetails() {
 
   // ============ END RESCHEDULE FUNCTIONS ============
 
-  // Open mark complete sheet with pre-filled amount
-  const openMarkCompleteSheet = () => {
-    setPaymentAmount(String(grandTotal || ""));
-    setPaymentMethod("bank_transfer");
-    setCompletionNotes("");
-    setShowCompleteSheet(true);
-  };
-
-  // Close mark complete sheet
-  const closeMarkCompleteSheet = () => {
-    if (completeBusy) return;
-    setShowCompleteSheet(false);
-  };
-
-  // Handle mark complete submission
-  const handleMarkComplete = async () => {
-    if (completeBusy) return;
-
-    try {
-      setCompleteBusy(true);
-
-      const amount = parseFloat(paymentAmount) || grandTotal || 0;
-
-      const { data, error } = await supabase.rpc("rpc_trade_mark_complete", {
-        p_quote_id: quote?.id,
-        p_payment_received: amount,
-        p_payment_method: paymentMethod,
-        p_notes: completionNotes.trim() || null,
-      });
-
-      if (error) {
-        console.warn("Mark complete error:", error.message || error);
-        Alert.alert(
-          "Could not mark complete",
-          error.message || "Something went wrong, please try again."
-        );
-        return;
-      }
-
-      // Reload the quote to get updated status
-      const row = await fetchQuoteById(quote.id);
-      if (row) {
-        setQuote(row);
-      }
-
-      setShowCompleteSheet(false);
-
-      Alert.alert(
-        "Job marked as complete",
-        `${displayName} will be notified to confirm the work is done.`
-      );
-    } catch (e) {
-      console.warn("Mark complete error:", e?.message || e);
-      Alert.alert(
-        "Could not mark complete",
-        e?.message || "Something went wrong, please try again."
-      );
-    } finally {
-      setCompleteBusy(false);
-    }
-  };
+  // (`openMarkCompleteSheet` / `closeMarkCompleteSheet` /
+  // `handleMarkComplete` moved to the Client Request screen with the
+  // button itself — see app/(dashboard)/quotes/request/[id].jsx.)
 
   // Handle client confirmation of completion (Step 3 -> Step 4)
   const handleClientConfirmCompletion = async () => {
@@ -2611,215 +2528,15 @@ export default function QuoteDetails() {
             </View>
           )}
 
-          {/* Action Buttons — only show for accepted quotes that
-              have an active Start Job appointment (proposed,
-              confirmed, or reschedule_pending — anything non-
-              cancelled). Before a Start Job is booked, marking
-              complete makes no sense because nothing's been
-              started. Covers the "don't surface destructive
-              actions until the state machine is ready for them"
-              principle. */}
-          {status !== "awaiting_completion" && status !== "completed" && status !== "issue_reported" && (
-            <View style={styles.actionButtonsContainer}>
-              {isAccepted && hasActiveStartJobAppt && (
-                <Pressable
-                  style={styles.markCompleteBtn}
-                  onPress={openMarkCompleteSheet}
-                >
-                  <ThemedText style={styles.markCompleteBtnText}>Mark as complete</ThemedText>
-                </Pressable>
-              )}
-            </View>
-          )}
+          {/* The trade's "Mark as complete" button used to render here
+              with its own bottom sheet. It now lives on the Client
+              Request screen — see app/(dashboard)/quotes/request/[id].jsx
+              — so the completion action stays inside the request flow
+              rather than being buried in the quote-terms detail page. */}
 
           <Spacer size={40} />
         </ScrollView>
 
-        {/* Mark Complete Bottom Sheet */}
-        <Modal
-          visible={showCompleteSheet}
-          animationType="slide"
-          transparent
-          onRequestClose={closeMarkCompleteSheet}
-        >
-          <View style={styles.sheetModalContainer}>
-            {/* Backdrop - tap to close */}
-            <Pressable style={styles.sheetBackdropArea} onPress={closeMarkCompleteSheet} />
-
-            {/* Sheet content */}
-            <KeyboardAvoidingView
-              behavior={Platform.OS === "ios" ? "padding" : undefined}
-              style={styles.sheetKeyboardView}
-            >
-              <View style={[styles.sheetContent, { paddingBottom: insets.bottom + 20 }]}>
-                {/* Handle */}
-                <View style={styles.sheetHandle} />
-
-                <ScrollView
-                  contentContainerStyle={styles.sheetScrollContent}
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}
-                >
-                  {/* Eyebrow + title — matches the pill-container pattern
-                      used elsewhere (Request page, Quote Builder preview).  */}
-                  <View style={styles.mcSheetHeader}>
-                    <ThemedText style={styles.mcSheetEyebrow}>JOB COMPLETION</ThemedText>
-                    <ThemedText style={styles.mcSheetTitle}>Mark as complete</ThemedText>
-                    <ThemedText style={styles.mcSheetSubtitle}>
-                      Let {displayName ? displayName.split(" ")[0] : "the client"} know the work is done.
-                      They'll confirm before the job closes.
-                    </ThemedText>
-                  </View>
-
-                  <Spacer size={20} />
-
-                  {/* Payment pill-container — Amount + Method live in a
-                      single bordered card, matching the Budget/Timing
-                      pill style used on the Request page.              */}
-                  <View style={styles.mcPillCard}>
-                    <ThemedText style={styles.mcPillEyebrow}>PAYMENT</ThemedText>
-
-                    <ThemedText style={styles.mcFieldLabel}>Amount received</ThemedText>
-                    <View style={styles.mcAmountRow}>
-                      <ThemedText style={styles.mcCurrency}>£</ThemedText>
-                      <TextInput
-                        style={styles.mcAmountInput}
-                        value={paymentAmount}
-                        onChangeText={setPaymentAmount}
-                        keyboardType="decimal-pad"
-                        placeholder="0.00"
-                        placeholderTextColor={c.textMuted}
-                        editable={!completeBusy}
-                      />
-                    </View>
-
-                    <View style={styles.mcPillDivider} />
-
-                    <ThemedText style={styles.mcFieldLabel}>Method</ThemedText>
-                    <Pressable
-                      style={styles.mcDropdown}
-                      onPress={() => setShowPaymentMethodPicker(true)}
-                      disabled={completeBusy}
-                    >
-                      <ThemedText style={styles.mcDropdownText}>
-                        {selectedPaymentMethodLabel}
-                      </ThemedText>
-                      <Ionicons name="chevron-down" size={18} color={c.textMid} />
-                    </Pressable>
-                  </View>
-
-                  <Spacer size={14} />
-
-                  {/* Final notes pill-container. Label reads plainly so the
-                      trade knows it's optional without the parenthetical.  */}
-                  <View style={styles.mcPillCard}>
-                    <ThemedText style={styles.mcPillEyebrow}>FINAL NOTES</ThemedText>
-                    <TextInput
-                      style={styles.mcNotesInput}
-                      value={completionNotes}
-                      onChangeText={setCompletionNotes}
-                      placeholder="Optional — anything the client should know about the finished work."
-                      placeholderTextColor={c.textMuted}
-                      multiline
-                      numberOfLines={3}
-                      textAlignVertical="top"
-                      editable={!completeBusy}
-                      inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
-                    />
-                  </View>
-
-                  <Spacer size={22} />
-
-                  {/* Inline actions — matches the qoInlineActions row used
-                      on the Client Quote Overview (equal-flex ghost + primary,
-                      52px height, Public Sans SemiBold, pill radius).       */}
-                  <View style={styles.mcActionRow}>
-                    <Pressable
-                      onPress={closeMarkCompleteSheet}
-                      disabled={completeBusy}
-                      style={({ pressed }) => [
-                        styles.mcActionGhost,
-                        { backgroundColor: c.elevate, borderColor: c.borderStrong },
-                        pressed && { opacity: 0.75 },
-                        completeBusy && { opacity: 0.5 },
-                      ]}
-                    >
-                      <ThemedText style={[styles.mcActionGhostText, { color: c.text }]}>
-                        Cancel
-                      </ThemedText>
-                    </Pressable>
-
-                    <Pressable
-                      onPress={handleMarkComplete}
-                      disabled={completeBusy}
-                      style={({ pressed }) => [
-                        styles.mcActionPrimary,
-                        { backgroundColor: PRIMARY },
-                        pressed && { opacity: 0.85 },
-                        completeBusy && { opacity: 0.6 },
-                      ]}
-                    >
-                      <Ionicons
-                        name="checkmark"
-                        size={18}
-                        color="#FFFFFF"
-                        style={{ marginRight: 8 }}
-                      />
-                      <ThemedText style={styles.mcActionPrimaryText}>
-                        {completeBusy ? "Confirming…" : "Mark as complete"}
-                      </ThemedText>
-                    </Pressable>
-                  </View>
-                </ScrollView>
-              </View>
-            </KeyboardAvoidingView>
-          </View>
-
-          {/* Payment Method Picker Modal */}
-          <Modal
-            visible={showPaymentMethodPicker}
-            animationType="fade"
-            transparent
-            onRequestClose={() => setShowPaymentMethodPicker(false)}
-          >
-            <Pressable
-              style={styles.pickerBackdrop}
-              onPress={() => setShowPaymentMethodPicker(false)}
-            >
-              <View style={styles.pickerContainer}>
-                <View style={styles.pickerHeader}>
-                  <ThemedText style={styles.pickerTitle}>Select payment method</ThemedText>
-                  <Pressable onPress={() => setShowPaymentMethodPicker(false)} hitSlop={8}>
-                    <Ionicons name="close" size={24} color={c.textMid} />
-                  </Pressable>
-                </View>
-                {PAYMENT_METHODS.map((method, idx) => (
-                  <Pressable
-                    key={method.id}
-                    style={[
-                      styles.pickerOption,
-                      idx < PAYMENT_METHODS.length - 1 && styles.pickerOptionBorder,
-                    ]}
-                    onPress={() => {
-                      setPaymentMethod(method.id);
-                      setShowPaymentMethodPicker(false);
-                    }}
-                  >
-                    <ThemedText style={[
-                      styles.pickerOptionText,
-                      paymentMethod === method.id && styles.pickerOptionTextSelected,
-                    ]}>
-                      {method.label}
-                    </ThemedText>
-                    {paymentMethod === method.id && (
-                      <Ionicons name="checkmark" size={20} color={PRIMARY} />
-                    )}
-                  </Pressable>
-                ))}
-              </View>
-            </Pressable>
-          </Modal>
-        </Modal>
 
         {/* Issue Resolved Bottom Sheet - Trade marks issue as resolved */}
         <Modal
@@ -5104,23 +4821,9 @@ function makeStyles(c, dark) {
     lineHeight: 20,
   },
 
-  // Action buttons container
-  actionButtonsContainer: {
-    gap: 8,
-  },
-  markCompleteBtn: {
-    backgroundColor: PRIMARY,
-    borderRadius: 999,
-    paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  markCompleteBtnText: {
-    fontFamily: FontFamily.headerSemibold,
-    fontSize: 16,
-    letterSpacing: -0.1,
-    color: "#FFFFFF",
-  },
+  // (`actionButtonsContainer` / `markCompleteBtn` / `markCompleteBtnText`
+  // moved with the Mark-as-complete button to the Client Request screen.)
+
   messageClientBtn: {
     backgroundColor: c.elevate,
     borderRadius: 12,
@@ -5258,7 +4961,11 @@ function makeStyles(c, dark) {
   },
 
   // =============================================
-  // MARK COMPLETE BOTTOM SHEET
+  // SHARED BOTTOM-SHEET SHELL
+  // Generic sheet styles used by the Issue Resolved + Reschedule
+  // sheets on this screen. The Mark-as-complete pill cards / picker
+  // styles that used to live in this block moved to the Client
+  // Request screen with the button itself.
   // =============================================
   sheetModalContainer: {
     flex: 1,
@@ -5383,185 +5090,6 @@ function makeStyles(c, dark) {
     color: c.textMid,
   },
 
-  // ---------------------------------------------------------------
-  // Mark-as-complete sheet (redesigned). All typography on
-  // Public Sans / DM Sans via FontFamily tokens; structure uses the
-  // pill-container pattern (elevate2 bg + borderStrong, radius 18)
-  // that matches the Request page / Quote Builder Preview.
-  // ---------------------------------------------------------------
-  mcSheetHeader: {
-    marginTop: 4,
-  },
-  mcSheetEyebrow: {
-    fontFamily: FontFamily.headerBold,
-    fontSize: 11,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: c.textMuted,
-    marginBottom: 8,
-  },
-  mcSheetTitle: {
-    fontFamily: FontFamily.headerBold,
-    fontSize: 22,
-    lineHeight: 26,
-    letterSpacing: -0.4,
-    color: c.text,
-  },
-  mcSheetSubtitle: {
-    fontFamily: FontFamily.bodyRegular,
-    fontSize: 14,
-    lineHeight: 20,
-    color: c.textMid,
-    marginTop: 6,
-  },
-  mcPillCard: {
-    backgroundColor: c.elevate2,
-    borderWidth: 1,
-    borderColor: c.borderStrong,
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 16,
-  },
-  mcPillEyebrow: {
-    fontFamily: FontFamily.headerBold,
-    fontSize: 11,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: c.textMuted,
-    marginBottom: 10,
-  },
-  mcFieldLabel: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: 13,
-    color: c.textMid,
-    marginBottom: 6,
-  },
-  mcAmountRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  mcCurrency: {
-    fontFamily: FontFamily.headerSemibold,
-    fontSize: 22,
-    color: c.text,
-  },
-  mcAmountInput: {
-    flex: 1,
-    fontFamily: FontFamily.headerSemibold,
-    fontSize: 22,
-    letterSpacing: -0.3,
-    color: c.text,
-    paddingVertical: 6,
-    // transparent — container already provides the bordered pill look
-  },
-  mcPillDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: c.border,
-    marginVertical: 14,
-  },
-  mcDropdown: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 4,
-  },
-  mcDropdownText: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: 15,
-    color: c.text,
-  },
-  mcNotesInput: {
-    fontFamily: FontFamily.bodyRegular,
-    fontSize: 14,
-    lineHeight: 20,
-    color: c.text,
-    minHeight: 72,
-    padding: 0,
-    // no inner border — the outer pill already reads as a container
-  },
-  mcActionRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  mcActionGhost: {
-    flex: 1,
-    height: 52,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-  },
-  mcActionGhostText: {
-    fontFamily: FontFamily.headerSemibold,
-    fontSize: 15,
-    letterSpacing: -0.1,
-  },
-  mcActionPrimary: {
-    flex: 1,
-    height: 52,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-  },
-  mcActionPrimaryText: {
-    fontFamily: FontFamily.headerSemibold,
-    fontSize: 15,
-    color: "#FFFFFF",
-    letterSpacing: -0.1,
-  },
-
-  // Payment method picker modal
-  pickerBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24,
-  },
-  pickerContainer: {
-    backgroundColor: c.elevate,
-    borderRadius: 16,
-    width: "100%",
-    maxWidth: 340,
-    overflow: "hidden",
-  },
-  pickerHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E5E7EB",
-  },
-  pickerTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: c.text,
-  },
-  pickerOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  pickerOptionBorder: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E5E7EB",
-  },
-  pickerOptionText: {
-    fontSize: 16,
-    color: c.textMid,
-  },
-  pickerOptionTextSelected: {
-    color: PRIMARY,
-    fontWeight: "600",
-  },
   // Client completion flow styles
   statusChipCompleted: {
     flexDirection: "row",
