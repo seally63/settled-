@@ -24,6 +24,8 @@ import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants } from "../../../constants/Typography";
+import { useTheme } from "../../../hooks/useTheme";
 
 import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
@@ -52,6 +54,7 @@ export default function InsuranceScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();
+  const { colors: c } = useTheme();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -293,9 +296,9 @@ export default function InsuranceScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={handleBack} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={c.text} />
         </Pressable>
-        <ThemedText style={styles.headerTitle}>Insurance</ThemedText>
+        <ThemedText style={[styles.headerTitle, { color: c.text }]}>Insurance</ThemedText>
         <View style={{ width: 24 }} />
       </View>
 
@@ -388,29 +391,30 @@ export default function InsuranceScreen() {
 
 // Introduction Step
 function IntroStep({ onContinue }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
-      <View style={styles.iconContainer}>
-        <Ionicons name="shield-outline" size={48} color={Colors.light.title} />
+      <View style={[styles.iconContainer, { backgroundColor: c.elevate }]}>
+        <Ionicons name="shield-outline" size={48} color={c.text} />
       </View>
 
-      <ThemedText style={styles.stepTitle}>Public Liability Insurance</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Public Liability Insurance</ThemedText>
 
-      <ThemedText style={styles.stepDescription}>
+      <ThemedText style={[styles.stepDescription, { color: c.textMuted }]}>
         All tradespeople on Settled must have valid public liability insurance.
       </ThemedText>
 
-      <View style={styles.infoBox}>
-        <ThemedText style={styles.infoTitle}>Minimum requirements:</ThemedText>
+      <View style={[styles.infoBox, { backgroundColor: c.elevate, borderColor: c.border, borderWidth: 1 }]}>
+        <ThemedText style={[styles.infoTitle, { color: c.text }]}>Minimum requirements:</ThemedText>
         <View style={styles.infoList}>
-          <ThemedText style={styles.infoItem}>
-            {"\u2022"} £1,000,000 coverage (£2,000,000 recommended)
+          <ThemedText style={[styles.infoItem, { color: c.textMid }]}>
+            {"•"} £1,000,000 coverage (£2,000,000 recommended)
           </ThemedText>
-          <ThemedText style={styles.infoItem}>
-            {"\u2022"} Valid and in-date
+          <ThemedText style={[styles.infoItem, { color: c.textMid }]}>
+            {"•"} Valid and in-date
           </ThemedText>
-          <ThemedText style={styles.infoItem}>
-            {"\u2022"} Your name or business name on the certificate
+          <ThemedText style={[styles.infoItem, { color: c.textMid }]}>
+            {"•"} Your name or business name on the certificate
           </ThemedText>
         </View>
       </View>
@@ -434,90 +438,99 @@ function UploadStep({
   onHasEmployeesChange,
   onContinue,
 }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
-      <ThemedText style={styles.stepTitle}>Upload your insurance certificate</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Upload your insurance certificate</ThemedText>
 
       <Spacer height={24} />
 
       {/* Upload area */}
       {uploadedFile ? (
-        <View style={styles.uploadedFileCard}>
+        <View style={[styles.uploadedFileCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
           <Ionicons name="checkmark-circle" size={24} color={Colors.success} />
           <View style={styles.uploadedFileInfo}>
-            <ThemedText style={styles.uploadedFileName}>{uploadedFile.name}</ThemedText>
-            <ThemedText style={styles.uploadedFileSize}>{uploadedFile.size} MB</ThemedText>
+            <ThemedText style={[styles.uploadedFileName, { color: c.text }]}>{uploadedFile.name}</ThemedText>
+            <ThemedText style={[styles.uploadedFileSize, { color: c.textMuted }]}>{uploadedFile.size} MB</ThemedText>
           </View>
           <Pressable onPress={onUploadFile}>
             <ThemedText style={styles.linkText}>Change</ThemedText>
           </Pressable>
         </View>
       ) : (
-        <Pressable style={styles.uploadArea} onPress={onUploadFile}>
-          <Ionicons name="cloud-upload-outline" size={48} color="#D1D5DB" />
-          <ThemedText style={styles.uploadAreaText}>Tap to upload</ThemedText>
+        <Pressable style={[styles.uploadArea, { backgroundColor: c.elevate, borderColor: c.border }]} onPress={onUploadFile}>
+          <Ionicons name="cloud-upload-outline" size={48} color={c.textMuted} />
+          <ThemedText style={[styles.uploadAreaText, { color: c.textMuted }]}>Tap to upload</ThemedText>
         </Pressable>
       )}
 
-      <ThemedText style={styles.acceptedFormats}>
+      <ThemedText style={[styles.acceptedFormats, { color: c.textMuted }]}>
         Accepted formats: PDF, JPG, PNG (max 10MB)
       </ThemedText>
 
       <Spacer height={24} />
 
       {/* Employees question */}
-      <ThemedText style={styles.questionTitle}>Do you have employees?</ThemedText>
+      <ThemedText style={[styles.questionTitle, { color: c.text }]}>Do you have employees?</ThemedText>
 
       <Spacer height={12} />
 
       <Pressable
-        style={[styles.radioOption, !hasEmployees && styles.radioOptionSelected]}
+        style={[
+          styles.radioOption,
+          { backgroundColor: c.elevate, borderColor: c.border },
+          !hasEmployees && { borderColor: PRIMARY },
+        ]}
         onPress={() => onHasEmployeesChange(false)}
       >
-        <View style={[styles.radioCircle, !hasEmployees && styles.radioCircleSelected]}>
+        <View style={[styles.radioCircle, { borderColor: c.border }, !hasEmployees && styles.radioCircleSelected]}>
           {!hasEmployees && <View style={styles.radioCircleInner} />}
         </View>
-        <ThemedText style={styles.radioLabel}>No, it's just me</ThemedText>
+        <ThemedText style={[styles.radioLabel, { color: c.text }]}>No, it's just me</ThemedText>
       </Pressable>
 
       <Pressable
-        style={[styles.radioOption, hasEmployees && styles.radioOptionSelected]}
+        style={[
+          styles.radioOption,
+          { backgroundColor: c.elevate, borderColor: c.border },
+          hasEmployees && { borderColor: PRIMARY },
+        ]}
         onPress={() => onHasEmployeesChange(true)}
       >
-        <View style={[styles.radioCircle, hasEmployees && styles.radioCircleSelected]}>
+        <View style={[styles.radioCircle, { borderColor: c.border }, hasEmployees && styles.radioCircleSelected]}>
           {hasEmployees && <View style={styles.radioCircleInner} />}
         </View>
-        <ThemedText style={styles.radioLabel}>Yes, I have employees</ThemedText>
+        <ThemedText style={[styles.radioLabel, { color: c.text }]}>Yes, I have employees</ThemedText>
       </Pressable>
 
       {/* ELI Upload if has employees */}
       {hasEmployees && (
         <>
           <Spacer height={24} />
-          <ThemedText style={styles.questionTitle}>
+          <ThemedText style={[styles.questionTitle, { color: c.text }]}>
             Employer's Liability Insurance
           </ThemedText>
-          <ThemedText style={styles.questionSubtitle}>
+          <ThemedText style={[styles.questionSubtitle, { color: c.textMuted }]}>
             Required if you have employees (minimum £5,000,000)
           </ThemedText>
 
           <Spacer height={12} />
 
           {eliFile ? (
-            <View style={styles.uploadedFileCard}>
+            <View style={[styles.uploadedFileCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
               <Ionicons name="checkmark-circle" size={24} color={Colors.success} />
               <View style={styles.uploadedFileInfo}>
-                <ThemedText style={styles.uploadedFileName}>{eliFile.name}</ThemedText>
-                <ThemedText style={styles.uploadedFileSize}>{eliFile.size} MB</ThemedText>
+                <ThemedText style={[styles.uploadedFileName, { color: c.text }]}>{eliFile.name}</ThemedText>
+                <ThemedText style={[styles.uploadedFileSize, { color: c.textMuted }]}>{eliFile.size} MB</ThemedText>
               </View>
               <Pressable onPress={onUploadELI}>
                 <ThemedText style={styles.linkText}>Change</ThemedText>
               </Pressable>
             </View>
           ) : (
-            <Pressable style={styles.uploadAreaSmall} onPress={onUploadELI}>
-              <Ionicons name="add" size={24} color="#D1D5DB" />
-              <ThemedText style={styles.uploadAreaTextSmall}>Upload ELI certificate</ThemedText>
+            <Pressable style={[styles.uploadAreaSmall, { backgroundColor: c.elevate, borderColor: c.border }]} onPress={onUploadELI}>
+              <Ionicons name="add" size={24} color={c.textMuted} />
+              <ThemedText style={[styles.uploadAreaTextSmall, { color: c.textMuted }]}>Upload ELI certificate</ThemedText>
             </Pressable>
           )}
         </>
@@ -557,20 +570,26 @@ function DetailsStep({
   onSubmit,
   saving,
 }) {
+  const { colors: c } = useTheme();
   const selectedCoverage = COVERAGE_OPTIONS.find(opt => opt.value === coverageAmount);
+
+  const inputThemed = [
+    styles.textInput,
+    { backgroundColor: c.elevate, borderColor: c.border, color: c.text },
+  ];
 
   return (
     <View style={styles.stepContainer}>
-      <ThemedText style={styles.stepTitle}>Policy details</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Policy details</ThemedText>
 
       <Spacer height={24} />
 
       {/* Uploaded file card */}
-      <View style={styles.uploadedFileCard}>
+      <View style={[styles.uploadedFileCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
         <Ionicons name="checkmark-circle" size={24} color={Colors.success} />
         <View style={styles.uploadedFileInfo}>
-          <ThemedText style={styles.uploadedFileName}>{uploadedFile?.name}</ThemedText>
-          <ThemedText style={styles.uploadedFileSize}>{uploadedFile?.size} MB</ThemedText>
+          <ThemedText style={[styles.uploadedFileName, { color: c.text }]}>{uploadedFile?.name}</ThemedText>
+          <ThemedText style={[styles.uploadedFileSize, { color: c.textMuted }]}>{uploadedFile?.size} MB</ThemedText>
         </View>
         <Pressable onPress={onChangeFile}>
           <ThemedText style={styles.linkText}>Change</ThemedText>
@@ -580,11 +599,11 @@ function DetailsStep({
       <Spacer height={24} />
 
       {/* Insurance provider */}
-      <ThemedText style={styles.inputLabel}>Insurance provider</ThemedText>
+      <ThemedText style={[styles.inputLabel, { color: c.textMuted }]}>Insurance provider</ThemedText>
       <TextInput
-        style={styles.textInput}
+        style={inputThemed}
         placeholder="e.g. Hiscox, Simply Business..."
-        placeholderTextColor={Colors.light.subtitle}
+        placeholderTextColor={c.textMuted}
         value={provider}
         onChangeText={onProviderChange}
       />
@@ -592,11 +611,11 @@ function DetailsStep({
       <Spacer height={16} />
 
       {/* Policy number */}
-      <ThemedText style={styles.inputLabel}>Policy number</ThemedText>
+      <ThemedText style={[styles.inputLabel, { color: c.textMuted }]}>Policy number</ThemedText>
       <TextInput
-        style={styles.textInput}
+        style={inputThemed}
         placeholder="e.g. PLI-12345678"
-        placeholderTextColor={Colors.light.subtitle}
+        placeholderTextColor={c.textMuted}
         value={policyNumber}
         onChangeText={onPolicyNumberChange}
       />
@@ -604,29 +623,30 @@ function DetailsStep({
       <Spacer height={16} />
 
       {/* Coverage amount */}
-      <ThemedText style={styles.inputLabel}>Coverage amount</ThemedText>
+      <ThemedText style={[styles.inputLabel, { color: c.textMuted }]}>Coverage amount</ThemedText>
       <Pressable
-        style={styles.dropdownButton}
+        style={[styles.dropdownButton, { backgroundColor: c.elevate, borderColor: c.border }]}
         onPress={() => onShowCoverageDropdown(!showCoverageDropdown)}
       >
-        <ThemedText style={styles.dropdownButtonText}>
+        <ThemedText style={[styles.dropdownButtonText, { color: c.text }]}>
           {selectedCoverage?.label || "Select coverage"}
         </ThemedText>
         <Ionicons
           name={showCoverageDropdown ? "chevron-up" : "chevron-down"}
           size={20}
-          color={Colors.light.subtitle}
+          color={c.textMuted}
         />
       </Pressable>
 
       {showCoverageDropdown && (
-        <View style={styles.dropdownMenu}>
+        <View style={[styles.dropdownMenu, { backgroundColor: c.elevate, borderColor: c.border }]}>
           {COVERAGE_OPTIONS.map((option) => (
             <Pressable
               key={option.value}
               style={[
                 styles.dropdownOption,
-                coverageAmount === option.value && styles.dropdownOptionSelected,
+                { borderBottomColor: c.border },
+                coverageAmount === option.value && { backgroundColor: Colors.primaryTint },
               ]}
               onPress={() => {
                 onCoverageAmountChange(option.value);
@@ -636,6 +656,7 @@ function DetailsStep({
               <ThemedText
                 style={[
                   styles.dropdownOptionText,
+                  { color: coverageAmount === option.value ? PRIMARY : c.text },
                   coverageAmount === option.value && styles.dropdownOptionTextSelected,
                 ]}
               >
@@ -652,32 +673,32 @@ function DetailsStep({
       <Spacer height={16} />
 
       {/* Expiry date */}
-      <ThemedText style={styles.inputLabel}>Expiry date</ThemedText>
+      <ThemedText style={[styles.inputLabel, { color: c.textMuted }]}>Expiry date</ThemedText>
       <View style={styles.dateInputRow}>
         <TextInput
-          style={[styles.textInput, styles.dateInputDay]}
+          style={[...inputThemed, styles.dateInputDay]}
           placeholder="DD"
-          placeholderTextColor={Colors.light.subtitle}
+          placeholderTextColor={c.textMuted}
           value={expiryDay}
           onChangeText={onExpiryDayChange}
           keyboardType="number-pad"
           maxLength={2}
         />
-        <ThemedText style={styles.dateSeparator}>/</ThemedText>
+        <ThemedText style={[styles.dateSeparator, { color: c.textMuted }]}>/</ThemedText>
         <TextInput
-          style={[styles.textInput, styles.dateInputMonth]}
+          style={[...inputThemed, styles.dateInputMonth]}
           placeholder="MM"
-          placeholderTextColor={Colors.light.subtitle}
+          placeholderTextColor={c.textMuted}
           value={expiryMonth}
           onChangeText={onExpiryMonthChange}
           keyboardType="number-pad"
           maxLength={2}
         />
-        <ThemedText style={styles.dateSeparator}>/</ThemedText>
+        <ThemedText style={[styles.dateSeparator, { color: c.textMuted }]}>/</ThemedText>
         <TextInput
-          style={[styles.textInput, styles.dateInputYear]}
+          style={[...inputThemed, styles.dateInputYear]}
           placeholder="YYYY"
-          placeholderTextColor={Colors.light.subtitle}
+          placeholderTextColor={c.textMuted}
           value={expiryYear}
           onChangeText={onExpiryYearChange}
           keyboardType="number-pad"
@@ -704,6 +725,7 @@ function DetailsStep({
 
 // Submitted Step
 function SubmittedStep({ onBackToSettings }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
       <View style={styles.successIconContainer}>
@@ -714,9 +736,9 @@ function SubmittedStep({ onBackToSettings }) {
 
       <Spacer height={24} />
 
-      <ThemedText style={styles.stepTitle}>Submitted for review</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Submitted for review</ThemedText>
 
-      <ThemedText style={styles.stepDescription}>
+      <ThemedText style={[styles.stepDescription, { color: c.textMuted }]}>
         We'll review your insurance certificate and notify you within 1-2 business days.
       </ThemedText>
 
@@ -731,6 +753,7 @@ function SubmittedStep({ onBackToSettings }) {
 
 // Verified Step
 function VerifiedStep({ insuranceData, onDone, onChangeDocument }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
       <View style={styles.verifiedBanner}>
@@ -749,12 +772,12 @@ function VerifiedStep({ insuranceData, onDone, onChangeDocument }) {
 
       <Spacer height={24} />
 
-      <View style={styles.documentCard}>
-        <View style={styles.documentThumbnail}>
-          <Ionicons name="document-text" size={32} color={Colors.light.subtitle} />
+      <View style={[styles.documentCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
+        <View style={[styles.documentThumbnail, { backgroundColor: c.elevate2 }]}>
+          <Ionicons name="document-text" size={32} color={c.textMuted} />
         </View>
         <View style={styles.documentCardInfo}>
-          <ThemedText style={styles.documentCardFilename}>pli_cert.pdf</ThemedText>
+          <ThemedText style={[styles.documentCardFilename, { color: c.text }]}>pli_cert.pdf</ThemedText>
           <Ionicons name="checkmark-circle" size={18} color={Colors.success} />
         </View>
         <Pressable onPress={onChangeDocument}>
@@ -773,6 +796,7 @@ function VerifiedStep({ insuranceData, onDone, onChangeDocument }) {
 
 // Expiring Soon Step
 function ExpiringStep({ insuranceData, onUploadNew, uploadedFile, onSubmit }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
       <View style={styles.expiringBanner}>
@@ -789,16 +813,16 @@ function ExpiringStep({ insuranceData, onUploadNew, uploadedFile, onSubmit }) {
 
       <Spacer height={24} />
 
-      <ThemedText style={styles.questionTitle}>Current certificate</ThemedText>
+      <ThemedText style={[styles.questionTitle, { color: c.text }]}>Current certificate</ThemedText>
 
       <Spacer height={12} />
 
-      <View style={styles.documentCard}>
-        <View style={styles.documentThumbnail}>
-          <Ionicons name="document-text" size={32} color={Colors.light.subtitle} />
+      <View style={[styles.documentCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
+        <View style={[styles.documentThumbnail, { backgroundColor: c.elevate2 }]}>
+          <Ionicons name="document-text" size={32} color={c.textMuted} />
         </View>
         <View style={styles.documentCardInfo}>
-          <ThemedText style={styles.documentCardFilename}>pli_cert.pdf</ThemedText>
+          <ThemedText style={[styles.documentCardFilename, { color: c.text }]}>pli_cert.pdf</ThemedText>
           <ThemedText style={styles.expiryWarning}>Expires {insuranceData?.expiry}</ThemedText>
         </View>
         <Ionicons name="warning" size={18} color="#F59E0B" />
@@ -806,25 +830,25 @@ function ExpiringStep({ insuranceData, onUploadNew, uploadedFile, onSubmit }) {
 
       <Spacer height={24} />
 
-      <ThemedText style={styles.questionTitle}>Upload new certificate</ThemedText>
+      <ThemedText style={[styles.questionTitle, { color: c.text }]}>Upload new certificate</ThemedText>
 
       <Spacer height={12} />
 
       {uploadedFile ? (
-        <View style={styles.uploadedFileCard}>
+        <View style={[styles.uploadedFileCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
           <Ionicons name="checkmark-circle" size={24} color={Colors.success} />
           <View style={styles.uploadedFileInfo}>
-            <ThemedText style={styles.uploadedFileName}>{uploadedFile.name}</ThemedText>
-            <ThemedText style={styles.uploadedFileSize}>{uploadedFile.size} MB</ThemedText>
+            <ThemedText style={[styles.uploadedFileName, { color: c.text }]}>{uploadedFile.name}</ThemedText>
+            <ThemedText style={[styles.uploadedFileSize, { color: c.textMuted }]}>{uploadedFile.size} MB</ThemedText>
           </View>
           <Pressable onPress={onUploadNew}>
             <ThemedText style={styles.linkText}>Change</ThemedText>
           </Pressable>
         </View>
       ) : (
-        <Pressable style={styles.uploadAreaSmall} onPress={onUploadNew}>
-          <Ionicons name="add" size={24} color="#D1D5DB" />
-          <ThemedText style={styles.uploadAreaTextSmall}>Upload</ThemedText>
+        <Pressable style={[styles.uploadAreaSmall, { backgroundColor: c.elevate, borderColor: c.border }]} onPress={onUploadNew}>
+          <Ionicons name="add" size={24} color={c.textMuted} />
+          <ThemedText style={[styles.uploadAreaTextSmall, { color: c.textMuted }]}>Upload</ThemedText>
         </Pressable>
       )}
 
@@ -867,7 +891,7 @@ function ExpiredStep({ onUploadNew }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // bg handled by ThemedView default + theme.
   },
   header: {
     flexDirection: "row",
@@ -877,9 +901,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   headerTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -894,45 +917,45 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: "#F9FAFB",
     justifyContent: "center",
     alignSelf: "center",
+    // bg painted inline from theme.
   },
   // Titles
   stepTitle: {
     fontSize: 24,
     fontWeight: "600",
-    color: Colors.light.title,
     textAlign: "center",
     marginBottom: 12,
+    // color painted inline from theme.
   },
   stepDescription: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     textAlign: "center",
     lineHeight: 20,
     paddingHorizontal: 16,
+    // color painted inline from theme.
   },
   // Info box
   infoBox: {
-    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     padding: 16,
     marginTop: 24,
+    // bg + border painted inline from theme.
   },
   infoTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.light.title,
     marginBottom: 12,
+    // color painted inline from theme.
   },
   infoList: {
     gap: 8,
   },
   infoItem: {
     fontSize: 14,
-    color: "#374151",
     lineHeight: 20,
+    // color painted inline from theme.
   },
   // Buttons
   primaryButton: {
@@ -961,39 +984,37 @@ const styles = StyleSheet.create({
   uploadArea: {
     borderWidth: 2,
     borderStyle: "dashed",
-    borderColor: "#D1D5DB",
     borderRadius: 12,
     padding: 40,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F9FAFB",
+    // bg + border painted inline from theme.
   },
   uploadAreaText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     marginTop: 8,
+    // color painted inline from theme.
   },
   uploadAreaSmall: {
     borderWidth: 2,
     borderStyle: "dashed",
-    borderColor: "#D1D5DB",
     borderRadius: 12,
     padding: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F9FAFB",
     gap: 8,
+    // bg + border painted inline from theme.
   },
   uploadAreaTextSmall: {
     fontSize: 14,
-    color: Colors.light.subtitle,
+    // color painted inline from theme.
   },
   acceptedFormats: {
     fontSize: 12,
-    color: Colors.light.subtitle,
     marginTop: 8,
     textAlign: "center",
+    // color painted inline from theme.
   },
   // Uploaded file card
   uploadedFileCard: {
@@ -1001,57 +1022,52 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     padding: 16,
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    // bg + border painted inline from theme.
   },
   uploadedFileInfo: {
     flex: 1,
   },
   uploadedFileName: {
     fontSize: 14,
-    color: Colors.light.title,
     fontWeight: "500",
+    // color painted inline from theme.
   },
   uploadedFileSize: {
     fontSize: 12,
-    color: Colors.light.subtitle,
     marginTop: 2,
+    // color painted inline from theme.
   },
   // Radio options
   questionTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   questionSubtitle: {
     fontSize: 13,
-    color: Colors.light.subtitle,
     marginTop: 4,
+    // color painted inline from theme.
   },
   radioOption: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     padding: 16,
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     marginBottom: 8,
-  },
-  radioOptionSelected: {
-    borderColor: PRIMARY,
+    // bg + border painted inline from theme.
   },
   radioCircle: {
     width: 20,
     height: 20,
     borderRadius: 10,
     borderWidth: 2,
-    borderColor: Colors.light.border,
     alignItems: "center",
     justifyContent: "center",
+    // border painted inline from theme.
   },
   radioCircleSelected: {
     borderColor: PRIMARY,
@@ -1064,23 +1080,21 @@ const styles = StyleSheet.create({
   },
   radioLabel: {
     fontSize: 16,
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   // Form inputs
   inputLabel: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     marginBottom: 8,
+    // color painted inline from theme.
   },
   textInput: {
     borderWidth: 1,
-    borderColor: Colors.light.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    color: Colors.light.title,
-    backgroundColor: "#FFFFFF",
+    // bg + border + text color painted inline from theme.
   },
   // Date input
   dateInputRow: {
@@ -1101,8 +1115,8 @@ const styles = StyleSheet.create({
   },
   dateSeparator: {
     fontSize: 18,
-    color: Colors.light.subtitle,
     marginHorizontal: 8,
+    // color painted inline from theme.
   },
   // Dropdown
   dropdownButton: {
@@ -1110,23 +1124,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     borderWidth: 1,
-    borderColor: Colors.light.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: "#FFFFFF",
+    // bg + border painted inline from theme.
   },
   dropdownButtonText: {
     fontSize: 16,
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   dropdownMenu: {
     borderWidth: 1,
-    borderColor: Colors.light.border,
     borderRadius: 12,
     marginTop: 8,
-    backgroundColor: "#FFFFFF",
     overflow: "hidden",
+    // bg + border painted inline from theme.
   },
   dropdownOption: {
     flexDirection: "row",
@@ -1135,17 +1147,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
-  },
-  dropdownOptionSelected: {
-    backgroundColor: "#F3F0FF",
+    // border painted inline from theme.
   },
   dropdownOptionText: {
     fontSize: 16,
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   dropdownOptionTextSelected: {
-    color: PRIMARY,
     fontWeight: "500",
   },
   // Success icon
@@ -1161,7 +1169,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  // Verified banner
+  // Verified banner — semantic green palette kept in both modes.
   verifiedBanner: {
     flexDirection: "row",
     backgroundColor: "#D1FAE5",
@@ -1179,10 +1187,10 @@ const styles = StyleSheet.create({
   },
   verifiedBannerText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
+    color: "#065F46",
     marginTop: 4,
   },
-  // Expiring banner
+  // Expiring banner — semantic amber palette kept in both modes.
   expiringBanner: {
     flexDirection: "row",
     backgroundColor: "#FEF3C7",
@@ -1200,7 +1208,7 @@ const styles = StyleSheet.create({
   },
   expiringBannerText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
+    color: "#92400E",
     marginTop: 4,
     lineHeight: 20,
   },
@@ -1209,7 +1217,7 @@ const styles = StyleSheet.create({
     color: "#F59E0B",
     marginTop: 2,
   },
-  // Expired banner
+  // Expired banner — semantic red palette kept in both modes.
   expiredBanner: {
     flexDirection: "row",
     backgroundColor: "#FEE2E2",
@@ -1227,7 +1235,7 @@ const styles = StyleSheet.create({
   },
   expiredBannerText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
+    color: "#991B1B",
     marginTop: 4,
     lineHeight: 20,
   },
@@ -1237,24 +1245,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     padding: 16,
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    // bg + border painted inline from theme.
   },
   documentThumbnail: {
     width: 56,
     height: 56,
     borderRadius: 8,
-    backgroundColor: "#F9FAFB",
     alignItems: "center",
     justifyContent: "center",
+    // bg painted inline from theme.
   },
   documentCardInfo: {
     flex: 1,
   },
   documentCardFilename: {
     fontSize: 14,
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
 });

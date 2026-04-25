@@ -19,6 +19,8 @@ import ThemedView from "../../../components/ThemedView";
 import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants } from "../../../constants/Typography";
+import { useTheme } from "../../../hooks/useTheme";
 
 import { getMyProfile, updateMyProfile } from "../../../lib/api/profile";
 import {
@@ -33,6 +35,7 @@ export default function NotificationsScreen() {
   useHideTabBar();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { colors: c } = useTheme();
   const { isRegistered, registerNotifications } = useNotifications();
 
   const [settings, setSettings] = useState({
@@ -127,9 +130,11 @@ export default function NotificationsScreen() {
     return (
       <View style={styles.settingRow}>
         <View style={styles.settingInfo}>
-          <ThemedText style={styles.settingLabel}>{label}</ThemedText>
+          <ThemedText style={[styles.settingLabel, { color: c.text }]}>
+            {label}
+          </ThemedText>
           {description && (
-            <ThemedText style={styles.settingDescription}>
+            <ThemedText style={[styles.settingDescription, { color: c.textMuted }]}>
               {description}
             </ThemedText>
           )}
@@ -137,7 +142,7 @@ export default function NotificationsScreen() {
         <Switch
           value={settings[settingKey]}
           onValueChange={(value) => updateSetting(settingKey, value)}
-          trackColor={{ false: Colors.light.border, true: Colors.primary }}
+          trackColor={{ false: c.border, true: Colors.primary }}
           thumbColor="#FFFFFF"
         />
       </View>
@@ -160,11 +165,13 @@ export default function NotificationsScreen() {
       <ThemedStatusBar />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: c.border }]}>
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={c.text} />
         </Pressable>
-        <ThemedText style={styles.headerTitle}>Notifications</ThemedText>
+        <ThemedText style={[styles.headerTitle, { color: c.text }]}>
+          Notifications
+        </ThemedText>
         <Pressable onPress={handleSave} disabled={saving} hitSlop={10}>
           {saving ? (
             <ActivityIndicator size="small" color={Colors.primary} />
@@ -203,28 +210,28 @@ export default function NotificationsScreen() {
         )}
 
         {/* Channels Section */}
-        <ThemedText style={styles.sectionTitle}>
+        <ThemedText style={[styles.sectionTitle, { color: c.text }]}>
           Notification channels
         </ThemedText>
-        <ThemedText style={styles.sectionDescription}>
+        <ThemedText style={[styles.sectionDescription, { color: c.textMuted }]}>
           Choose how you want to receive notifications
         </ThemedText>
 
         <Spacer height={16} />
 
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: c.elevate, borderColor: c.border }]}>
           <NotificationRow
             label="Push notifications"
             description="Receive notifications on your device"
             settingKey="push_enabled"
           />
-          <View style={styles.separator} />
+          <View style={[styles.separator, { backgroundColor: c.border }]} />
           <NotificationRow
             label="Email notifications"
             description="Receive updates via email"
             settingKey="email_enabled"
           />
-          <View style={styles.separator} />
+          <View style={[styles.separator, { backgroundColor: c.border }]} />
           <NotificationRow
             label="SMS notifications"
             description="Receive text messages for urgent updates"
@@ -235,28 +242,28 @@ export default function NotificationsScreen() {
         <Spacer height={32} />
 
         {/* Types Section */}
-        <ThemedText style={styles.sectionTitle}>
+        <ThemedText style={[styles.sectionTitle, { color: c.text }]}>
           Notification types
         </ThemedText>
-        <ThemedText style={styles.sectionDescription}>
+        <ThemedText style={[styles.sectionDescription, { color: c.textMuted }]}>
           Choose what you want to be notified about
         </ThemedText>
 
         <Spacer height={16} />
 
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: c.elevate, borderColor: c.border }]}>
           <NotificationRow
             label="New messages"
             description="When you receive a new message"
             settingKey="new_messages"
           />
-          <View style={styles.separator} />
+          <View style={[styles.separator, { backgroundColor: c.border }]} />
           <NotificationRow
             label="Quote updates"
             description="When quotes are sent, accepted, or declined"
             settingKey="quote_updates"
           />
-          <View style={styles.separator} />
+          <View style={[styles.separator, { backgroundColor: c.border }]} />
           <NotificationRow
             label="Job reminders"
             description="Reminders about upcoming jobs"
@@ -267,11 +274,11 @@ export default function NotificationsScreen() {
         <Spacer height={32} />
 
         {/* Marketing Section */}
-        <ThemedText style={styles.sectionTitle}>Marketing</ThemedText>
+        <ThemedText style={[styles.sectionTitle, { color: c.text }]}>Marketing</ThemedText>
 
         <Spacer height={16} />
 
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: c.elevate, borderColor: c.border }]}>
           <NotificationRow
             label="Marketing & promotions"
             description="Tips, offers, and news from Settled"
@@ -288,13 +295,15 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // bg handled by ThemedView default + theme.
   },
   loadingContainer: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
+  // Warning banner keeps its semantic amber palette in both modes —
+  // it's a system-permission warning, not chrome.
   warningBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -330,11 +339,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    // border + text painted inline from theme.
   },
   headerTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
   },
   saveButton: {
     fontSize: 16,
@@ -349,19 +359,21 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   sectionTitle: {
+    ...TypeVariants.headingSm,
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   sectionDescription: {
     fontSize: 13,
-    color: Colors.light.subtitle,
     marginTop: 4,
+    // color painted inline from theme.
   },
   card: {
-    backgroundColor: Colors.light.secondaryBackground,
     borderRadius: 12,
+    borderWidth: 1,
     overflow: "hidden",
+    // bg + border painted inline from theme.
   },
   settingRow: {
     flexDirection: "row",
@@ -377,16 +389,16 @@ const styles = StyleSheet.create({
   settingLabel: {
     fontSize: 15,
     fontWeight: "500",
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   settingDescription: {
     fontSize: 13,
-    color: Colors.light.subtitle,
     marginTop: 2,
+    // color painted inline from theme.
   },
   separator: {
-    height: 1,
-    backgroundColor: Colors.light.border,
+    height: StyleSheet.hairlineWidth,
     marginLeft: 16,
+    // bg painted inline from theme.
   },
 });

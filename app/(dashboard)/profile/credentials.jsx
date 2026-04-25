@@ -22,6 +22,8 @@ import ThemedText from "../../../components/ThemedText";
 import Spacer from "../../../components/Spacer";
 import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
+import { TypeVariants } from "../../../constants/Typography";
+import { useTheme } from "../../../hooks/useTheme";
 
 import { useUser } from "../../../hooks/useUser";
 import { supabase } from "../../../lib/supabase";
@@ -64,6 +66,7 @@ export default function CredentialsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useUser();
+  const { colors: c } = useTheme();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -324,9 +327,9 @@ export default function CredentialsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={handleBack} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={Colors.light.title} />
+          <Ionicons name="chevron-back" size={24} color={c.text} />
         </Pressable>
-        <ThemedText style={styles.headerTitle}>
+        <ThemedText style={[styles.headerTitle, { color: c.text }]}>
           {currentStep === "gas_safe" ? "Gas Safe Register" :
             currentStep === "manual_entry" ? selectedCredential?.label :
               currentStep === "upload" && selectedCredential?.id === "dbs" ? "DBS Certificate" :
@@ -431,26 +434,27 @@ export default function CredentialsScreen() {
 
 // Introduction Step
 function IntroStep({ onAddCredential, onSkip }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
-      <View style={styles.iconContainer}>
-        <Ionicons name="ribbon-outline" size={48} color={Colors.light.title} />
+      <View style={[styles.iconContainer, { backgroundColor: c.elevate }]}>
+        <Ionicons name="ribbon-outline" size={48} color={c.text} />
       </View>
 
-      <ThemedText style={styles.stepTitle}>Professional Qualifications</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Professional Qualifications</ThemedText>
 
-      <ThemedText style={styles.stepDescription}>
+      <ThemedText style={[styles.stepDescription, { color: c.textMuted }]}>
         Add your certifications to stand out to prospects.
       </ThemedText>
 
-      <View style={styles.infoBox}>
-        <ThemedText style={styles.infoTitle}>Examples:</ThemedText>
+      <View style={[styles.infoBox, { backgroundColor: c.elevate, borderColor: c.border, borderWidth: 1 }]}>
+        <ThemedText style={[styles.infoTitle, { color: c.text }]}>Examples:</ThemedText>
         <View style={styles.infoList}>
-          <ThemedText style={styles.infoItem}>{"\u2022"} Gas Safe registration</ThemedText>
-          <ThemedText style={styles.infoItem}>{"\u2022"} NICEIC certification</ThemedText>
-          <ThemedText style={styles.infoItem}>{"\u2022"} City & Guilds</ThemedText>
-          <ThemedText style={styles.infoItem}>{"\u2022"} NVQ qualifications</ThemedText>
-          <ThemedText style={styles.infoItem}>{"\u2022"} OFTEC registration</ThemedText>
+          <ThemedText style={[styles.infoItem, { color: c.textMid }]}>{"•"} Gas Safe registration</ThemedText>
+          <ThemedText style={[styles.infoItem, { color: c.textMid }]}>{"•"} NICEIC certification</ThemedText>
+          <ThemedText style={[styles.infoItem, { color: c.textMid }]}>{"•"} City & Guilds</ThemedText>
+          <ThemedText style={[styles.infoItem, { color: c.textMid }]}>{"•"} NVQ qualifications</ThemedText>
+          <ThemedText style={[styles.infoItem, { color: c.textMid }]}>{"•"} OFTEC registration</ThemedText>
         </View>
       </View>
 
@@ -465,6 +469,7 @@ function IntroStep({ onAddCredential, onSkip }) {
 
 // Select Credential Type Step
 function SelectTypeStep({ searchQuery, onSearchChange, filteredCredentials, onSelect }) {
+  const { colors: c } = useTheme();
   const categoryLabels = {
     popular: "POPULAR",
     qualifications: "QUALIFICATIONS",
@@ -474,17 +479,17 @@ function SelectTypeStep({ searchQuery, onSearchChange, filteredCredentials, onSe
 
   return (
     <View style={styles.stepContainer}>
-      <ThemedText style={styles.stepTitle}>Select credential type</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Select credential type</ThemedText>
 
       <Spacer height={16} />
 
       {/* Search input */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color={Colors.light.subtitle} />
+      <View style={[styles.searchContainer, { backgroundColor: c.elevate, borderColor: c.border }]}>
+        <Ionicons name="search" size={20} color={c.textMuted} />
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: c.text }]}
           placeholder="Search credentials..."
-          placeholderTextColor={Colors.light.subtitle}
+          placeholderTextColor={c.textMuted}
           value={searchQuery}
           onChangeText={onSearchChange}
         />
@@ -495,7 +500,7 @@ function SelectTypeStep({ searchQuery, onSearchChange, filteredCredentials, onSe
       {/* Credential categories */}
       {Object.entries(filteredCredentials).map(([category, credentials]) => (
         <View key={category}>
-          <ThemedText style={styles.categoryLabel}>
+          <ThemedText style={[styles.categoryLabel, { color: c.textMuted }]}>
             {categoryLabels[category] || category.toUpperCase()}
           </ThemedText>
 
@@ -504,15 +509,16 @@ function SelectTypeStep({ searchQuery, onSearchChange, filteredCredentials, onSe
               key={credential.id}
               style={({ pressed }) => [
                 styles.optionRow,
-                pressed && styles.optionRowPressed,
+                { backgroundColor: c.elevate, borderColor: c.border },
+                pressed && { backgroundColor: c.elevate2 },
               ]}
               onPress={() => onSelect(credential)}
             >
               <View style={styles.optionLeft}>
-                <Ionicons name={credential.icon} size={24} color={Colors.light.title} />
-                <ThemedText style={styles.optionLabel}>{credential.label}</ThemedText>
+                <Ionicons name={credential.icon} size={24} color={c.text} />
+                <ThemedText style={[styles.optionLabel, { color: c.text }]}>{credential.label}</ThemedText>
               </View>
-              <Ionicons name="chevron-forward" size={20} color={Colors.light.subtitle} />
+              <Ionicons name="chevron-forward" size={20} color={c.textMuted} />
             </Pressable>
           ))}
 
@@ -525,25 +531,26 @@ function SelectTypeStep({ searchQuery, onSearchChange, filteredCredentials, onSe
 
 // Gas Safe Verification Step
 function GasSafeStep({ licenceNumber, onLicenceNumberChange, onVerify, saving }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
-      <View style={styles.iconContainer}>
-        <Ionicons name="flame-outline" size={48} color={Colors.light.title} />
+      <View style={[styles.iconContainer, { backgroundColor: c.elevate }]}>
+        <Ionicons name="flame-outline" size={48} color={c.text} />
       </View>
 
-      <ThemedText style={styles.stepTitle}>Enter your Gas Safe number</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Enter your Gas Safe number</ThemedText>
 
-      <ThemedText style={styles.stepDescription}>
+      <ThemedText style={[styles.stepDescription, { color: c.textMuted }]}>
         We'll verify your registration on the Gas Safe Register and notify you within 1-2 business days.
       </ThemedText>
 
       <Spacer height={24} />
 
-      <ThemedText style={styles.inputLabel}>Gas Safe licence number</ThemedText>
+      <ThemedText style={[styles.inputLabel, { color: c.textMuted }]}>Gas Safe licence number</ThemedText>
       <TextInput
-        style={styles.textInput}
+        style={[styles.textInput, { backgroundColor: c.elevate, borderColor: c.border, color: c.text }]}
         placeholder="e.g. 123456"
-        placeholderTextColor={Colors.light.subtitle}
+        placeholderTextColor={c.textMuted}
         value={licenceNumber}
         onChangeText={onLicenceNumberChange}
         keyboardType="number-pad"
@@ -551,10 +558,10 @@ function GasSafeStep({ licenceNumber, onLicenceNumberChange, onVerify, saving })
 
       <Spacer height={16} />
 
-      <View style={styles.infoBox}>
+      <View style={[styles.infoBox, { backgroundColor: c.elevate, borderColor: c.border, borderWidth: 1 }]}>
         <View style={styles.infoBoxRow}>
-          <Ionicons name="information-circle" size={20} color={Colors.light.subtitle} />
-          <ThemedText style={styles.infoBoxText}>
+          <Ionicons name="information-circle" size={20} color={c.textMuted} />
+          <ThemedText style={[styles.infoBoxText, { color: c.textMuted }]}>
             Your Gas Safe number is on your ID card and all official correspondence.
           </ThemedText>
         </View>
@@ -579,6 +586,7 @@ function GasSafeStep({ licenceNumber, onLicenceNumberChange, onVerify, saving })
 
 // Gas Safe Verified Step
 function GasSafeVerifiedStep({ result, onAddAnother, onDone }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
       <View style={styles.successIconContainer}>
@@ -615,7 +623,7 @@ function GasSafeVerifiedStep({ result, onAddAnother, onDone }) {
             <ThemedText style={styles.verifiedResultLabel}>Qualified for:</ThemedText>
             {result.qualifications.map((q, idx) => (
               <ThemedText key={idx} style={styles.qualificationItem}>
-                {"\u2022"} {q}
+                {"•"} {q}
               </ThemedText>
             ))}
           </>
@@ -624,7 +632,7 @@ function GasSafeVerifiedStep({ result, onAddAnother, onDone }) {
 
       <Spacer height={32} />
 
-      <Pressable style={styles.secondaryButton} onPress={onAddAnother}>
+      <Pressable style={[styles.secondaryButton, { backgroundColor: c.elevate, borderColor: c.border }]} onPress={onAddAnother}>
         <ThemedText style={styles.secondaryButtonText}>Add another</ThemedText>
       </Pressable>
 
@@ -639,25 +647,26 @@ function GasSafeVerifiedStep({ result, onAddAnother, onDone }) {
 
 // Manual Entry Step (NICEIC, NAPIT, etc.)
 function ManualEntryStep({ credential, registrationNumber, onRegistrationNumberChange, onSubmit, saving }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
-      <View style={styles.iconContainer}>
-        <Ionicons name={credential?.icon || "flash-outline"} size={48} color={Colors.light.title} />
+      <View style={[styles.iconContainer, { backgroundColor: c.elevate }]}>
+        <Ionicons name={credential?.icon || "flash-outline"} size={48} color={c.text} />
       </View>
 
-      <ThemedText style={styles.stepTitle}>Enter your registration number</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Enter your registration number</ThemedText>
 
-      <ThemedText style={styles.stepDescription}>
+      <ThemedText style={[styles.stepDescription, { color: c.textMuted }]}>
         We'll verify this with {credential?.label} and notify you once confirmed.
       </ThemedText>
 
       <Spacer height={24} />
 
-      <ThemedText style={styles.inputLabel}>{credential?.label} registration number</ThemedText>
+      <ThemedText style={[styles.inputLabel, { color: c.textMuted }]}>{credential?.label} registration number</ThemedText>
       <TextInput
-        style={styles.textInput}
+        style={[styles.textInput, { backgroundColor: c.elevate, borderColor: c.border, color: c.text }]}
         placeholder="Enter registration number"
-        placeholderTextColor={Colors.light.subtitle}
+        placeholderTextColor={c.textMuted}
         value={registrationNumber}
         onChangeText={onRegistrationNumberChange}
       />
@@ -681,6 +690,7 @@ function ManualEntryStep({ credential, registrationNumber, onRegistrationNumberC
 
 // Upload Document Step
 function UploadStep({ credential, uploadedFile, onUploadFile, onSubmit, saving, customCertName, onCustomCertNameChange }) {
+  const { colors: c } = useTheme();
   const isDBS = credential?.id === "dbs" || credential?.id === "disclosure_scotland";
   const isOther = credential?.id === "other";
 
@@ -692,23 +702,23 @@ function UploadStep({ credential, uploadedFile, onUploadFile, onSubmit, saving, 
   return (
     <View style={styles.stepContainer}>
       {isOther && (
-        <View style={styles.iconContainer}>
-          <Ionicons name="document-outline" size={48} color={Colors.light.title} />
+        <View style={[styles.iconContainer, { backgroundColor: c.elevate }]}>
+          <Ionicons name="document-outline" size={48} color={c.text} />
         </View>
       )}
 
-      <ThemedText style={styles.stepTitle}>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>
         {isDBS ? "Background check" : isOther ? "Add certification" : `Upload your ${credential?.label}`}
       </ThemedText>
 
       {isDBS && (
-        <ThemedText style={styles.stepDescription}>
+        <ThemedText style={[styles.stepDescription, { color: c.textMuted }]}>
           Upload your DBS certificate or Disclosure Scotland.
         </ThemedText>
       )}
 
       {isOther && (
-        <ThemedText style={styles.stepDescription}>
+        <ThemedText style={[styles.stepDescription, { color: c.textMuted }]}>
           Upload any professional certification or qualification.
         </ThemedText>
       )}
@@ -719,9 +729,9 @@ function UploadStep({ credential, uploadedFile, onUploadFile, onSubmit, saving, 
       {isOther && (
         <>
           <TextInput
-            style={styles.textInput}
+            style={[styles.textInput, { backgroundColor: c.elevate, borderColor: c.border, color: c.text }]}
             placeholder="Certificate name"
-            placeholderTextColor={Colors.light.subtitle}
+            placeholderTextColor={c.textMuted}
             value={customCertName}
             onChangeText={onCustomCertNameChange}
           />
@@ -731,20 +741,20 @@ function UploadStep({ credential, uploadedFile, onUploadFile, onSubmit, saving, 
 
       {/* Upload area */}
       {uploadedFile ? (
-        <View style={styles.uploadedFileCard}>
+        <View style={[styles.uploadedFileCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
           <Ionicons name="checkmark-circle" size={24} color={Colors.success} />
           <View style={styles.uploadedFileInfo}>
-            <ThemedText style={styles.uploadedFileName}>{uploadedFile.name}</ThemedText>
-            <ThemedText style={styles.uploadedFileSize}>{uploadedFile.size} MB</ThemedText>
+            <ThemedText style={[styles.uploadedFileName, { color: c.text }]}>{uploadedFile.name}</ThemedText>
+            <ThemedText style={[styles.uploadedFileSize, { color: c.textMuted }]}>{uploadedFile.size} MB</ThemedText>
           </View>
           <Pressable onPress={onUploadFile}>
             <ThemedText style={styles.linkText}>Change</ThemedText>
           </Pressable>
         </View>
       ) : (
-        <Pressable style={styles.uploadArea} onPress={onUploadFile}>
-          <Ionicons name="cloud-upload-outline" size={48} color="#D1D5DB" />
-          <ThemedText style={styles.uploadAreaText}>Tap to upload</ThemedText>
+        <Pressable style={[styles.uploadArea, { backgroundColor: c.elevate, borderColor: c.border }]} onPress={onUploadFile}>
+          <Ionicons name="cloud-upload-outline" size={48} color={c.textMuted} />
+          <ThemedText style={[styles.uploadAreaText, { color: c.textMuted }]}>Tap to upload</ThemedText>
         </Pressable>
       )}
 
@@ -752,16 +762,16 @@ function UploadStep({ credential, uploadedFile, onUploadFile, onSubmit, saving, 
 
       {isDBS && (
         <>
-          <ThemedText style={styles.tipsTitle}>Requirements:</ThemedText>
+          <ThemedText style={[styles.tipsTitle, { color: c.text }]}>Requirements:</ThemedText>
           <View style={styles.tipsList}>
-            <ThemedText style={styles.tipItem}>{"\u2022"} Basic DBS or Basic Disclosure</ThemedText>
-            <ThemedText style={styles.tipItem}>{"\u2022"} Must be dated within 3 years</ThemedText>
-            <ThemedText style={styles.tipItem}>{"\u2022"} Name must match your account</ThemedText>
+            <ThemedText style={[styles.tipItem, { color: c.textMuted }]}>{"•"} Basic DBS or Basic Disclosure</ThemedText>
+            <ThemedText style={[styles.tipItem, { color: c.textMuted }]}>{"•"} Must be dated within 3 years</ThemedText>
+            <ThemedText style={[styles.tipItem, { color: c.textMuted }]}>{"•"} Name must match your account</ThemedText>
           </View>
 
           <Spacer height={16} />
 
-          <ThemedText style={styles.helpText}>Don't have one?</ThemedText>
+          <ThemedText style={[styles.helpText, { color: c.textMuted }]}>Don't have one?</ThemedText>
           <Pressable>
             <ThemedText style={styles.linkText}>Get a DBS check online →</ThemedText>
           </Pressable>
@@ -787,6 +797,7 @@ function UploadStep({ credential, uploadedFile, onUploadFile, onSubmit, saving, 
 
 // Submitted Step
 function SubmittedStep({ onAddAnother, onBackToSettings }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
       <View style={styles.successIconContainer}>
@@ -797,15 +808,15 @@ function SubmittedStep({ onAddAnother, onBackToSettings }) {
 
       <Spacer height={24} />
 
-      <ThemedText style={styles.stepTitle}>Submitted for review</ThemedText>
+      <ThemedText style={[styles.stepTitle, { color: c.text }]}>Submitted for review</ThemedText>
 
-      <ThemedText style={styles.stepDescription}>
+      <ThemedText style={[styles.stepDescription, { color: c.textMuted }]}>
         We'll review your credential and notify you within 1-2 business days.
       </ThemedText>
 
       <Spacer height={32} />
 
-      <Pressable style={styles.secondaryButton} onPress={onAddAnother}>
+      <Pressable style={[styles.secondaryButton, { backgroundColor: c.elevate, borderColor: c.border }]} onPress={onAddAnother}>
         <ThemedText style={styles.secondaryButtonText}>Add another credential</ThemedText>
       </Pressable>
 
@@ -820,6 +831,7 @@ function SubmittedStep({ onAddAnother, onBackToSettings }) {
 
 // Verified Step (shows list of verified credentials)
 function VerifiedStep({ credentials, onAddAnother, onDone }) {
+  const { colors: c } = useTheme();
   return (
     <View style={styles.stepContainer}>
       <View style={styles.verifiedBanner}>
@@ -834,11 +846,11 @@ function VerifiedStep({ credentials, onAddAnother, onDone }) {
       <Spacer height={24} />
 
       {credentials.map((cred, idx) => (
-        <View key={idx} style={styles.credentialCard}>
+        <View key={idx} style={[styles.credentialCard, { backgroundColor: c.elevate, borderColor: c.border }]}>
           <Ionicons name="ribbon" size={24} color={PRIMARY} />
           <View style={styles.credentialCardInfo}>
-            <ThemedText style={styles.credentialCardTitle}>{cred.type}</ThemedText>
-            <ThemedText style={styles.credentialCardDetail}>
+            <ThemedText style={[styles.credentialCardTitle, { color: c.text }]}>{cred.type}</ThemedText>
+            <ThemedText style={[styles.credentialCardDetail, { color: c.textMuted }]}>
               {cred.number} • Expires {cred.expiry}
             </ThemedText>
           </View>
@@ -848,7 +860,7 @@ function VerifiedStep({ credentials, onAddAnother, onDone }) {
 
       <Spacer height={32} />
 
-      <Pressable style={styles.secondaryButton} onPress={onAddAnother}>
+      <Pressable style={[styles.secondaryButton, { backgroundColor: c.elevate, borderColor: c.border }]} onPress={onAddAnother}>
         <ThemedText style={styles.secondaryButtonText}>Add another</ThemedText>
       </Pressable>
 
@@ -864,7 +876,7 @@ function VerifiedStep({ credentials, onAddAnother, onDone }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // bg handled by ThemedView default + theme.
   },
   header: {
     flexDirection: "row",
@@ -874,9 +886,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   headerTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: Colors.light.title,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -891,31 +902,31 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: "#F9FAFB",
     justifyContent: "center",
     alignSelf: "center",
+    // bg painted inline from theme.
   },
   // Titles
   stepTitle: {
     fontSize: 24,
     fontWeight: "600",
-    color: Colors.light.title,
     textAlign: "center",
     marginBottom: 12,
+    // color painted inline from theme.
   },
   stepDescription: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     textAlign: "center",
     lineHeight: 20,
     paddingHorizontal: 16,
+    // color painted inline from theme.
   },
   // Info box
   infoBox: {
-    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     padding: 16,
     marginTop: 24,
+    // bg + border painted inline from theme.
   },
   infoBoxRow: {
     flexDirection: "row",
@@ -924,22 +935,22 @@ const styles = StyleSheet.create({
   infoBoxText: {
     flex: 1,
     fontSize: 14,
-    color: Colors.light.subtitle,
     lineHeight: 20,
+    // color painted inline from theme.
   },
   infoTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.light.title,
     marginBottom: 12,
+    // color painted inline from theme.
   },
   infoList: {
     gap: 8,
   },
   infoItem: {
     fontSize: 14,
-    color: "#374151",
     lineHeight: 20,
+    // color painted inline from theme.
   },
   // Buttons
   primaryButton: {
@@ -957,15 +968,14 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   secondaryButton: {
-    backgroundColor: "#FFFFFF",
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
+    // bg + border painted inline from theme.
   },
   secondaryButtonText: {
     color: PRIMARY,
@@ -987,24 +997,23 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    // bg + border painted inline from theme.
   },
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   // Category labels
   categoryLabel: {
     fontSize: 12,
     fontWeight: "600",
-    color: Colors.light.subtitle,
     letterSpacing: 0.5,
     marginBottom: 8,
     marginTop: 8,
+    // color painted inline from theme.
   },
   // Option rows
   optionRow: {
@@ -1013,14 +1022,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 16,
     paddingHorizontal: 16,
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     marginBottom: 8,
-  },
-  optionRowPressed: {
-    backgroundColor: Colors.light.secondaryBackground,
+    // bg + border painted inline from theme.
   },
   optionLeft: {
     flexDirection: "row",
@@ -1029,39 +1034,36 @@ const styles = StyleSheet.create({
   },
   optionLabel: {
     fontSize: 16,
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   // Form inputs
   inputLabel: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     marginBottom: 8,
+    // color painted inline from theme.
   },
   textInput: {
     borderWidth: 1,
-    borderColor: Colors.light.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    color: Colors.light.title,
-    backgroundColor: "#FFFFFF",
+    // bg + border + text color painted inline from theme.
   },
   // Upload area
   uploadArea: {
     borderWidth: 2,
     borderStyle: "dashed",
-    borderColor: "#D1D5DB",
     borderRadius: 12,
     padding: 40,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F9FAFB",
+    // bg + border painted inline from theme.
   },
   uploadAreaText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     marginTop: 8,
+    // color painted inline from theme.
   },
   // Uploaded file card
   uploadedFileCard: {
@@ -1069,43 +1071,42 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     padding: 16,
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    // bg + border painted inline from theme.
   },
   uploadedFileInfo: {
     flex: 1,
   },
   uploadedFileName: {
     fontSize: 14,
-    color: Colors.light.title,
     fontWeight: "500",
+    // color painted inline from theme.
   },
   uploadedFileSize: {
     fontSize: 12,
-    color: Colors.light.subtitle,
     marginTop: 2,
+    // color painted inline from theme.
   },
   // Tips
   tipsTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.light.title,
     marginBottom: 8,
+    // color painted inline from theme.
   },
   tipsList: {
     gap: 4,
   },
   tipItem: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     lineHeight: 20,
+    // color painted inline from theme.
   },
   helpText: {
     fontSize: 14,
-    color: Colors.light.subtitle,
     marginBottom: 4,
+    // color painted inline from theme.
   },
   // Success icon
   successIconContainer: {
@@ -1120,7 +1121,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  // Verified result card
+  // Verified result card — semantic green palette kept in both modes.
   verifiedResultCard: {
     backgroundColor: "#D1FAE5",
     borderWidth: 1,
@@ -1131,24 +1132,24 @@ const styles = StyleSheet.create({
   verifiedResultTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.light.title,
+    color: "#065F46",
   },
   verifiedResultRow: {
     fontSize: 14,
-    color: Colors.light.text,
+    color: "#065F46",
     marginTop: 4,
   },
   verifiedResultLabel: {
     fontWeight: "500",
-    color: Colors.light.title,
+    color: "#065F46",
   },
   qualificationItem: {
     fontSize: 14,
-    color: Colors.light.text,
+    color: "#065F46",
     marginTop: 4,
     marginLeft: 8,
   },
-  // Verified banner
+  // Verified banner — semantic green palette kept in both modes.
   verifiedBanner: {
     flexDirection: "row",
     backgroundColor: "#D1FAE5",
@@ -1170,11 +1171,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     padding: 16,
-    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.light.border,
     marginBottom: 12,
+    // bg + border painted inline from theme.
   },
   credentialCardInfo: {
     flex: 1,
@@ -1182,11 +1182,11 @@ const styles = StyleSheet.create({
   credentialCardTitle: {
     fontSize: 16,
     fontWeight: "500",
-    color: Colors.light.title,
+    // color painted inline from theme.
   },
   credentialCardDetail: {
     fontSize: 13,
-    color: Colors.light.subtitle,
     marginTop: 2,
+    // color painted inline from theme.
   },
 });
