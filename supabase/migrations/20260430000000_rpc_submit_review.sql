@@ -148,8 +148,11 @@ BEGIN
   END IF;
 
   -- ---- Insert ----------------------------------------------------------
-  -- Both `content` and the legacy `comment` column are populated so
-  -- older readers (lib/api/trust.js V1 fallback) keep working.
+  -- Writes V2 columns only (`content` + `photos`). The legacy
+  -- `comment` column has already been dropped on this database, and
+  -- lib/api/trust.js's getTradeReviews falls back to `comment` only
+  -- on read for back-compat with old rows — it never required the
+  -- column on write.
   INSERT INTO reviews (
     quote_id,
     reviewer_id,
@@ -157,7 +160,6 @@ BEGIN
     reviewer_type,
     rating,
     content,
-    comment,
     photos
   )
   VALUES (
@@ -166,7 +168,6 @@ BEGIN
     v_reviewee_id,
     p_reviewer_type,
     p_rating,
-    NULLIF(TRIM(COALESCE(p_content, '')), ''),
     NULLIF(TRIM(COALESCE(p_content, '')), ''),
     v_photos
   )

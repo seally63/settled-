@@ -9,12 +9,15 @@ import ThemedView from "../../../../components/ThemedView";
 import ThemedText from "../../../../components/ThemedText";
 import Spacer from "../../../../components/Spacer";
 import { Colors } from "../../../../constants/Colors";
+import { TypeVariants, FontFamily } from "../../../../constants/Typography";
+import { useTheme } from "../../../../hooks/useTheme";
 
-const PRIMARY = Colors?.light?.tint || "#6849a7";
+const PRIMARY = Colors.primary;
 
 export default function ReviewSuccess() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { colors: c } = useTheme();
 
   const handleDone = () => {
     // Navigate to client home page (not Projects tab)
@@ -25,24 +28,44 @@ export default function ReviewSuccess() {
 
   return (
     <ThemedView style={styles.container}>
-      <View style={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
-        {/* Success Icon */}
+      <View
+        style={[
+          styles.content,
+          // Minimum 16 px of "fake" bottom inset on top of the actual
+          // 24 px breathing room. The iOS simulator reports
+          // insets.bottom = 0 for non-notched device profiles which
+          // pinned the Done button 24 px from the screen edge — fine
+          // on a real phone with a home-indicator inset but
+          // un-tappable in the simulator. The Math.max keeps the
+          // button comfortably reachable on every profile.
+          { paddingBottom: Math.max(insets.bottom, 16) + 40 },
+        ]}
+      >
+        {/* Success Icon — soft-green pill with bold checkmark. Matches
+            the completion-success screen so the two success states feel
+            like the same family. Semantic palette is intentional and
+            identical in light + dark mode. */}
         <View style={styles.iconContainer}>
           <View style={styles.successCircle}>
-            <Ionicons name="checkmark" size={48} color="#10B981" />
+            <Ionicons name="checkmark-sharp" size={48} color="#10B981" />
           </View>
         </View>
 
         <Spacer size={32} />
 
         {/* Title */}
-        <ThemedText style={styles.title}>Thanks for your review</ThemedText>
+        <ThemedText style={[styles.title, { color: c.text }]}>
+          Thanks for your review
+        </ThemedText>
 
         <Spacer size={12} />
 
-        {/* Subtitle */}
-        <ThemedText style={styles.subtitle}>
-          Your feedback helps build trust in the Settled community.
+        {/* Subtitle. Wording deliberately avoids "build trust" because
+            Settled is invite-only and the trades on the platform are
+            already vetted — reviews here exist to help fellow
+            homeowners pick the right fit, not to gate trust. */}
+        <ThemedText style={[styles.subtitle, { color: c.textMid }]}>
+          Your feedback helps fellow homeowners pick the right trade for the job.
         </ThemedText>
 
         <View style={styles.spacer} />
@@ -59,7 +82,7 @@ export default function ReviewSuccess() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // bg handled by ThemedView default + theme.
   },
   content: {
     flex: 1,
@@ -71,6 +94,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // Semantic green pill — D1FAE5 is the soft tint shipped on every
+  // success state in the app (verified banner, completion banners),
+  // intentionally identical in light + dark mode.
   successCircle: {
     width: 96,
     height: 96,
@@ -80,17 +106,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   title: {
+    ...TypeVariants.h1,
     fontSize: 24,
-    fontWeight: "700",
-    color: "#111827",
     textAlign: "center",
   },
   subtitle: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 16,
-    color: "#6B7280",
     textAlign: "center",
     lineHeight: 24,
     paddingHorizontal: 20,
+    // color painted inline from theme.
   },
   spacer: {
     flex: 1,
@@ -104,8 +130,8 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   doneBtnText: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 16,
-    fontWeight: "600",
     color: "#FFFFFF",
   },
 });
