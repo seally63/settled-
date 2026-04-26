@@ -18,10 +18,15 @@ import ThemedText from "../../../../components/ThemedText";
 import Spacer from "../../../../components/Spacer";
 import { QuoteOverviewSkeleton } from "../../../../components/Skeleton";
 import { Colors } from "../../../../constants/Colors";
+import { TypeVariants, FontFamily } from "../../../../constants/Typography";
+import { useTheme } from "../../../../hooks/useTheme";
 import { supabase } from "../../../../lib/supabase";
 import { useUser } from "../../../../hooks/useUser";
 
-const PRIMARY = Colors?.light?.tint || "#6849a7";
+// Brand purple for the primary "Confirm" CTA. Stays consistent across modes.
+const PRIMARY = Colors.primary;
+// Semantic success green — same tint used on the verified banners and
+// success states across the app, intentionally identical in both modes.
 const GREEN = "#16A34A";
 
 // Format number with commas
@@ -41,8 +46,11 @@ function getInitials(name) {
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }
 
-// Avatar component
-function Avatar({ name, photoUrl, size = 64 }) {
+// Avatar component. Photo URL preferred; falls back to a coloured pill
+// keyed by the first letter of the name. The fallback colours are
+// brand-flavoured tints — kept identical across modes so each tradie
+// always reads as the same avatar regardless of theme.
+function Avatar({ name, photoUrl, size = 64, fallbackBg }) {
   const initials = getInitials(name);
   const colors = ["#6849a7", "#3B82F6", "#10B981", "#F59E0B", "#EF4444"];
   const colorIndex = name ? name.charCodeAt(0) % colors.length : 0;
@@ -56,7 +64,7 @@ function Avatar({ name, photoUrl, size = 64 }) {
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: "#E5E7EB",
+          backgroundColor: fallbackBg,
         }}
       />
     );
@@ -73,7 +81,13 @@ function Avatar({ name, photoUrl, size = 64 }) {
         justifyContent: "center",
       }}
     >
-      <ThemedText style={{ color: "#FFF", fontSize: size * 0.4, fontWeight: "700" }}>
+      <ThemedText
+        style={{
+          color: "#FFF",
+          fontFamily: FontFamily.headerBold,
+          fontSize: size * 0.4,
+        }}
+      >
         {initials}
       </ThemedText>
     </View>
@@ -85,6 +99,7 @@ export default function CompletionResponse() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
+  const { colors: c } = useTheme();
 
   const quoteId = params.quoteId;
   const requestId = params.requestId;
@@ -253,11 +268,18 @@ export default function CompletionResponse() {
   return (
     <ThemedView style={styles.container}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: insets.top + 12, borderBottomColor: c.border },
+        ]}
+      >
         <Pressable onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color="#111827" />
+          <Ionicons name="chevron-back" size={24} color={c.text} />
         </Pressable>
-        <ThemedText style={styles.headerTitle}>Job Completion</ThemedText>
+        <ThemedText style={[styles.headerTitle, { color: c.text }]}>
+          Job completion
+        </ThemedText>
         <View style={{ width: 24 }} />
       </View>
 
@@ -271,42 +293,62 @@ export default function CompletionResponse() {
             name={tradeName}
             photoUrl={trade?.photo_url}
             size={72}
+            fallbackBg={c.elevate2}
           />
           <Spacer size={16} />
-          <ThemedText style={styles.tradeName}>{tradeName}</ThemedText>
-          <ThemedText style={styles.headerSubtitle}>
+          <ThemedText style={[styles.tradeName, { color: c.text }]}>
+            {tradeName}
+          </ThemedText>
+          <ThemedText style={[styles.headerSubtitle, { color: c.textMid }]}>
             marked this job complete
           </ThemedText>
         </View>
 
         <Spacer size={24} />
 
-        {/* Job Details Card */}
-        <View style={styles.detailsCard}>
-          <ThemedText style={styles.projectTitle}>
-            {quote?.project_title || "Job"}
+        {/* Job Details Pill Card — matches the pill-card pattern used
+            on the trade-side Mark-as-complete sheet (c.elevate2 bg +
+            c.borderStrong border, radius 18, eyebrow + rows). */}
+        <View
+          style={[
+            styles.detailsCard,
+            { backgroundColor: c.elevate2, borderColor: c.borderStrong },
+          ]}
+        >
+          <ThemedText style={[styles.detailsEyebrow, { color: c.textMuted }]}>
+            JOB SUMMARY
           </ThemedText>
 
-          <View style={styles.detailRow}>
-            <ThemedText style={styles.detailLabel}>Quote</ThemedText>
-            <ThemedText style={styles.detailValue}>
+          <ThemedText style={[styles.projectTitle, { color: c.text }]}>
+            {jobTitle}
+          </ThemedText>
+
+          <View style={[styles.detailRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={[styles.detailLabel, { color: c.textMid }]}>
+              Quote
+            </ThemedText>
+            <ThemedText style={[styles.detailValue, { color: c.text }]}>
               {quote?.currency || "GBP"} {formatNumber(quote?.grand_total)}
             </ThemedText>
           </View>
 
-          {quote?.payment_amount && (
-            <View style={styles.detailRow}>
-              <ThemedText style={styles.detailLabel}>Amount paid</ThemedText>
-              <ThemedText style={styles.detailValue}>
+          {quote?.payment_amount ? (
+            <View style={[styles.detailRow, { borderBottomColor: c.border }]}>
+              <ThemedText style={[styles.detailLabel, { color: c.textMid }]}>
+                Amount paid
+              </ThemedText>
+              <ThemedText style={[styles.detailValue, { color: c.text }]}>
                 {quote?.currency || "GBP"} {formatNumber(quote.payment_amount)}
               </ThemedText>
             </View>
-          )}
+          ) : null}
 
-          {quote?.payment_method && (
-            <View style={styles.detailRow}>
-              <ThemedText style={styles.detailLabel}>Payment method</ThemedText>
-              <ThemedText style={styles.detailValue}>
+          {quote?.payment_method ? (
+            <View style={[styles.detailRow, { borderBottomColor: c.border }]}>
+              <ThemedText style={[styles.detailLabel, { color: c.textMid }]}>
+                Payment method
+              </ThemedText>
+              <ThemedText style={[styles.detailValue, { color: c.text }]}>
                 {quote.payment_method === "bank_transfer"
                   ? "Bank transfer"
                   : quote.payment_method === "cash"
@@ -316,35 +358,56 @@ export default function CompletionResponse() {
                   : quote.payment_method}
               </ThemedText>
             </View>
-          )}
+          ) : null}
 
-          <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
-            <ThemedText style={styles.detailLabel}>Marked complete</ThemedText>
-            <ThemedText style={styles.detailValue}>
+          <View style={[styles.detailRow, styles.detailRowLast]}>
+            <ThemedText style={[styles.detailLabel, { color: c.textMid }]}>
+              Marked complete
+            </ThemedText>
+            <ThemedText style={[styles.detailValue, { color: c.text }]}>
               {markedCompleteDate}
             </ThemedText>
           </View>
         </View>
 
-        <Spacer size={20} />
+        <Spacer size={24} />
 
-        {/* Action Buttons */}
+        {/* Action buttons — primary green for the "yes, it's done" path,
+            ghost button for the issue-report path. Same equal-flex
+            structure used on the Quote Overview client confirmation. */}
         <Pressable
-          style={[styles.confirmBtn, busy && styles.btnDisabled]}
+          style={({ pressed }) => [
+            styles.confirmBtn,
+            pressed && { opacity: 0.85 },
+            busy && styles.btnDisabled,
+          ]}
           onPress={confirmCompletion}
           disabled={busy}
         >
+          <Ionicons
+            name="checkmark"
+            size={18}
+            color="#FFFFFF"
+            style={{ marginRight: 8 }}
+          />
           <ThemedText style={styles.confirmBtnText}>
-            {busy ? "Confirming..." : "Confirm Job Complete"}
+            {busy ? "Confirming…" : "Confirm job complete"}
           </ThemedText>
         </Pressable>
 
+        <Spacer size={10} />
+
         <Pressable
-          style={styles.issueBtn}
+          style={({ pressed }) => [
+            styles.issueBtn,
+            { backgroundColor: c.elevate, borderColor: c.borderStrong },
+            pressed && { opacity: 0.75 },
+            busy && styles.btnDisabled,
+          ]}
           onPress={reportIssue}
           disabled={busy}
         >
-          <ThemedText style={styles.issueBtnText}>
+          <ThemedText style={[styles.issueBtnText, { color: c.text }]}>
             There is an issue
           </ThemedText>
         </Pressable>
@@ -356,7 +419,7 @@ export default function CompletionResponse() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    // bg handled by ThemedView default + theme.
   },
   header: {
     flexDirection: "row",
@@ -364,12 +427,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: "#FFFFFF",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    // border painted inline from theme.
   },
   headerTitle: {
+    ...TypeVariants.bodyStrong,
     fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
   },
   loadingContainer: {
     flex: 1,
@@ -384,28 +447,37 @@ const styles = StyleSheet.create({
     paddingTop: 24,
   },
   tradeName: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#111827",
+    ...TypeVariants.h1,
+    fontSize: 22,
     textAlign: "center",
   },
   headerSubtitle: {
+    fontFamily: FontFamily.bodyRegular,
     fontSize: 16,
-    color: "#6B7280",
     marginTop: 4,
+    // color painted inline from theme.
   },
   detailsCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 6,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    // bg + border painted inline from theme.
+  },
+  detailsEyebrow: {
+    fontFamily: FontFamily.headerBold,
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginBottom: 10,
+    // color painted inline from theme.
   },
   projectTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
-    marginBottom: 16,
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 17,
+    marginBottom: 10,
+    // color painted inline from theme.
   },
   detailRow: {
     flexDirection: "row",
@@ -413,45 +485,54 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E5E7EB",
+    // border painted inline from theme.
+  },
+  detailRowLast: {
+    borderBottomWidth: 0,
   },
   detailLabel: {
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 14,
-    color: "#6B7280",
+    // color painted inline from theme.
   },
   detailValue: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
+    // color painted inline from theme.
   },
+  // Confirm CTA stays semantic green — "yes, the job is done" reads
+  // intuitively in green across both modes. Same tone used on the
+  // verified banners + success pills.
   confirmBtn: {
     backgroundColor: GREEN,
-    borderRadius: 12,
+    borderRadius: 14,
     paddingVertical: 16,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
   },
   confirmBtnText: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 16,
-    fontWeight: "600",
     color: "#FFFFFF",
+    letterSpacing: -0.1,
   },
+  // Ghost button for the report-issue path. Surface paints from theme.
   issueBtn: {
-    marginTop: 8,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
+    borderRadius: 14,
     paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    // bg + border painted inline from theme.
   },
   issueBtnText: {
+    fontFamily: FontFamily.headerSemibold,
     fontSize: 16,
-    fontWeight: "600",
-    color: "#374151",
+    letterSpacing: -0.1,
+    // color painted inline from theme.
   },
   btnDisabled: {
-    opacity: 0.7,
+    opacity: 0.5,
   },
 });

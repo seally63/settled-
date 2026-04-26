@@ -345,6 +345,117 @@ const clientReqStyles = StyleSheet.create({
     fontSize: 15,
     color: "#fff",
   },
+
+  // ===========================================================
+  // Awaiting-completion section — shown below Recent Activity
+  // when one of the request's quotes is in `awaiting_completion`.
+  // Trade marked complete → client confirms here to close the loop.
+  // Card surface paints inline from theme; icon stays semantic amber
+  // (hourglass) — same colour treatment as the rest of the app's
+  // pending-state banners.
+  // ===========================================================
+  confirmCompleteSection: {
+    marginTop: 16,
+    marginHorizontal: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  confirmCompleteIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  confirmCompleteTitle: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 16,
+    textAlign: "center",
+  },
+  confirmCompleteSub: {
+    fontFamily: "PublicSans_400Regular",
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 18,
+    marginTop: 6,
+    paddingHorizontal: 4,
+  },
+  confirmCompleteBtn: {
+    marginTop: 16,
+    backgroundColor: Colors.primary,
+    borderRadius: 999,
+    paddingVertical: 13,
+    paddingHorizontal: 28,
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmCompleteBtnText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    letterSpacing: -0.1,
+    color: "#FFFFFF",
+  },
+
+  // ===========================================================
+  // Leave-a-review section — same slot as the Confirm Completion
+  // card (own section below Recent Activity), shown when there's
+  // a `completed` quote the current client hasn't reviewed yet.
+  // The amber star pill mirrors the awaiting amber pill above it
+  // so the two CTAs read as the same family.
+  // ===========================================================
+  leaveReviewSection: {
+    marginTop: 16,
+    marginHorizontal: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  leaveReviewIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  leaveReviewTitle: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 16,
+    textAlign: "center",
+  },
+  leaveReviewSub: {
+    fontFamily: "PublicSans_400Regular",
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 18,
+    marginTop: 6,
+    paddingHorizontal: 4,
+  },
+  leaveReviewBtn: {
+    marginTop: 16,
+    backgroundColor: Colors.primary,
+    borderRadius: 999,
+    paddingVertical: 13,
+    paddingHorizontal: 28,
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  leaveReviewBtnText: {
+    fontFamily: "PublicSans_600SemiBold",
+    fontSize: 15,
+    letterSpacing: -0.1,
+    color: "#FFFFFF",
+  },
 });
 
 // Helper to get last 4 characters of quote ID for display
@@ -492,6 +603,11 @@ export default function ClientRequestDetails() {
 
   // Quotes received for this request
   const [quotes, setQuotes] = useState([]);
+  // Set of quote IDs the current client has already reviewed, so the
+  // Leave-a-review CTA hides itself once a review exists. Populated
+  // from a `reviews` lookup keyed by reviewer_id + quote_id whenever
+  // quotes finish loading.
+  const [reviewedQuoteIds, setReviewedQuoteIds] = useState(new Set());
 
   const [viewer, setViewer] = useState({ open: false, index: 0 });
   const [activitySheet, setActivitySheet] = useState(null);
@@ -741,32 +857,62 @@ export default function ClientRequestDetails() {
           const tradeIds = [...new Set(quotesData.map(q => q.trade_id).filter(Boolean))];
           let tradeNames = {};
 
+          let tradePhotos = {};
           if (tradeIds.length > 0) {
             const { data: tradeProfiles } = await supabase
               .from("profiles")
-              .select("id, business_name, full_name")
+              .select("id, business_name, full_name, photo_url")
               .in("id", tradeIds);
 
             if (tradeProfiles) {
               tradeProfiles.forEach(p => {
                 tradeNames[p.id] = p.business_name || p.full_name || "Trade";
+                tradePhotos[p.id] = p.photo_url || "";
               });
             }
           }
 
-          // Attach trade names to quotes
+          // Attach trade names + photos to quotes. Photo URL flows
+          // through to the Leave-a-review screen so the trade's
+          // avatar is visible on the rating step.
           const quotesWithNames = quotesData.map(q => ({
             ...q,
             tradeName: tradeNames[q.trade_id] || "Trade",
+            tradePhotoUrl: tradePhotos[q.trade_id] || "",
           }));
 
           setQuotes(quotesWithNames);
+
+          // Surface which quotes the current client has already
+          // reviewed so the Leave-a-review CTA below Recent Activity
+          // can hide itself once the review exists. Only completed
+          // quotes are reviewable, but checking the broader id list is
+          // cheaper than splitting the query and matches what the
+          // upstream `getTradeReviews` does.
+          if (user?.id) {
+            const quoteIds = quotesData.map((q) => q.id);
+            try {
+              const { data: myReviews } = await supabase
+                .from("reviews")
+                .select("quote_id")
+                .eq("reviewer_id", user.id)
+                .in("quote_id", quoteIds);
+              setReviewedQuoteIds(
+                new Set((myReviews || []).map((r) => r.quote_id))
+              );
+            } catch (revErr) {
+              console.warn("reviews/load error:", revErr?.message || revErr);
+              setReviewedQuoteIds(new Set());
+            }
+          }
         } else {
           setQuotes([]);
+          setReviewedQuoteIds(new Set());
         }
       } catch (quotesErr) {
         console.warn("quotes/load error:", quotesErr?.message || quotesErr);
         setQuotes([]);
+        setReviewedQuoteIds(new Set());
       }
       })();
     } catch (e) {
@@ -1452,6 +1598,121 @@ export default function ClientRequestDetails() {
                     </View>
                   ))
                 )}
+              </View>
+            );
+          })()}
+
+          {/* Awaiting-completion confirm card — sits in its own section
+              right below Recent Activity. Shown when any of the
+              request's quotes is in `awaiting_completion` (the trade
+              has marked the job complete and is waiting on the client
+              to confirm). Mirrors the trade-side "Mark as complete"
+              section we put on the trade's request screen — the
+              symmetrical action that closes the loop. */}
+          {(() => {
+            const awaitingQuote = (quotes || []).find(
+              (q) => String(q?.status || "").toLowerCase() === "awaiting_completion"
+            );
+            if (!awaitingQuote) return null;
+            return (
+              <View
+                style={[
+                  clientReqStyles.confirmCompleteSection,
+                  { backgroundColor: c.elevate, borderColor: c.border },
+                ]}
+              >
+                <View style={clientReqStyles.confirmCompleteIcon}>
+                  <Ionicons name="hourglass" size={22} color="#F59E0B" />
+                </View>
+                <ThemedText
+                  style={[clientReqStyles.confirmCompleteTitle, { color: c.text }]}
+                >
+                  {awaitingQuote.tradeName || "The trade"} marked this job complete
+                </ThemedText>
+                <ThemedText
+                  style={[clientReqStyles.confirmCompleteSub, { color: c.textMid }]}
+                >
+                  Confirm the work is done, or report an issue if something's
+                  not right.
+                </ThemedText>
+                <Pressable
+                  style={({ pressed }) => [
+                    clientReqStyles.confirmCompleteBtn,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  onPress={() => {
+                    router.push({
+                      pathname: "/(dashboard)/myquotes/completion-response",
+                      params: {
+                        quoteId: awaitingQuote.id,
+                        requestId: id,
+                      },
+                    });
+                  }}
+                >
+                  <ThemedText style={clientReqStyles.confirmCompleteBtnText}>
+                    Respond
+                  </ThemedText>
+                </Pressable>
+              </View>
+            );
+          })()}
+
+          {/* Leave-a-review card — sits in its own section below
+              Recent Activity, in the same slot the Confirm Completion
+              section uses. Shown when the request has a `completed`
+              quote that the current client hasn't reviewed yet. This
+              is the path back for users who tapped "Maybe later" on
+              the post-confirmation success screen. */}
+          {(() => {
+            const completedQuote = (quotes || []).find(
+              (q) => String(q?.status || "").toLowerCase() === "completed"
+            );
+            if (!completedQuote) return null;
+            if (reviewedQuoteIds.has(completedQuote.id)) return null;
+            return (
+              <View
+                style={[
+                  clientReqStyles.leaveReviewSection,
+                  { backgroundColor: c.elevate, borderColor: c.border },
+                ]}
+              >
+                <View style={clientReqStyles.leaveReviewIcon}>
+                  <Ionicons name="star" size={22} color="#F59E0B" />
+                </View>
+                <ThemedText
+                  style={[clientReqStyles.leaveReviewTitle, { color: c.text }]}
+                >
+                  How was working with {completedQuote.tradeName || "the trade"}?
+                </ThemedText>
+                <ThemedText
+                  style={[clientReqStyles.leaveReviewSub, { color: c.textMid }]}
+                >
+                  Help others find great tradespeople. Your review only takes a
+                  minute.
+                </ThemedText>
+                <Pressable
+                  style={({ pressed }) => [
+                    clientReqStyles.leaveReviewBtn,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  onPress={() => {
+                    router.push({
+                      pathname: "/(dashboard)/myquotes/leave-review",
+                      params: {
+                        quoteId: completedQuote.id,
+                        revieweeName: completedQuote.tradeName || "Tradesperson",
+                        revieweeType: "trade",
+                        tradePhotoUrl: completedQuote.tradePhotoUrl || "",
+                        jobTitle: completedQuote.project_title || "",
+                      },
+                    });
+                  }}
+                >
+                  <ThemedText style={clientReqStyles.leaveReviewBtnText}>
+                    Leave a review
+                  </ThemedText>
+                </Pressable>
               </View>
             );
           })()}
