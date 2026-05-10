@@ -1,15 +1,32 @@
 // app/(dashboard)/_layout.jsx
+//
+// Trade-only tab bar. Settled mobile is no longer multi-role — the
+// homeowner side has moved off to the web directory project. Before
+// this branch, this layout fetched the user's role and conditionally
+// rendered either Home/Projects (trade) or Home/Projects (client) tabs
+// while gating the screen behind a LayoutGateSkeleton during the role
+// fetch. None of that is needed any more — every signed-in user on
+// this app is a trade, so the tabs render statically.
+//
+// What was removed:
+//   · role state + useEffect that selected from `profiles.role`
+//   · isTrades branching on Tabs.Screen `href`
+//   · `client` and `myquotes` Tabs.Screen entries (those route groups
+//     are deleted in this same change)
+//   · clientNeedsReset state + handleClientTabPress handler
+//   · LayoutGateSkeleton wrapper that hid the screen during role fetch
+//
+// What stayed:
+//   · UserOnly auth gate (kicks unauthenticated visitors back to /login)
+//   · Reset-on-tab-press handlers for messages + quotes (so tapping
+//     the active tab pops back to the stack root, like Twitter / IG)
+//   · The hidden /sales route (still a deep link, just not a tab)
 import { Tabs, useRouter, useSegments } from 'expo-router';
-import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 
 import UserOnly from '../../components/auth/UserOnly';
-import ThemedView from '../../components/ThemedView';
-import { LayoutGateSkeleton } from '../../components/Skeleton';
-import { useUser } from '../../hooks/useUser';
 import { useTheme } from '../../hooks/useTheme';
-import { supabase } from '../../lib/supabase';
 import FloatingTabBar from '../../components/design/FloatingTabBar';
 
 // NOTE — hiding the floating pill on nested sub-routes (settings, chat
@@ -24,12 +41,8 @@ export default function DashboardLayout() {
   const router = useRouter();
   const segments = useSegments();
 
-  const { user } = useUser();
-  const [role, setRole] = useState(null);
-
-  // Track if we need to reset tabs when switching to them
+  // Track if we need to reset tabs when switching to them.
   const [messagesNeedsReset, setMessagesNeedsReset] = useState(false);
-  const [clientNeedsReset, setClientNeedsReset] = useState(false);
   const [quotesNeedsReset, setQuotesNeedsReset] = useState(false);
 
   // When navigating to nested routes, mark for reset
@@ -38,10 +51,6 @@ export default function DashboardLayout() {
     // If we're in messages nested route, mark that we need to reset when leaving
     if (currentTab === 'messages' && segments.length > 2) {
       setMessagesNeedsReset(true);
-    }
-    // If we're in client nested route, mark that we need to reset when leaving
-    if (currentTab === 'client' && segments.length > 2) {
-      setClientNeedsReset(true);
     }
     // If we're in quotes nested route (e.g. /quotes/[id]), mark for reset
     if (currentTab === 'quotes' && segments.length > 2) {
@@ -83,26 +92,6 @@ export default function DashboardLayout() {
     return false;
   };
 
-  // Handle client tab press to reset to home screen
-  const handleClientTabPress = () => {
-    const currentTab = segments[1];
-
-    // If already on client tab in a nested route, pop all pushed screens
-    if (currentTab === 'client' && segments.length > 2) {
-      setClientNeedsReset(false);
-      return popAllPushedScreens('/client');
-    }
-
-    // Coming from another tab with a queued reset
-    if (currentTab !== 'client' && clientNeedsReset) {
-      setClientNeedsReset(false);
-      setTimeout(() => { try { if (router.canDismiss?.()) router.dismissAll(); } catch {} }, 50);
-      return false;
-    }
-
-    return false;
-  };
-
   // Handle quotes/projects tab press to reset to index
   const handleQuotesTabPress = () => {
     const currentTab = segments[1];
@@ -122,46 +111,6 @@ export default function DashboardLayout() {
 
     return false;
   };
-
-  useEffect(() => {
-    let mounted = true;
-
-    (async () => {
-      if (!user?.id) {
-        setRole('client');
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-
-      if (mounted) {
-        const userRole = !error ? (data?.role || 'client') : 'client';
-        setRole(userRole);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, [user?.id]);
-
-  if (!role) {
-    // Themed skeleton instead of a bare ActivityIndicator so the post-login
-    // role-fetch transition doesn't flash white card stubs in dark mode.
-    return (
-      <UserOnly>
-        <ThemedView style={{ flex: 1 }}>
-          <LayoutGateSkeleton />
-        </ThemedView>
-      </UserOnly>
-    );
-  }
-
-  const isTrades = role === 'trades';
 
   return (
     <UserOnly>
@@ -185,12 +134,11 @@ export default function DashboardLayout() {
           sceneStyle: { backgroundColor: theme.background },
         }}
       >
-        {/* ===== TRADES ONLY: Home (Dashboard), Projects (Quotes + Sales combined) ===== */}
+        {/* ===== HOME (Trade dashboard) ===== */}
         <Tabs.Screen
           name="trades"
           options={{
             title: 'Home',
-            href: isTrades ? undefined : null,
             tabBarIcon: ({ focused, color, size = 24 }) => (
               <Ionicons
                 size={size}
@@ -200,11 +148,12 @@ export default function DashboardLayout() {
             ),
           }}
         />
+
+        {/* ===== PROJECTS (Quote requests + active projects) ===== */}
         <Tabs.Screen
           name="quotes"
           options={{
             title: 'Projects',
-            href: isTrades ? undefined : null,
             tabBarIcon: ({ focused, color, size = 24 }) => (
               <Ionicons
                 size={size}
@@ -222,44 +171,7 @@ export default function DashboardLayout() {
           }}
         />
 
-        {/* ===== CLIENT ONLY: Home, Projects (renamed from My Quotes) ===== */}
-        <Tabs.Screen
-          name="client"
-          options={{
-            title: 'Home',
-            href: isTrades ? null : undefined,
-            tabBarIcon: ({ focused, color, size = 24 }) => (
-              <Ionicons
-                size={size}
-                name={focused ? 'home-sharp' : 'home-outline'}
-                color={color}
-              />
-            ),
-          }}
-          listeners={{
-            tabPress: (e) => {
-              if (handleClientTabPress()) {
-                e.preventDefault();
-              }
-            },
-          }}
-        />
-        <Tabs.Screen
-          name="myquotes"
-          options={{
-            title: 'Projects',
-            href: isTrades ? null : undefined,
-            tabBarIcon: ({ focused, color, size = 24 }) => (
-              <Ionicons
-                size={size}
-                name={focused ? 'folder-open' : 'folder-open-outline'}
-                color={color}
-              />
-            ),
-          }}
-        />
-
-        {/* ===== COMMON: MESSAGES ===== */}
+        {/* ===== MESSAGES ===== */}
         <Tabs.Screen
           name="messages"
           options={{
@@ -281,7 +193,7 @@ export default function DashboardLayout() {
           }}
         />
 
-        {/* ===== COMMON: PROFILE ===== */}
+        {/* ===== PROFILE ===== */}
         <Tabs.Screen
           name="profile"
           options={{
@@ -296,7 +208,7 @@ export default function DashboardLayout() {
           }}
         />
 
-        {/* Hidden routes - these are still accessible but not shown in tabs */}
+        {/* Hidden routes — accessible by deep link, not shown in tabs. */}
         <Tabs.Screen name="sales" options={{ href: null }} />
       </Tabs>
     </UserOnly>

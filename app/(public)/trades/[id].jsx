@@ -99,7 +99,11 @@ export default function PublicTradeProfile() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace("/client/find-business"))}
+          // This screen lives under (public) — anyone can land here via
+          // a deep link. Fall back to /login when there's nothing to
+          // pop back to (the old fallback was /client/find-business,
+          // which was deleted with the client side).
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/login"))}
           hitSlop={8}
           style={styles.backBtn}
         >

@@ -23,7 +23,7 @@ import Spacer from "../../../components/Spacer";
 import { KeyboardDoneButton, KEYBOARD_DONE_ID } from "../../../components/KeyboardDoneButton";
 import { SettingsFormSkeleton } from "../../../components/Skeleton";
 import { Colors } from "../../../constants/Colors";
-import { TypeVariants } from "../../../constants/Typography";
+import { TypeVariants, FontFamily } from "../../../constants/Typography";
 
 import { useUser } from "../../../hooks/useUser";
 import { useTheme } from "../../../hooks/useTheme";
@@ -68,6 +68,13 @@ export default function BusinessInfoScreen() {
   const [bio, setBio] = useState("");
   const [selectedJobTitles, setSelectedJobTitles] = useState([]);
   const [selectedServiceIds, setSelectedServiceIds] = useState([]); // Array of service_type IDs
+  // "Typical projects from" — whole-pound minimum the trade typically
+  // takes on. Stored as TEXT in the form (so the user can type freely
+  // and we strip non-digits on save), persisted as INTEGER in
+  // profiles.typical_project_minimum. Empty string → NULL on save
+  // (= "no minimum"). Surfaced on directory trade cards so visitors
+  // self-qualify before sending an enquiry.
+  const [typicalProjectMin, setTypicalProjectMin] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showLockedModal, setShowLockedModal] = useState(false);
@@ -98,6 +105,11 @@ export default function BusinessInfoScreen() {
       setBio(profile?.bio || "");
       setSelectedJobTitles(profile?.job_titles || []);
       setSelectedServiceIds(profile?.service_type_ids || []);
+      setTypicalProjectMin(
+        profile?.typical_project_minimum != null
+          ? String(profile.typical_project_minimum)
+          : ""
+      );
     } catch (e) {
       console.log("Error loading profile:", e);
     } finally {
@@ -189,10 +201,16 @@ export default function BusinessInfoScreen() {
   async function handleSave() {
     try {
       setSaving(true);
+      // Normalise the typical-project-minimum field: strip everything
+      // that isn't a digit (in case the user typed "£500" or "1,500"),
+      // empty string → NULL ("no minimum"), otherwise parse to int.
+      const cleanedMin = String(typicalProjectMin || "").replace(/\D/g, "");
+      const minValue = cleanedMin === "" ? null : parseInt(cleanedMin, 10);
       await updateMyProfile({
         bio: bio.trim(),
         job_titles: selectedJobTitles,
         service_type_ids: selectedServiceIds,
+        typical_project_minimum: Number.isFinite(minValue) ? minValue : null,
       });
       Alert.alert("Success", "Business info updated.", [
         { text: "OK", onPress: () => router.back() },
@@ -316,6 +334,43 @@ export default function BusinessInfoScreen() {
             ))}
           </View>
         )}
+
+        <Spacer height={24} />
+
+        {/* Typical projects from — minimum job size shown on directory
+            trade cards. Whole pounds. Optional (NULL = no minimum). */}
+        <ThemedText style={[styles.label, { color: c.text }]}>
+          Typical projects from
+        </ThemedText>
+        <ThemedText style={[styles.hintText, { color: c.textMuted }]}>
+          Optional — helps clients understand your typical job size
+          before they enquire
+        </ThemedText>
+        <Spacer height={8} />
+        <View
+          style={[
+            styles.gbpInputRow,
+            { backgroundColor: c.elevate, borderColor: c.border },
+          ]}
+        >
+          <ThemedText style={[styles.gbpSymbol, { color: c.textMid }]}>£</ThemedText>
+          <TextInput
+            style={[styles.gbpInput, { color: c.text }]}
+            value={typicalProjectMin}
+            onChangeText={(t) => {
+              // Strip everything but digits as the user types so the
+              // value stays a clean integer string. Empty string →
+              // saved as NULL.
+              const digitsOnly = t.replace(/\D/g, "");
+              setTypicalProjectMin(digitsOnly);
+            }}
+            placeholder="e.g. 500"
+            placeholderTextColor={c.textMuted}
+            keyboardType="number-pad"
+            maxLength={7}
+            inputAccessoryViewID={Platform.OS === "ios" ? KEYBOARD_DONE_ID : undefined}
+          />
+        </View>
 
         <Spacer height={24} />
 
@@ -779,6 +834,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: "right",
     marginTop: 4,
+    // color painted inline from theme.
+  },
+  // GBP input row used for "Typical projects from". Bordered pill
+  // (matching the bioInput / dropdownButton family) with an inline
+  // £ glyph that stays put while the digits scroll.
+  gbpInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    // bg + border painted inline from theme.
+  },
+  gbpSymbol: {
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 17,
+    marginRight: 6,
+    // color painted inline from theme.
+  },
+  gbpInput: {
+    flex: 1,
+    fontFamily: FontFamily.headerSemibold,
+    fontSize: 17,
+    padding: 0,
     // color painted inline from theme.
   },
   dropdownButton: {

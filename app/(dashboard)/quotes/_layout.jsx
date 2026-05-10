@@ -1,53 +1,13 @@
 //app/(dashboard)/quotes/_layout.jsx
-// Trade-only route - redirects clients to their home
+//
+// Trade-only stack. Settled mobile is now trade-only, so the role-
+// fetch + client-redirect that used to live here was removed — every
+// user that lands here is a trade by construction. The stack is just
+// scenery now: initial route + a couple of FAB-launched fade animations.
 
-import { Stack, Redirect } from 'expo-router';
-import { useEffect, useState } from 'react';
-
-import { supabase } from '../../../lib/supabase';
-import { useUser } from '../../../hooks/useUser';
-import ThemedView from '../../../components/ThemedView';
-import { LayoutGateSkeleton } from '../../../components/Skeleton';
+import { Stack } from 'expo-router';
 
 export default function QuotesStackLayout() {
-  const { user } = useUser();
-
-  const [role, setRole] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        if (!user?.id) {
-          // Default to trades to avoid flicker for trades users
-          if (alive) setRole('trades');
-          return;
-        }
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .maybeSingle();
-        if (alive) setRole(error ? 'trades' : (data?.role || 'client'));
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [user?.id]);
-
-  if (loading) {
-    return (
-      <ThemedView style={{ flex: 1 }}>
-        <LayoutGateSkeleton />
-      </ThemedView>
-    );
-  }
-
-  // Client users should not be in /quotes/* - redirect to client home
-  if (role === 'client') return <Redirect href="/client" />;
-
   return (
     <Stack
       // `initialRouteName` is critical here: once you declare any

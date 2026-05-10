@@ -184,11 +184,22 @@ const trvStyles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
+  // Row that pairs the BUDGET label with its £ icon.
+  factLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   factValue: {
     fontFamily: "PublicSans_700Bold",
     fontSize: 16,
     letterSpacing: -0.3,
     marginTop: 4,
+  },
+  // Bumped emphasis for the budget pill — slightly larger value text
+  // so the figure reads at a glance from across the screen.
+  factValueBudget: {
+    fontSize: 18,
   },
   sectionLabel: {
     fontFamily: "PublicSans_700Bold",
@@ -2505,11 +2516,20 @@ export default function RequestDetails() {
 
           {/* Two quick-fact pills (ITEMS removed — always 1, not useful).
               TIMING allows 2 lines so long strings like
-              "As soon as availability allows" don't truncate. */}
+              "As soon as availability allows" don't truncate.
+              BUDGET gets a £ icon + brand-purple value so it pops next
+              to TIMING — the trade's first scoping decision is "is
+              this in my range?", and now it is read at a glance.       */}
           <View style={trvStyles.factsRow}>
             <View style={[trvStyles.factPill, { backgroundColor: c.elevate, borderColor: c.border }]}>
-              <ThemedText style={[trvStyles.factLabel, { color: c.textMuted }]}>BUDGET</ThemedText>
-              <ThemedText style={[trvStyles.factValue, { color: c.text }]} numberOfLines={2}>
+              <View style={trvStyles.factLabelRow}>
+                <Ionicons name="cash-outline" size={13} color={Colors.primary} />
+                <ThemedText style={[trvStyles.factLabel, { color: c.textMuted }]}>BUDGET</ThemedText>
+              </View>
+              <ThemedText
+                style={[trvStyles.factValue, trvStyles.factValueBudget, { color: Colors.primary }]}
+                numberOfLines={2}
+              >
                 {budgetText}
               </ThemedText>
             </View>

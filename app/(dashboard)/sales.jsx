@@ -16,68 +16,16 @@ import { useRouter } from "expo-router";
 import ThemedView from "../../components/ThemedView";
 import ThemedText from "../../components/ThemedText";
 import ThemedButton from "../../components/ThemedButton";
-import { LayoutGateSkeleton } from "../../components/Skeleton";
 import { Colors } from "../../constants/Colors";
 import { supabase } from "../../lib/supabase";
 import { useUser } from "../../hooks/useUser";
 
 /** ---------- WRAPPER: role guard keeps hook order stable ---------- */
 export default function SalesScreen() {
-  const { user } = useUser();
-  const router = useRouter();
-
-  const [role, setRole] = useState(null);
-  const [roleLoading, setRoleLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        if (!user?.id) {
-          if (alive) {
-            setRole("guest");
-            setRoleLoading(false);
-          }
-          return;
-        }
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", user.id)
-          .single();
-        if (alive) {
-          setRole(error ? "client" : (data?.role || "client"));
-          setRoleLoading(false);
-        }
-      } catch {
-        if (alive) {
-          setRole("client");
-          setRoleLoading(false);
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [user?.id]);
-
-  // Redirect non-trades away; wrapper always renders same hooks
-  useEffect(() => {
-    if (roleLoading) return;
-    if (role !== "trades") {
-      router.replace("/client"); // or "/profile"
-    }
-  }, [roleLoading, role, router]);
-
-  if (roleLoading || role !== "trades") {
-    return (
-      <ThemedView style={{ flex: 1 }}>
-        <LayoutGateSkeleton />
-      </ThemedView>
-    );
-  }
-
-  // Only render the heavy Sales body for trades
+  // Settled mobile is now trade-only — every signed-in user that
+  // lands here is a trade, so the legacy role-fetch + non-trades
+  // redirect-to-/client gate has been removed. The dashboard's
+  // outer UserOnly wrapper handles unauthenticated access.
   return <SalesBody />;
 }
 

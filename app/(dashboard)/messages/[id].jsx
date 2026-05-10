@@ -1816,16 +1816,18 @@ export default function MessageThread() {
     return `/(dashboard)/messages/${encodeURIComponent(otherPartyId)}?kind=party`;
   }, [otherPartyId]);
 
+  // Settled mobile is trade-only now, so every message thread routes
+  // back into /quotes/[id] (or /quotes/request/[id]). The legacy
+  // client branch that used to push into /(dashboard)/myquotes/...
+  // is gone with the client side itself; userRole still flows into
+  // child render branches (appointment cards, quote header) but no
+  // longer drives navigation.
   const openQuoteDetail = useCallback((qId) => {
     if (!qId) return;
     const params = { id: String(qId) };
     if (conversationReturnUrl) params.returnTo = conversationReturnUrl;
-    if (userRole === "trades") {
-      router.push({ pathname: "/quotes/[id]", params });
-    } else {
-      router.push({ pathname: "/(dashboard)/myquotes/[id]", params });
-    }
-  }, [router, userRole, conversationReturnUrl]);
+    router.push({ pathname: "/quotes/[id]", params });
+  }, [router, conversationReturnUrl]);
 
   const openAppointmentDetail = useCallback((appt) => {
     if (appt?.quote_id) {
@@ -1836,15 +1838,8 @@ export default function MessageThread() {
     if (!reqId) return;
     const params = { id: String(reqId) };
     if (conversationReturnUrl) params.returnTo = conversationReturnUrl;
-    if (userRole === "trades") {
-      router.push({ pathname: "/quotes/request/[id]", params });
-    } else {
-      router.push({
-        pathname: "/(dashboard)/client/myquotes/request/[id]",
-        params,
-      });
-    }
-  }, [router, userRole, openQuoteDetail, conversationReturnUrl]);
+    router.push({ pathname: "/quotes/request/[id]", params });
+  }, [router, openQuoteDetail, conversationReturnUrl]);
 
   const renderItem = ({ item }) => {
     const isMine = item.sender_id === user?.id;
