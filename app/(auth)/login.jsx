@@ -16,7 +16,10 @@ import ThemedTextInput from "../../components/ThemedTextInput"
 
 //email verfication is off
 
-// Demo accounts for quick testing
+// Demo accounts for quick testing.
+// Mobile is trade-only — the demo client account that used to live
+// here (seally2@ninja.dev) was removed when the client side moved off
+// to the web directory. Client demo coverage now belongs over there.
 const DEMO_ACCOUNTS = [
   {
     id: 'ac295f71-2868-4794-8c01-13d9b0e87788',
@@ -33,14 +36,6 @@ const DEMO_ACCOUNTS = [
     label: 'Trade 2',
     icon: 'hammer',
     color: Colors.primary,
-  },
-  {
-    id: 'f58b331c-c523-4ec3-aa1c-1e0d1300cb56',
-    email: 'seally2@ninja.dev',
-    password: 'test1234',
-    label: 'Client',
-    icon: 'person',
-    color: Colors.success,
   },
 ];
 

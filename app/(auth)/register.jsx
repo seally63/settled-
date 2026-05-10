@@ -92,7 +92,12 @@ const TRAVEL_DISTANCE_OPTIONS = [
 
 export default function RegisterScreen() {
   const router = useRouter()
-  const { role } = useLocalSearchParams()
+  // Settled mobile is trade-only — homeowners flow through the web
+  // directory. The role-select screen always navigates here with
+  // role=trades, but defaulting locally guards against any stale
+  // navigation entry that might arrive without the param.
+  const params = useLocalSearchParams()
+  const role = params.role || 'trades'
   const { register } = useUser()
   // Theme colours — override the legacy Colors.light.* references on
   // the container-level elements so dark mode stops leaking white
@@ -1026,6 +1031,13 @@ export default function RegisterScreen() {
   )
 
   const renderWelcomeScreen = () => {
+    // Mobile is trade-only. The legacy `renderClientWelcome` branch
+    // is left in place below as dead code (kept so a future return to
+    // a homeowner sign-up flow doesn't have to re-derive the wording),
+    // but is never selected here. The default for `role` above is
+    // 'trades', so this is just defensive belt-and-braces.
+    return renderTradesWelcome()
+    // eslint-disable-next-line no-unreachable
     return role === 'trades' ? renderTradesWelcome() : renderClientWelcome()
   }
 

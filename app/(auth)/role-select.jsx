@@ -1,9 +1,13 @@
 // app/(auth)/role-select.jsx
-// First screen of the sign-up flow. Two primary cards — "I'm a
-// Homeowner" / "I'm a Tradesperson" — each routes to /register with
-// the chosen role. Theme-aware: colours come from useTheme() so
-// both cards, icon circles, and chevrons flip correctly in dark
-// mode (previously every bg + text was pinned to Colors.light.*).
+// First screen of the sign-up flow.
+//
+// Settled is now trade-only on the mobile app — the homeowner side has
+// moved off to the web directory project. This screen used to offer a
+// "I'm a Homeowner" / "I'm a Tradesperson" choice; the homeowner card
+// has been removed and the screen now reads as a single confirm step
+// before the trade sign-up form. The route is kept (instead of routing
+// straight to /register) so the user lands on a screen that frames
+// what Settled is for trades, rather than a bare form.
 import { StyleSheet, View, Pressable } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -39,40 +43,14 @@ export default function RoleSelectScreen() {
 
         <ThemedText style={[styles.title, { color: c.text }]}>Join Settled</ThemedText>
         <ThemedText style={[styles.subtitle, { color: c.textMuted }]}>
-          Choose how you'd like to get started
+          The invite-only network for vetted tradespeople
         </ThemedText>
 
         <Spacer height={40} />
 
-        {/* Homeowner Card */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.roleCard,
-            { backgroundColor: c.elevate, borderColor: c.border },
-            pressed && styles.roleCardPressed,
-          ]}
-          onPress={() => router.push({ pathname: '/register', params: { role: 'client' } })}
-        >
-          <View style={styles.cardContent}>
-            <View style={[styles.iconCircle, { backgroundColor: c.elevate2 }]}>
-              <Ionicons name="home-outline" size={28} color={c.textMuted} />
-            </View>
-            <View style={styles.cardTextContent}>
-              <ThemedText style={[styles.roleTitle, { color: c.text }]}>
-                I'm a Homeowner
-              </ThemedText>
-              <Spacer height={4} />
-              <ThemedText style={[styles.roleDescription, { color: c.textMuted }]}>
-                Find trusted trades for your home improvement projects
-              </ThemedText>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={c.textMuted} />
-          </View>
-        </Pressable>
-
-        <Spacer height={16} />
-
-        {/* Tradesperson Card */}
+        {/* Tradesperson Card — only sign-up path on mobile.
+            Homeowners go through the web directory; the homeowner
+            card that used to live here has been removed. */}
         <Pressable
           style={({ pressed }) => [
             styles.roleCard,
@@ -91,7 +69,7 @@ export default function RoleSelectScreen() {
               </ThemedText>
               <Spacer height={4} />
               <ThemedText style={[styles.roleDescription, { color: c.textMuted }]}>
-                Grow your business and connect with local customers
+                Grow your business and connect with verified clients
               </ThemedText>
             </View>
             <Ionicons name="chevron-forward" size={20} color={c.textMuted} />
