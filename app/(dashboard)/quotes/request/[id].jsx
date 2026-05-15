@@ -39,6 +39,15 @@ import { supabase } from "../../../../lib/supabase";
 // RPC wrappers
 import { acceptRequest, declineRequest } from "../../../../lib/api/requests";
 import { getRequestAttachmentUrlsCached } from "../../../../lib/api/attachments";
+// Web-enquiry brief helpers. `parseDetails` is imported aliased because
+// this file already declares its own (legacy line-format) parseDetails;
+// the aliased one handles the new `### Heading` Markdown blocks the web
+// consultation form emits.
+import {
+  parseDetails as parseBriefSections,
+  formatBudgetBand,
+  DETAIL_HEADINGS,
+} from "../../../../lib/enquiry";
 const CELL = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -416,6 +425,108 @@ const trvStyles = StyleSheet.create({
     fontSize: 16,
     color: "#FFFFFF",
   },
+
+  // ── Enquiry-brief sections (web-consultation enquiries) ──
+  briefCard: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  briefRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  briefRowLabel: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+    flexShrink: 0,
+  },
+  briefRowValue: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 14,
+    flex: 1,
+    textAlign: "right",
+  },
+  briefBlock: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  briefBlockLabel: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  briefBlockBody: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  briefChipsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  briefChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  briefChipText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+  },
+  briefPriorityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 5,
+  },
+  briefPriorityRank: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  briefPriorityRankText: {
+    fontFamily: "PublicSans_700Bold",
+    fontSize: 11,
+  },
+  briefPriorityText: {
+    fontSize: 14,
+    flex: 1,
+  },
+  briefNoteCard: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  briefNoteHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 6,
+  },
+  briefConsultBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "flex-start",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginHorizontal: 20,
+    marginTop: 6,
+  },
 });
 
 // Per-theme styles factory shared by all sub-components in this file.
@@ -600,6 +711,392 @@ function QuoteStatusBadge({ status }) {
 function quoteShortId(id) {
   const s = String(id || "");
   return s.slice(-4).toUpperCase() || "0000";
+}
+
+// ── Enquiry brief sections ──────────────────────────────────────────
+//
+// Renders the richer fields a web-consultation enquiry carries:
+// ownership / work type, current-state notes + photos, the desired
+// outcome (style tags, references, materials tier, must/nice-to-haves),
+// constraints, the homeowner's ranked decision criteria, and the
+// private admin+trade-only note. Pure presentation — `req` is the
+// `quote_requests` row, `briefPhotos` is the grouped
+// `request_attachments` URLs, `c` is the theme palette.
+//
+// Returns null entirely for a self-serve enquiry with none of these
+// fields, so legacy rows render exactly as before.
+
+function BriefRow({ c, label, value, withBorder }) {
+  if (value == null || value === "") return null;
+  return (
+    <View
+      style={[
+        trvStyles.briefRow,
+        withBorder && {
+          borderBottomColor: c.border,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+        },
+      ]}
+    >
+      <ThemedText style={[trvStyles.briefRowLabel, { color: c.textMuted }]}>
+        {label}
+      </ThemedText>
+      <ThemedText style={[trvStyles.briefRowValue, { color: c.text }]}>
+        {value}
+      </ThemedText>
+    </View>
+  );
+}
+
+function BriefBlock({ c, label, body, withBorder }) {
+  const trimmed = (body || "").trim();
+  if (!trimmed) return null;
+  return (
+    <View
+      style={[
+        trvStyles.briefBlock,
+        withBorder && {
+          borderBottomColor: c.border,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+        },
+      ]}
+    >
+      <ThemedText style={[trvStyles.briefBlockLabel, { color: c.textMuted }]}>
+        {label}
+      </ThemedText>
+      <ThemedText style={[trvStyles.briefBlockBody, { color: c.text }]}>
+        {trimmed}
+      </ThemedText>
+    </View>
+  );
+}
+
+function BriefPhotoStrip({ urls }) {
+  const list = Array.isArray(urls) ? urls.filter(Boolean) : [];
+  if (!list.length) return null;
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ gap: 8, paddingRight: 4 }}
+    >
+      {list.map((uri, i) => (
+        <Image
+          key={`${uri}-${i}`}
+          source={{ uri }}
+          style={{ width: 110, height: 110, borderRadius: 10 }}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          transition={120}
+        />
+      ))}
+    </ScrollView>
+  );
+}
+
+function EnquiryBriefSections({ req, briefPhotos, c }) {
+  const sections = parseBriefSections(req?.details);
+  const styleTags = Array.isArray(req?.style_tags)
+    ? req.style_tags.filter(Boolean)
+    : [];
+  const priorities = Array.isArray(req?.client_priorities)
+    ? req.client_priorities.filter(Boolean)
+    : [];
+
+  const currentStateNotes = sections[DETAIL_HEADINGS.CURRENT_STATE];
+  const mustHaves = sections[DETAIL_HEADINGS.MUST_HAVES];
+  const niceToHaves = sections[DETAIL_HEADINGS.NICE_TO_HAVES];
+  const materialsTier = sections[DETAIL_HEADINGS.MATERIALS_TIER];
+  const hardRequirements = sections[DETAIL_HEADINGS.HARD_REQUIREMENTS];
+  const redFlags = sections[DETAIL_HEADINGS.RED_FLAGS];
+  const tradeOnlyNote = sections[DETAIL_HEADINGS.TRADE_ONLY_NOTE];
+
+  const csPhotos = briefPhotos?.current_state || [];
+  const srPhotos = briefPhotos?.style_reference || [];
+
+  const hasOverview = !!(req?.ownership_status || req?.work_type);
+  const hasCurrentState = !!(currentStateNotes || csPhotos.length);
+  const hasOutcome = !!(
+    styleTags.length ||
+    srPhotos.length ||
+    materialsTier ||
+    mustHaves ||
+    niceToHaves
+  );
+  const hasConstraints = !!hardRequirements;
+  const hasCriteria = !!(priorities.length || redFlags);
+
+  if (
+    !hasOverview &&
+    !hasCurrentState &&
+    !hasOutcome &&
+    !hasConstraints &&
+    !hasCriteria &&
+    !tradeOnlyNote
+  ) {
+    return null;
+  }
+
+  return (
+    <>
+      {/* Project overview extras — ownership + work type. */}
+      {hasOverview && (
+        <>
+          <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>
+            PROJECT
+          </ThemedText>
+          <View
+            style={[
+              trvStyles.briefCard,
+              { backgroundColor: c.elevate, borderColor: c.border },
+            ]}
+          >
+            <BriefRow
+              c={c}
+              label="Work type"
+              value={req?.work_type}
+              withBorder={!!req?.ownership_status}
+            />
+            <BriefRow c={c} label="Ownership" value={req?.ownership_status} />
+          </View>
+        </>
+      )}
+
+      {/* Current state — condition notes + photos. */}
+      {hasCurrentState && (
+        <>
+          <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>
+            CURRENT STATE
+          </ThemedText>
+          <View
+            style={[
+              trvStyles.briefCard,
+              { backgroundColor: c.elevate, borderColor: c.border },
+            ]}
+          >
+            <BriefBlock
+              c={c}
+              label="Condition notes"
+              body={currentStateNotes}
+              withBorder={csPhotos.length > 0}
+            />
+            {csPhotos.length > 0 && (
+              <View style={trvStyles.briefBlock}>
+                <ThemedText
+                  style={[trvStyles.briefBlockLabel, { color: c.textMuted }]}
+                >
+                  Photos · {csPhotos.length}
+                </ThemedText>
+                <Spacer height={8} />
+                <BriefPhotoStrip urls={csPhotos} />
+              </View>
+            )}
+          </View>
+        </>
+      )}
+
+      {/* Desired outcome — style, references, materials, wishes. */}
+      {hasOutcome && (
+        <>
+          <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>
+            DESIRED OUTCOME
+          </ThemedText>
+          <View
+            style={[
+              trvStyles.briefCard,
+              { backgroundColor: c.elevate, borderColor: c.border },
+            ]}
+          >
+            {styleTags.length > 0 && (
+              <View
+                style={[
+                  trvStyles.briefBlock,
+                  {
+                    borderBottomColor: c.border,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                  },
+                ]}
+              >
+                <ThemedText
+                  style={[trvStyles.briefBlockLabel, { color: c.textMuted }]}
+                >
+                  Style
+                </ThemedText>
+                <Spacer height={8} />
+                <View style={trvStyles.briefChipsWrap}>
+                  {styleTags.map((tag, i) => (
+                    <View
+                      key={`${tag}-${i}`}
+                      style={[
+                        trvStyles.briefChip,
+                        { backgroundColor: c.elevate2, borderColor: c.border },
+                      ]}
+                    >
+                      <ThemedText
+                        style={[trvStyles.briefChipText, { color: c.text }]}
+                      >
+                        {tag}
+                      </ThemedText>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+            {srPhotos.length > 0 && (
+              <View
+                style={[
+                  trvStyles.briefBlock,
+                  {
+                    borderBottomColor: c.border,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                  },
+                ]}
+              >
+                <ThemedText
+                  style={[trvStyles.briefBlockLabel, { color: c.textMuted }]}
+                >
+                  Style references · {srPhotos.length}
+                </ThemedText>
+                <Spacer height={8} />
+                <BriefPhotoStrip urls={srPhotos} />
+              </View>
+            )}
+            <BriefRow
+              c={c}
+              label="Materials tier"
+              value={materialsTier}
+              withBorder={!!(mustHaves || niceToHaves)}
+            />
+            <BriefBlock
+              c={c}
+              label="Must-haves"
+              body={mustHaves}
+              withBorder={!!niceToHaves}
+            />
+            <BriefBlock c={c} label="Nice-to-haves" body={niceToHaves} />
+          </View>
+        </>
+      )}
+
+      {/* Constraints — hard requirements (budget already shown above). */}
+      {hasConstraints && (
+        <>
+          <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>
+            CONSTRAINTS
+          </ThemedText>
+          <View
+            style={[
+              trvStyles.briefCard,
+              { backgroundColor: c.elevate, borderColor: c.border },
+            ]}
+          >
+            <BriefBlock
+              c={c}
+              label="Hard requirements"
+              body={hardRequirements}
+            />
+          </View>
+        </>
+      )}
+
+      {/* Decision criteria — ranked priorities + red flags. */}
+      {hasCriteria && (
+        <>
+          <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>
+            DECISION CRITERIA
+          </ThemedText>
+          <View
+            style={[
+              trvStyles.briefCard,
+              { backgroundColor: c.elevate, borderColor: c.border },
+            ]}
+          >
+            {priorities.length > 0 && (
+              <View
+                style={[
+                  trvStyles.briefBlock,
+                  redFlags && {
+                    borderBottomColor: c.border,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                  },
+                ]}
+              >
+                <ThemedText
+                  style={[trvStyles.briefBlockLabel, { color: c.textMuted }]}
+                >
+                  What matters most to this homeowner
+                </ThemedText>
+                <Spacer height={8} />
+                {priorities.map((p, i) => {
+                  // Array order IS the rank; the top 3 are the
+                  // homeowner's pinned "heavy" priorities.
+                  const heavy = i < 3;
+                  return (
+                    <View key={`${p}-${i}`} style={trvStyles.briefPriorityRow}>
+                      <View
+                        style={[
+                          trvStyles.briefPriorityRank,
+                          { backgroundColor: heavy ? Colors.primary : c.elevate2 },
+                        ]}
+                      >
+                        <ThemedText
+                          style={[
+                            trvStyles.briefPriorityRankText,
+                            { color: heavy ? "#FFFFFF" : c.textMuted },
+                          ]}
+                        >
+                          {i + 1}
+                        </ThemedText>
+                      </View>
+                      <ThemedText
+                        style={[
+                          trvStyles.briefPriorityText,
+                          {
+                            color: heavy ? c.text : c.textMid,
+                            fontFamily: heavy
+                              ? "DMSans_500Medium"
+                              : "DMSans_400Regular",
+                          },
+                        ]}
+                      >
+                        {p}
+                      </ThemedText>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+            <BriefBlock c={c} label="Red flags to avoid" body={redFlags} />
+          </View>
+        </>
+      )}
+
+      {/* Private trade-only note — admin + trade visibility only. */}
+      {tradeOnlyNote ? (
+        <View
+          style={[
+            trvStyles.briefNoteCard,
+            { backgroundColor: Colors.primaryTint, borderColor: c.border },
+          ]}
+        >
+          <View style={trvStyles.briefNoteHeader}>
+            <Ionicons name="lock-closed" size={13} color={Colors.primary} />
+            <ThemedText style={[trvStyles.sectionLabel, {
+              color: Colors.primary,
+              paddingHorizontal: 0,
+              marginTop: 0,
+              marginBottom: 0,
+            }]}>
+              NOTE FOR THE TRADE
+            </ThemedText>
+          </View>
+          <ThemedText style={[trvStyles.briefBlockBody, { color: c.text }]}>
+            {tradeOnlyNote}
+          </ThemedText>
+        </View>
+      ) : null}
+    </>
+  );
 }
 
 // Interleaved appointments + quotes, newest first, tappable.
@@ -1759,6 +2256,17 @@ export default function RequestDetails() {
   const [attachments, setAttachments] = useState([]); // string[] of final URLs
   const [attachmentsCount, setAttachmentsCount] = useState(0);
 
+  // Web-consultation enquiry photos. Distinct from `attachments` above
+  // (the V1 self-serve photo path via rpc_list_request_images) — these
+  // come from the `request_attachments` table the web consultation tool
+  // writes, split by attachment_type. current_state photos resolve from
+  // the `request-attachments` bucket, style_reference from
+  // `style-references`; both buckets are public.
+  const [briefPhotos, setBriefPhotos] = useState({
+    current_state: [],
+    style_reference: [],
+  });
+
   // Appointments for this request (survey visits before quote)
   const [appointments, setAppointments] = useState([]);
 
@@ -1834,6 +2342,7 @@ export default function RequestDetails() {
             .from("quote_requests")
             .select(`
               id, details, created_at, status, claimed_by, claimed_at, budget_band, postcode, requester_id, suggested_title,
+              ownership_status, work_type, style_tags, client_priorities, is_consultation, homeowner_name,
               service_categories(id, name, icon),
               service_types(id, name, icon),
               property_types(id, name),
@@ -2014,6 +2523,48 @@ export default function RequestDetails() {
       }
     }, [user?.id, id, load])
   );
+
+  // Load web-consultation enquiry photos from the `request_attachments`
+  // table, grouped by attachment_type, resolved to public URLs. Runs
+  // independently of `load` so it doesn't bloat the main fetch — a
+  // self-serve enquiry simply has no rows here and the brief sections
+  // below render nothing.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!id) return;
+      try {
+        const { data, error } = await supabase
+          .from("request_attachments")
+          .select("path, attachment_type, created_at")
+          .eq("request_id", id)
+          .order("created_at", { ascending: true });
+        if (error || !data || cancelled) return;
+
+        const grouped = { current_state: [], style_reference: [] };
+        for (const row of data) {
+          const bucket =
+            row.attachment_type === "style_reference"
+              ? "style-references"
+              : "request-attachments";
+          const { data: urlData } = supabase.storage
+            .from(bucket)
+            .getPublicUrl(row.path);
+          const url = urlData?.publicUrl;
+          if (!url) continue;
+          if (row.attachment_type === "style_reference") {
+            grouped.style_reference.push(url);
+          } else if (row.attachment_type === "current_state") {
+            grouped.current_state.push(url);
+          }
+        }
+        if (!cancelled) setBriefPhotos(grouped);
+      } catch (e) {
+        console.warn("request_attachments load failed:", e?.message || e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id]);
 
   // Status for trade view: use request_targets.state mapped to UI labels
   // Database states: "client_accepted" (client sent direct request), "accepted" (trade accepted),
@@ -2286,7 +2837,9 @@ export default function RequestDetails() {
   const distanceMiles = tgt?.distance_miles
     ? `${Number(tgt.distance_miles).toFixed(1)} mi`
     : null;
-  const budgetText = req?.budget_band || parsed.budget || "—";
+  // budget_band now stores full labels ("£15,000+"), but legacy rows
+  // may hold shorthand — formatBudgetBand normalises both.
+  const budgetText = formatBudgetBand(req?.budget_band) || parsed.budget || "—";
   const timingText = req?.timing_options?.name || parsed.timing || "—";
   // Item count = scope items count if we can derive any
   const scopeItems = (() => {
@@ -2394,6 +2947,24 @@ export default function RequestDetails() {
               {eyebrowText}
             </ThemedText>
           </View>
+
+          {/* Consultation badge — flags enquiries an admin created on a
+              consultation call (vs a homeowner self-serve enquiry). */}
+          {req?.is_consultation ? (
+            <View
+              style={[
+                trvStyles.briefConsultBadge,
+                { backgroundColor: Colors.primaryTint },
+              ]}
+            >
+              <Ionicons name="headset-outline" size={12} color={Colors.primary} />
+              <ThemedText
+                style={[trvStyles.eyebrow, { color: Colors.primary }]}
+              >
+                CONSULTATION
+              </ThemedText>
+            </View>
+          ) : null}
 
           {/* Big title */}
           <ThemedText style={[trvStyles.title, { color: c.text }]}>
@@ -2573,6 +3144,12 @@ export default function RequestDetails() {
               </ScrollView>
             </>
           )}
+
+          {/* Enquiry brief — the richer fields a web-consultation
+              enquiry carries (current state, desired outcome,
+              constraints, ranked decision criteria, private note).
+              Renders nothing for a self-serve V1 enquiry. */}
+          <EnquiryBriefSections req={req} briefPhotos={briefPhotos} c={c} />
 
           {/* Banners (legacy) — extended match / outside area */}
           {tgt?.extended_match && (
