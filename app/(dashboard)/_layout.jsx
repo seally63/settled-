@@ -28,6 +28,7 @@ import { useEffect, useState } from 'react';
 import UserOnly from '../../components/auth/UserOnly';
 import { useTheme } from '../../hooks/useTheme';
 import FloatingTabBar from '../../components/design/FloatingTabBar';
+import { getPendingInviteToken } from '../../lib/api/invites';
 
 // NOTE — hiding the floating pill on nested sub-routes (settings, chat
 // threads, detail pages) is handled inside FloatingTabBar itself via
@@ -44,6 +45,25 @@ export default function DashboardLayout() {
   // Track if we need to reset tabs when switching to them.
   const [messagesNeedsReset, setMessagesNeedsReset] = useState(false);
   const [quotesNeedsReset, setQuotesNeedsReset] = useState(false);
+
+  // Post-auth invite handoff. If a trade tapped a `tradifyapp://invite`
+  // deep link while signed out, the invite screen parked the token in
+  // SecureStore and sent them to log in / register. Auth then lands
+  // them in the dashboard (GuestOnly bounces to /profile). This one-
+  // shot effect catches the parked token on that first dashboard mount
+  // and bounces them back to /invite to finish accepting. The token is
+  // cleared by the invite screen on accept/decline, so a normal login
+  // with no pending invite is a no-op here.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const pending = await getPendingInviteToken();
+      if (!cancelled && pending) {
+        router.replace('/invite');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // When navigating to nested routes, mark for reset
   useEffect(() => {
