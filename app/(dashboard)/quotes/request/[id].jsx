@@ -9,6 +9,7 @@ import {
   FlatList,
   Dimensions,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   TextInput,
 } from "react-native";
@@ -527,6 +528,18 @@ const trvStyles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 6,
   },
+  briefContactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  briefContactValue: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 14,
+    marginTop: 1,
+  },
 });
 
 // Per-theme styles factory shared by all sub-components in this file.
@@ -791,6 +804,86 @@ function BriefPhotoStrip({ urls }) {
         />
       ))}
     </ScrollView>
+  );
+}
+
+// Homeowner contact — phone + email captured by the web consultation
+// form (mirrored onto quote_requests.homeowner_email / homeowner_phone).
+// Surfaced ONLY after the trade has accepted the enquiry: the public
+// invite preview and the get-trade-invite Edge Function deliberately
+// withhold these until the trade claims. A self-serve mobile enquiry
+// leaves both columns NULL, so the component renders nothing there.
+// Rows are tappable — phone opens the dialer, email the mail composer.
+function HomeownerContactSection({ c, phone, email }) {
+  const cleanPhone = (phone || "").trim();
+  const cleanEmail = (email || "").trim();
+  if (!cleanPhone && !cleanEmail) return null;
+
+  const rows = [];
+  if (cleanPhone) {
+    rows.push({
+      key: "phone",
+      icon: "call-outline",
+      label: "Phone",
+      value: cleanPhone,
+      url: `tel:${cleanPhone.replace(/\s+/g, "")}`,
+    });
+  }
+  if (cleanEmail) {
+    rows.push({
+      key: "email",
+      icon: "mail-outline",
+      label: "Email",
+      value: cleanEmail,
+      url: `mailto:${cleanEmail}`,
+    });
+  }
+
+  return (
+    <>
+      <ThemedText style={[trvStyles.sectionLabel, { color: c.textMuted }]}>
+        HOMEOWNER CONTACT
+      </ThemedText>
+      <View
+        style={[
+          trvStyles.briefCard,
+          { backgroundColor: c.elevate, borderColor: c.border },
+        ]}
+      >
+        {rows.map((r, i) => (
+          <Pressable
+            key={r.key}
+            onPress={() => Linking.openURL(r.url).catch(() => {})}
+            style={({ pressed }) => [
+              trvStyles.briefContactRow,
+              i < rows.length - 1 && {
+                borderBottomColor: c.border,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+              },
+              pressed && { opacity: 0.6 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`${r.label}: ${r.value}`}
+          >
+            <Ionicons name={r.icon} size={16} color={Colors.primary} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ThemedText
+                style={[trvStyles.briefRowLabel, { color: c.textMuted }]}
+              >
+                {r.label}
+              </ThemedText>
+              <ThemedText
+                style={[trvStyles.briefContactValue, { color: c.text }]}
+                numberOfLines={1}
+              >
+                {r.value}
+              </ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={c.textMuted} />
+          </Pressable>
+        ))}
+      </View>
+    </>
   );
 }
 
@@ -2342,7 +2435,8 @@ export default function RequestDetails() {
             .from("quote_requests")
             .select(`
               id, details, created_at, status, claimed_by, claimed_at, budget_band, postcode, requester_id, suggested_title,
-              ownership_status, work_type, style_tags, client_priorities, is_consultation, homeowner_name,
+              ownership_status, work_type, style_tags, client_priorities, is_consultation,
+              homeowner_name, homeowner_email, homeowner_phone,
               service_categories(id, name, icon),
               service_types(id, name, icon),
               property_types(id, name),
@@ -2371,14 +2465,19 @@ export default function RequestDetails() {
       // Store all quotes (up to 3)
       setQuotes(q && q.length ? q : []);
 
-      // Fetch client name from requester profile
+      // Fetch client name from requester profile. A web-consultation
+      // enquiry mirrors the homeowner's name onto `quote_requests.
+      // homeowner_name`, so fall back to that when the profile row has
+      // no `full_name` (or there's no requester_id at all).
       if (r?.requester_id) {
         const { data: profile } = await supabase
           .from("profiles")
           .select("full_name")
           .eq("id", r.requester_id)
           .maybeSingle();
-        setClientName(profile?.full_name || null);
+        setClientName(profile?.full_name || r?.homeowner_name || null);
+      } else if (r?.homeowner_name) {
+        setClientName(r.homeowner_name);
       }
 
       // Kick off attachments + appointments in parallel so neither
@@ -3054,36 +3153,44 @@ export default function RequestDetails() {
           {/* Job description — same visual treatment as the Budget /
               Timing fact pills: label inside a bordered container with
               matching radius + padding. Always rendered with a
-              placeholder when empty.                               */}
-          <View style={trvStyles.descRow}>
-            <View
-              style={[
-                trvStyles.descPill,
-                { backgroundColor: c.elevate, borderColor: c.border },
-              ]}
-            >
-              <ThemedText style={[trvStyles.descLabel, { color: c.textMuted }]}>
-                JOB DESCRIPTION
-              </ThemedText>
-              <ThemedText
+              placeholder when empty.
+
+              Hidden for web-consultation enquiries: that form has no
+              single "description" field — its narrative is split across
+              the structured brief sections below (Current state,
+              Must-haves, Hard requirements, …). Showing the "no
+              description" placeholder there would be misleading.      */}
+          {!req?.is_consultation && (
+            <View style={trvStyles.descRow}>
+              <View
                 style={[
-                  trvStyles.descValue,
-                  {
-                    color:
-                      parsed.description || parsed.notes
-                        ? c.text
-                        : c.textMuted,
-                    fontStyle:
-                      parsed.description || parsed.notes ? "normal" : "italic",
-                  },
+                  trvStyles.descPill,
+                  { backgroundColor: c.elevate, borderColor: c.border },
                 ]}
               >
-                {parsed.description ||
-                  parsed.notes ||
-                  "No description provided — the client didn't add one."}
-              </ThemedText>
+                <ThemedText style={[trvStyles.descLabel, { color: c.textMuted }]}>
+                  JOB DESCRIPTION
+                </ThemedText>
+                <ThemedText
+                  style={[
+                    trvStyles.descValue,
+                    {
+                      color:
+                        parsed.description || parsed.notes
+                          ? c.text
+                          : c.textMuted,
+                      fontStyle:
+                        parsed.description || parsed.notes ? "normal" : "italic",
+                    },
+                  ]}
+                >
+                  {parsed.description ||
+                    parsed.notes ||
+                    "No description provided — the client didn't add one."}
+                </ThemedText>
+              </View>
             </View>
-          </View>
+          )}
 
           {/* Two quick-fact pills (ITEMS removed — always 1, not useful).
               TIMING allows 2 lines so long strings like
@@ -3143,6 +3250,18 @@ export default function RequestDetails() {
                 ))}
               </ScrollView>
             </>
+          )}
+
+          {/* Homeowner contact — phone + email. Shown only once the
+              trade has accepted the enquiry; the pre-claim invite
+              preview deliberately withholds these. NULL on self-serve
+              enquiries, so the section renders nothing there. */}
+          {status === "claimed" && (
+            <HomeownerContactSection
+              c={c}
+              phone={req?.homeowner_phone}
+              email={req?.homeowner_email}
+            />
           )}
 
           {/* Enquiry brief — the richer fields a web-consultation
